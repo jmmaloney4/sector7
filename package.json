@@ -1,28 +1,29 @@
 {
-  "name": "@jmmaloney4/sector7",
-  "private": true,
-  "version": "0.10.0",
-  "description": "Sector7 monorepo",
-  "license": "MPL-2.0",
-  "workspaces": [
-    "packages/*"
-  ],
-  "scripts": {
-    "build": "pnpm --filter './packages/*' -r --if-present run build",
-    "test": "pnpm --filter './packages/*' -r --if-present run test",
-    "clean": "pnpm --filter './packages/*' -r --if-present run clean"
-  },
-  "devDependencies": {
-    "typescript": "6.0.3",
-    "rimraf": "6.1.3",
-    "@types/node": "24.12.4",
-    "vitest": "4.1.6"
-  },
-  "pnpm": {
-    "onlyBuiltDependencies": [
-      "@pulumi/command",
-      "esbuild",
-      "protobufjs"
-    ]
-  }
+	"name": "@jmmaloney4/sector7",
+	"private": true,
+	"version": "0.10.0",
+	"description": "Sector7 monorepo",
+	"license": "MPL-2.0",
+	"workspaces": [
+		"packages/*"
+	],
+	"scripts": {
+		"build": "pnpm --filter './packages/*' -r --if-present run build",
+		"test": "pnpm --filter './packages/*' -r --if-present run test",
+		"clean": "pnpm --filter './packages/*' -r --if-present run clean"
+	},
+	"devDependencies": {
+		"typescript": "6.0.3",
+		"rimraf": "6.1.3",
+		"@types/node": "24.12.4",
+		"vitest": "4.1.6"
+	},
+	"pnpm": {
+		"onlyBuiltDependencies": [
+			"@pulumi/command",
+			"@pulumi/kubernetes",
+			"esbuild",
+			"protobufjs"
+		]
+	}
 }

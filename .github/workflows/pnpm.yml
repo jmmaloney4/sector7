@@ -40,6 +40,12 @@ jobs:
         with:
           repository: ${{ inputs.repository }}
           ref: ${{ inputs.ref }}
+      - uses: jmmaloney4/sector7/.github/actions/nix-setup@main
+        with:
+          runs-on: ${{ inputs.runs-on }}
+          cache: ${{ !contains(inputs.runs-on, 'self-hosted') }}
+      - name: Install gh and jq
+        run: nix profile install nixpkgs#gh nixpkgs#jq
       - name: Analyze packages (target=${{ inputs.target }})
         id: analyze
         uses: jmmaloney4/sector7/.github/actions/analyze-pnpm-packages@main
