@@ -44,10 +44,8 @@ jobs:
         with:
           runs-on: ${{ inputs.runs-on }}
           cache: ${{ !contains(inputs.runs-on, 'self-hosted') }}
-      - name: Install gh and jq
-        run: |
-          nix profile install nixpkgs#gh nixpkgs#jq
-          echo "$(readlink -f ~/.nix-profile)/bin" >> "$GITHUB_PATH"
+      - name: Add ci-pnpm tools to PATH
+        run: nix develop .#ci-pnpm --command bash -c 'echo "$PATH" >> "$GITHUB_PATH"'
       - name: Analyze packages (target=${{ inputs.target }})
         id: analyze
         uses: jmmaloney4/sector7/.github/actions/analyze-pnpm-packages@main
