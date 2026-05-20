@@ -42,7 +42,7 @@ jobs:
           ref: ${{ inputs.ref }}
       - name: Analyze packages (target=${{ inputs.target }})
         id: analyze
-        uses: jmmaloney4/sector7/.github/actions/analyze-pnpm-packages@2f47d5c
+        uses: jmmaloney4/sector7/.github/actions/analyze-pnpm-packages@main
         with:
           dry_run: ${{ inputs.dry_run }}
           target: ${{ inputs.target }}
