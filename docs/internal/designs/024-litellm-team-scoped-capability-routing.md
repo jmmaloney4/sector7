@@ -9,13 +9,13 @@ tags: [design, adr, pulumi, kubernetes, litellm]
 supersedes: []
 superseded_by: []
 links:
-  - '[ADR-022](./022-litellm-proxy-component.md)'
+  - '[ADR-026](./026-litellm-proxy-component.md)'
   - https://github.com/jmmaloney4/sector7/issues/197
 ---
 
 # Context
 
-ADR-022 established Sector7's `LiteLLMProxy` component and the low-level split between provider credentials, deployments, model groups, router policy, and governance policy.
+ADR-026 established Sector7's `LiteLLMProxy` component and the low-level split between provider credentials, deployments, model groups, router policy, and governance policy.
 
 That is a good base, but the next consumer use case exposes a gap in the public API.
 
@@ -156,10 +156,12 @@ These resources SHOULD use the existing Pulumi command-provider pattern already 
 Example: `personal-coding`, `research-coding`.
 
 Pros:
+
 - no library refactor required
 - easy to understand in one small deployment
 
 Cons:
+
 - caller-visible API leaks internal billing structure
 - aliases become unstable when account structure changes
 - every consumer repeats the same awkward naming policy
@@ -169,10 +171,12 @@ Decision: rejected.
 ## Alternative B: build the high-level builder only in a consumer repo
 
 Pros:
+
 - fast for one consumer
 - fewer immediate upstream changes
 
 Cons:
+
 - duplicates logic outside Sector7
 - keeps team/key lifecycle split across repos
 - locks the reusable library at the wrong abstraction level
@@ -182,9 +186,11 @@ Decision: rejected.
 ## Alternative C: replace the low-level API entirely with a high-level one
 
 Pros:
+
 - one clean opinionated surface
 
 Cons:
+
 - throws away useful escape hatches
 - too risky while LiteLLM integration is still evolving
 - makes advanced or unusual topologies harder to express
@@ -207,8 +213,8 @@ Decision: rejected.
 
 # Status Transitions
 
-- This ADR amends ADR-022 in practice by defining the next abstraction layer above the original low-level proxy component.
-- ADR-022 remains the foundational deployment ADR. This ADR narrows how the public LiteLLM API should evolve.
+- This ADR amends ADR-026 in practice by defining the next abstraction layer above the original low-level proxy component.
+- ADR-026 remains the foundational deployment ADR. This ADR narrows how the public LiteLLM API should evolve.
 
 # Implementation Notes
 
@@ -220,5 +226,5 @@ Decision: rejected.
 
 # References
 
-- [ADR-022: LiteLLM Proxy ComponentResource](./022-litellm-proxy-component.md)
+- [ADR-026: LiteLLM Proxy ComponentResource](./026-litellm-proxy-component.md)
 - Sector7 issue tracking the refactor: https://github.com/jmmaloney4/sector7/issues/197

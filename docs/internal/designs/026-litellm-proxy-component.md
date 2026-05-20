@@ -1,5 +1,5 @@
 ---
-id: ADR-022
+id: ADR-026
 title: LiteLLM Proxy ComponentResource
 status: Proposed
 date: 2026-05-14
