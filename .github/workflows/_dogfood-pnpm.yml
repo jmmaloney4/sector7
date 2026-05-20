@@ -11,7 +11,7 @@ permissions:
   packages: write
 jobs:
   pnpm:
-    uses: jmmaloney4/sector7/.github/workflows/pnpm.yml@475e9813d6505eaea1e6b5afde1fdfaa5deecac1 # main
+    uses: jmmaloney4/sector7/.github/workflows/pnpm.yml@03cf2aa947933ae54fbeb7f3ec08c81525f75921 # main
     with:
       repository: ${{ github.repository }}
       ref: ${{ github.ref }}
