@@ -99,7 +99,7 @@ jobs:
           fi
       - name: Check ADR number conflicts
         id: check
-        uses: jmmaloney4/sector7/.github/actions/check-adr-conflicts@475e9813d6505eaea1e6b5afde1fdfaa5deecac1 # main
+        uses: jmmaloney4/sector7/.github/actions/check-adr-conflicts@main
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GH_REPO: ${{ inputs.repository }}
@@ -110,7 +110,7 @@ jobs:
           pr_number: ${{ inputs.pr_number }}
       - name: Create and push placeholder to main
         if: steps.detect_new.outputs.has_new_adrs == 'true' && steps.check.outputs.has_conflict == 'false'
-        uses: jmmaloney4/sector7/.github/actions/create-adr-placeholder@475e9813d6505eaea1e6b5afde1fdfaa5deecac1 # main
+        uses: jmmaloney4/sector7/.github/actions/create-adr-placeholder@main
         with:
           adr_files: /tmp/new_adrs.txt
           pr_url: ${{ inputs.pr_url }}
