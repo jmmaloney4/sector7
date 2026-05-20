@@ -56,6 +56,10 @@ jobs:
           repository: ${{ inputs.repository }}
           ref: ${{ inputs.ref }}
           fetch-depth: 0
+      - name: Install gh (nix)
+        run: |
+          nix profile install nixpkgs#gh
+          echo "$(readlink -f ~/.nix-profile)/bin" >> "$GITHUB_PATH"
       - name: Fetch base branch
         run: |
           set -euo pipefail
