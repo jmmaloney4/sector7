@@ -59,13 +59,13 @@ jobs:
         with:
           repository: ${{ inputs.repository }}
           ref: ${{ inputs.ref }}
-      - uses: jmmaloney4/sector7/.github/actions/nix-setup@475e9813d6505eaea1e6b5afde1fdfaa5deecac1 # main
+      - uses: jmmaloney4/sector7/.github/actions/nix-setup@main
         with:
           runs-on: ${{ inputs.runs-on }}
           cache: ${{ !contains(inputs.runs-on, 'self-hosted') }}
       - name: Detect all (project, stack) pairs
         id: set-matrix
-        uses: jmmaloney4/sector7/.github/actions/detect-pulumi-stacks@475e9813d6505eaea1e6b5afde1fdfaa5deecac1 # main
+        uses: jmmaloney4/sector7/.github/actions/detect-pulumi-stacks@main
         with:
           ignore_projects: ${{ inputs.ignore_projects }}
   pulumi-preview-and-deploy:
@@ -96,7 +96,7 @@ jobs:
         with:
           repository: ${{ inputs.repository }}
           ref: ${{ inputs.ref }}
-      - uses: jmmaloney4/sector7/.github/actions/pulumi-setup@475e9813d6505eaea1e6b5afde1fdfaa5deecac1 # main
+      - uses: jmmaloney4/sector7/.github/actions/pulumi-setup@main
         with:
           google_workload_identity_provider: ${{ inputs.google_workload_identity_provider }}
           google_service_account_email: ${{ inputs.google_service_account_email }}
@@ -181,7 +181,7 @@ jobs:
       - name: pulumi preview
         id: preview
         continue-on-error: true
-        uses: jmmaloney4/sector7/.github/actions/pulumi-preview@475e9813d6505eaea1e6b5afde1fdfaa5deecac1 # main
+        uses: jmmaloney4/sector7/.github/actions/pulumi-preview@main
         with:
           project: ${{ matrix.project }}
           stack: ${{ matrix.stack }}
