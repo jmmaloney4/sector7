@@ -52,7 +52,7 @@
 		{
 			"description": "Skip pinning and stability days for internal sector7 actions (own repo)",
 			"matchPackageNames": [
-				"jmmaloney4/sector7"
+				"/^jmmaloney4\\/sector7($|\\/)/"
 			],
 			"minimumReleaseAge": null,
 			"pinDigests": false
