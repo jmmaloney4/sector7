@@ -18,6 +18,7 @@ nix run github:nix-community/nix-eval-jobs --option extra-substituters "https://
   --flake . \
   --check-cache-status \
   --meta \
+  --workers 1 \
   --select "(${select_expr}) \"${system}\"" >"$tmp_all"
 
 # Transform nix-eval-jobs output to matrix format
