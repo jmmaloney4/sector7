@@ -93,7 +93,7 @@ jobs:
           attr='${{ matrix.flake_attr }}'
           echo "Building via nix-fast-build: $attr"
           # Build only missing (uncached) derivations, with CI-friendly logs and no out-link
-          nix-fast-build --skip-cached --no-nom --no-link -j 2 --flake "$attr"
+          nix-fast-build --skip-cached --no-nom --no-link -j 1 --flake "$attr"
   build-and-push-images:
     name: "🐳 build+push ${{ matrix.package-name }}"
     needs: [detect]
