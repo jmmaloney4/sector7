@@ -1,9 +1,9 @@
 import * as k8s from "@pulumi/kubernetes";
 import * as pulumi from "@pulumi/pulumi";
 import * as random from "@pulumi/random";
+import { CloudSqlAuthProxySidecar } from "../cloudsql/index.ts";
 import { generateLiteLLMConfig, getProviderEnvVar } from "./config.ts";
 import type {
-	CloudSqlAuthProxy,
 	LiteLLMModelDeployment,
 	LiteLLMProviderConfig,
 	LiteLLMProxyArgs,
@@ -56,61 +56,6 @@ function resolveDeployment(
 			apiBase: apiBase ?? undefined,
 		};
 	});
-}
-
-/**
- * Rewrite a PostgreSQL DATABASE_URL to point at the Cloud SQL Auth Proxy
- * sidecar listening on localhost. The proxy handles TLS to Cloud SQL, so
- * sslmode is set to disable for the local hop.
- */
-function rewriteDatabaseUrlForProxy(
-	url: string,
-	proxyPort: number,
-): string {
-	const parsed = new URL(url);
-	parsed.hostname = "127.0.0.1";
-	parsed.port = String(proxyPort);
-	parsed.searchParams.set("sslmode", "disable");
-	return parsed.toString();
-}
-
-function buildCloudSqlSidecar(args: {
-	config: CloudSqlAuthProxy;
-	connectionName: string;
-	image: string;
-	extraArgs?: string[];
-	saKeySecretName?: string;
-}): k8s.types.input.core.v1.Container {
-	const proxyPort = args.config.proxyPort ?? 5432;
-	const sidecarArgs: string[] = [
-		args.connectionName,
-		`--port=${String(proxyPort)}`,
-	];
-	if (args.saKeySecretName) {
-		sidecarArgs.push("--credentials-file=/cloudsql/credentials.json");
-	}
-	if (args.extraArgs) {
-		sidecarArgs.push(...args.extraArgs);
-	}
-
-	return {
-		name: "cloud-sql-proxy",
-		image: args.image,
-		args: sidecarArgs,
-		...(args.config.resources && { resources: args.config.resources }),
-		...(args.saKeySecretName && {
-			volumeMounts: [
-				{
-					name: "cloudsql-sa-key",
-					mountPath: "/cloudsql",
-					readOnly: true,
-				},
-			],
-		}),
-		securityContext: {
-			runAsNonRoot: true,
-		},
-	};
 }
 
 export class LiteLLMProxy extends pulumi.ComponentResource {
@@ -174,21 +119,19 @@ export class LiteLLMProxy extends pulumi.ComponentResource {
 
 		const providerSecretName = `${name}-provider-keys`;
 
-		const providerStringData = resolvedProviderSecrets.apply((secretProviders) =>
-			Object.fromEntries(
-				secretProviders
-					.filter((provider) => provider !== undefined)
-					.map((provider) => [
-						toSecretKey(provider.envVar),
-						provider.apiKey,
-					]),
-			),
+		const providerStringData = resolvedProviderSecrets.apply(
+			(secretProviders) =>
+				Object.fromEntries(
+					secretProviders
+						.filter((provider) => provider !== undefined)
+						.map((provider) => [toSecretKey(provider.envVar), provider.apiKey]),
+				),
 		);
 
 		const providerEnvVars = resolvedProviderConfigs.apply((providers) =>
 			providers
 				.filter((provider) => provider.hasApiKey && provider.envVar)
-				.map((provider) => provider.envVar!)
+				.map((provider) => provider.envVar!),
 		);
 
 		const configYaml = pulumi
@@ -245,19 +188,42 @@ export class LiteLLMProxy extends pulumi.ComponentResource {
 
 		const parentAndProvider = { ...opts, parent: this };
 
-		// When Cloud SQL Auth Proxy sidecar is configured, rewrite the
-		// DATABASE_URL to point at the sidecar's local port instead of
-		// the Cloud SQL public IP. The proxy handles TLS to Cloud SQL.
 		const cloudSqlConfig = args.cloudSqlAuthProxy;
-		const proxyPort = cloudSqlConfig?.proxyPort ?? 5432;
-		const proxyImage =
-			cloudSqlConfig?.image ??
-			"gcr.io/cloud-sql-connectors/cloud-sql-proxy:2";
-		const effectiveDatabaseUrl = cloudSqlConfig
-			? pulumi.output(args.databaseUrl).apply((url) =>
-					rewriteDatabaseUrlForProxy(url, proxyPort),
+		const cloudSqlSidecar = cloudSqlConfig
+			? new CloudSqlAuthProxySidecar(
+					`${name}-cloudsql`,
+					{
+						connectionName: cloudSqlConfig.connectionName,
+						databaseUrl: args.databaseUrl,
+						proxyPort: cloudSqlConfig.proxyPort,
+						image: cloudSqlConfig.image,
+						extraArgs: cloudSqlConfig.extraArgs,
+						resources: cloudSqlConfig.resources,
+						kubernetes: {
+							namespace: this.namespace,
+							provider: opts?.provider as k8s.Provider | undefined,
+							secretName: `${name}-cloudsql-sa-key`,
+						},
+						credentials: cloudSqlConfig.serviceAccountKey
+							? {
+									mode: "inline-key",
+									serviceAccountKey: cloudSqlConfig.serviceAccountKey,
+								}
+							: { mode: "ambient-iam" },
+					},
+					parentAndProvider,
 				)
-			: args.databaseUrl;
+			: undefined;
+		const effectiveDatabaseUrl: pulumi.Output<string> = cloudSqlSidecar
+			? cloudSqlSidecar.rewrittenDatabaseUrl.apply((databaseUrl) => {
+					if (databaseUrl === undefined) {
+						throw new Error(
+							"LiteLLMProxy Cloud SQL sidecar requires a rewritten DATABASE_URL",
+						);
+					}
+					return databaseUrl;
+				})
+			: pulumi.output(args.databaseUrl);
 
 		this.providerSecret = new k8s.core.v1.Secret(
 			`${name}-providers`,
@@ -283,6 +249,13 @@ export class LiteLLMProxy extends pulumi.ComponentResource {
 			pulumi.output(args.masterKey ?? generatedMasterKey),
 		);
 
+		const runtimeSecretData = pulumi
+			.all([this.masterKey, effectiveDatabaseUrl])
+			.apply<Record<string, string>>(([masterKey, databaseUrl]) => ({
+				LITELLM_MASTER_KEY: masterKey,
+				DATABASE_URL: databaseUrl,
+			}));
+
 		this.runtimeSecret = new k8s.core.v1.Secret(
 			`${name}-runtime`,
 			{
@@ -290,12 +263,7 @@ export class LiteLLMProxy extends pulumi.ComponentResource {
 					name: `${name}-runtime`,
 					namespace: this.namespace,
 				},
-				stringData: pulumi
-					.all([this.masterKey, effectiveDatabaseUrl])
-					.apply(([masterKey, databaseUrl]) => ({
-						LITELLM_MASTER_KEY: masterKey,
-						DATABASE_URL: databaseUrl,
-					})),
+				stringData: runtimeSecretData,
 			},
 			parentAndProvider,
 		);
@@ -314,45 +282,9 @@ export class LiteLLMProxy extends pulumi.ComponentResource {
 			parentAndProvider,
 		);
 
-		// --- Cloud SQL Auth Proxy: optional SA key secret ---
-		const cloudSqlSaKeySecret = cloudSqlConfig?.serviceAccountKey
-			? new k8s.core.v1.Secret(
-					`${name}-cloudsql-sa-key`,
-					{
-						metadata: {
-							name: `${name}-cloudsql-sa-key`,
-							namespace: this.namespace,
-						},
-						stringData: {
-							"credentials.json": cloudSqlConfig.serviceAccountKey,
-						},
-					},
-					parentAndProvider,
-				)
-			: undefined;
+		this.cloudSqlSaKeySecret = cloudSqlSidecar?.credentialSecret;
 
-		this.cloudSqlSaKeySecret = cloudSqlSaKeySecret;
-
-		// Build the sidecar container spec (resolved from pulumi.Outputs).
-		const cloudSqlSidecarContainer = cloudSqlConfig
-			? pulumi
-					.all([
-						pulumi.output(cloudSqlConfig.connectionName),
-						pulumi.output(proxyImage),
-						pulumi.output(cloudSqlConfig.extraArgs),
-						cloudSqlSaKeySecret?.metadata.name ?? "",
-					])
-					.apply(
-						([connectionName, image, extraArgs, saKeySecretName]) =>
-							buildCloudSqlSidecar({
-								config: cloudSqlConfig,
-								connectionName,
-								image,
-								extraArgs,
-								saKeySecretName: saKeySecretName || undefined,
-							}),
-					)
-			: undefined;
+		const cloudSqlSidecarContainer = cloudSqlSidecar?.container;
 
 		const appLabels = {
 			"app.kubernetes.io/name": "litellm",
@@ -464,27 +396,15 @@ export class LiteLLMProxy extends pulumi.ComponentResource {
 							volumes: pulumi
 								.all([
 									this.configMap.metadata.name,
-									cloudSqlSaKeySecret?.metadata.name ?? "",
+									cloudSqlSidecar?.volumes ?? [],
 								])
-								.apply(
-									([configMapName, saKeySecretName]) => {
-										const result: k8s.types.input.core.v1.Volume[] = [
-											{
-												name: "config-volume",
-												configMap: { name: configMapName },
-											},
-										];
-										if (saKeySecretName) {
-											result.push({
-												name: "cloudsql-sa-key",
-												secret: {
-													secretName: saKeySecretName,
-												},
-											});
-										}
-										return result;
+								.apply(([configMapName, sidecarVolumes]) => [
+									{
+										name: "config-volume",
+										configMap: { name: configMapName },
 									},
-								),
+									...sidecarVolumes,
+								]),
 						},
 					},
 				},

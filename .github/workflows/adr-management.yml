@@ -56,9 +56,14 @@ jobs:
           repository: ${{ inputs.repository }}
           ref: ${{ inputs.ref }}
           fetch-depth: 0
-      - name: Install gh (nix)
+      - uses: jmmaloney4/sector7/.github/actions/nix-setup@main
+        with:
+          runs-on: ${{ inputs.runs-on }}
+          cache: ${{ !contains(inputs.runs-on, 'self-hosted') }}
+      - name: Install gh with nix
         run: |
-          nix profile install nixpkgs#gh
+          set -euo pipefail
+          nix profile install "nixpkgs#gh"
           echo "$(readlink -f ~/.nix-profile)/bin" >> "$GITHUB_PATH"
       - name: Fetch base branch
         run: |
