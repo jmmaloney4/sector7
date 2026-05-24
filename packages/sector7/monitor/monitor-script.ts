@@ -57,7 +57,10 @@ export interface MonitorTarget {
  * - A monitor transitions back to "healthy" after RECOVERY_THRESHOLD consecutive successes.
  * - Webhook fires only on state transitions, not on every probe.
  */
-export function generateMonitorScript(monitors: MonitorTarget[]): string {
+export function generateMonitorScript(
+  monitors: MonitorTarget[],
+  options: { enableReadApi?: boolean } = {}
+): string {
 	const monitorsJson = JSON.stringify(
 		monitors.map((m) => ({
 			id: m.id,
@@ -234,18 +237,30 @@ async function checkAndAlert(result, env, ctx) {
 }
 
 async function sendWebhook(env, payload) {
-	const webhookUrl = env.WEBHOOK_URL;
-	if (!webhookUrl) return;
+\tconst webhookUrl = env.WEBHOOK_URL;
+\tif (!webhookUrl) return;
 
-	try {
-		await fetch(webhookUrl, {
-			method: "POST",
-			headers: { "Content-Type": "application/json" },
-			body: JSON.stringify(payload),
-		});
-	} catch (e) {
-		console.error("Failed to send webhook:", e);
-	}
+\ttry {
+\t\tawait fetch(webhookUrl, {
+\t\t\tmethod: "POST",
+\t\t\theaders: { "Content-Type": "application/json" },
+\t\t\tbody: JSON.stringify(payload),
+\t\t});
+\t} catch (e) {
+\t\tconsole.error("Failed to send webhook:", e);
+\t}
 }
+
+${options.enableReadApi ? `
+async function handleStats(env, request) {
+  // TODO: real D1 query + Service Token auth
+  return Response.json({
+    points: [],
+    period: "7d",
+    generated_at: new Date().toISOString()
+  });
+}
+` : ""}
+
 `.trim();
 }

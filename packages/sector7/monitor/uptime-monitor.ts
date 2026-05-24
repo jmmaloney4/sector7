@@ -114,6 +114,15 @@ export interface UptimeMonitorArgs {
 	 * `pulumi.secret("...")` or `pulumi.config.requireSecret("cloudflare:apiToken")`.
 	 */
 	apiToken: pulumi.Input<string>;
+
+	/**
+	 * Enable a read API (`GET /stats`) on the Worker.
+	 * When true, the Worker will accept requests and return aggregated uptime data.
+	 * Protected by Cloudflare Access Service Tokens.
+	 *
+	 * @default false
+	 */
+	enableReadApi?: pulumi.Input<boolean>;
 }
 
 const DEFAULT_D1_SCHEMA = [
