@@ -107,7 +107,7 @@ function buildContainer(args: {
 	const sidecarArgs: string[] = [
 		args.connectionName,
 		"--address=127.0.0.1",
-		`--port=${String(args.proxyPort)}`,
+		`--port=${args.proxyPort}`,
 	];
 	if (args.credentialSecretName) {
 		sidecarArgs.push(`--credentials-file=${CREDENTIALS_FILE_PATH}`);
