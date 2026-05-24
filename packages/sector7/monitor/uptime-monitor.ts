@@ -305,7 +305,9 @@ export class UptimeMonitor extends pulumi.ComponentResource {
 		}
 
 		// 3. Generate Worker script
-		const scriptContent = generateMonitorScript(args.monitors);
+		const scriptContent = generateMonitorScript(args.monitors, {
+			enableReadApi: args.enableReadApi ?? false,
+		});
 
 		// 4. Create Worker with D1 and KV bindings
 		const baseBindings: Array<cloudflare.types.input.WorkersScriptBinding> = [
