@@ -123,6 +123,14 @@ export interface UptimeMonitorArgs {
 	 * @default false
 	 */
 	enableReadApi?: pulumi.Input<boolean>;
+
+	/**
+	 * Authentication configuration for the read API.
+	 * Currently only supports Service Tokens.
+	 */
+	readApiAuth?: {
+		type: "service-token";
+	};
 }
 
 const DEFAULT_D1_SCHEMA = [
