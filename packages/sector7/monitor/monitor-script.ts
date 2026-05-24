@@ -59,7 +59,7 @@ export interface MonitorTarget {
  */
 export function generateMonitorScript(
   monitors: MonitorTarget[],
-  options: { enableReadApi?: boolean } = {}
+  options: { enableReadApi?: boolean; readApiAuth?: { type: "service-token" } } = {}
 ): string {
 	const monitorsJson = JSON.stringify(
 		monitors.map((m) => ({
