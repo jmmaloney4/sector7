@@ -237,29 +237,36 @@ async function checkAndAlert(result, env, ctx) {
 }
 
 async function sendWebhook(env, payload) {
-\tconst webhookUrl = env.WEBHOOK_URL;
-\tif (!webhookUrl) return;
+	const webhookUrl = env.WEBHOOK_URL;
+	if (!webhookUrl) return;
 
-\ttry {
-\t\tawait fetch(webhookUrl, {
-\t\t\tmethod: "POST",
-\t\t\theaders: { "Content-Type": "application/json" },
-\t\t\tbody: JSON.stringify(payload),
-\t\t});
-\t} catch (e) {
-\t\tconsole.error("Failed to send webhook:", e);
-\t}
+	try {
+		await fetch(webhookUrl, {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify(payload),
+		});
+	} catch (e) {
+		console.error("Failed to send webhook:", e);
+	}
 }
 
 ${options.enableReadApi ? `
-async function handleStats(env, request) {
-  // TODO: real D1 query + Service Token auth
-  return Response.json({
-    points: [],
-    period: "7d",
-    generated_at: new Date().toISOString()
-  });
-}
+export default {
+  scheduled: ...,
+  async fetch(request, env) {
+    const url = new URL(request.url);
+    if (url.pathname === "/stats") {
+      // Basic Service Token check (placeholder)
+      const clientId = request.headers.get("CF-Access-Client-Id");
+      if (!clientId) {
+        return new Response("Unauthorized", { status: 401 });
+      }
+      return handleStats(env, request);
+    }
+    return new Response("Not found", { status: 404 });
+  },
+};
 ` : ""}
 
 `.trim();
