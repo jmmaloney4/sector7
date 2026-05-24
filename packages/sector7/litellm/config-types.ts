@@ -129,12 +129,14 @@ export interface LiteLLMServiceSpec {
 }
 
 /**
- * Cloud SQL Auth Proxy sidecar configuration.
+ * Cloud SQL Auth Proxy sidecar configuration for LiteLLMProxy.
  *
+ * LiteLLMProxy composes the shared `@jmmaloney4/sector7/cloudsql`
+ * CloudSqlAuthProxySidecar component and maps this narrower interface onto it.
  * When provided, the proxy component injects a `cloud-sql-proxy` sidecar
  * container that forwards a local port to the Cloud SQL instance via the
  * Cloud SQL Auth Proxy. The DATABASE_URL is rewritten to point at
- * `localhost:<proxyPort>` so the LiteLLM container connects through the
+ * `127.0.0.1:<proxyPort>` so the LiteLLM container connects through the
  * sidecar instead of hitting the public IP directly.
  *
  * This eliminates the need for authorized networks and client certificates.

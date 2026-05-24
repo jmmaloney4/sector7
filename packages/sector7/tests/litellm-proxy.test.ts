@@ -2,74 +2,21 @@ import * as pulumi from "@pulumi/pulumi";
 import { beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { LiteLLMApiKey, LiteLLMTeam } from "../litellm/admin.ts";
 import { LiteLLMProxy } from "../litellm/litellm-proxy.ts";
-
-type MockResource = {
-	type: string;
-	name: string;
-	inputs: Record<string, unknown>;
-};
-
-const resources: MockResource[] = [];
+import {
+	findResource,
+	installPulumiMocks,
+	resetMockResources,
+	resolveOutput,
+	resolveRecord,
+} from "./pulumi-test-helpers.ts";
 
 beforeAll(() => {
-	pulumi.runtime.setMocks({
-		newResource: (args) => {
-			const state = { ...(args.inputs as Record<string, unknown>) };
-			if (args.type === "random:index/randomPassword:RandomPassword") {
-				state.result =
-					args.name === "personal-coding-key-secret"
-						? "generated-api-key"
-						: "generated-master-key";
-			}
-			if (args.type === "command:local:Command") {
-				state.stdout = `${args.name}-stdout`;
-			}
-			resources.push({
-				type: args.type,
-				name: args.name,
-				inputs: state,
-			});
-			return {
-				id: `${args.name}-id`,
-				state,
-			};
-		},
-		call: (args) => args.inputs,
-	});
+	installPulumiMocks();
 });
 
 beforeEach(() => {
-	resources.length = 0;
+	resetMockResources();
 });
-
-function resolveOutput<T>(value: pulumi.Input<T>): Promise<T> {
-	return new Promise((resolve) => {
-		pulumi.output(value).apply((resolved) => {
-			resolve(resolved as T);
-			return resolved;
-		});
-	});
-}
-
-function findResource(name: string): MockResource | undefined {
-	return resources.find((resource) => resource.name === name);
-}
-
-async function resolveRecord(
-	value: Record<string, unknown> | undefined,
-): Promise<Record<string, unknown>> {
-	const resolved = await resolveOutput(value ?? {});
-	if (
-		resolved &&
-		typeof resolved === "object" &&
-		"value" in resolved &&
-		typeof resolved.value === "object" &&
-		resolved.value !== null
-	) {
-		return resolved.value as Record<string, unknown>;
-	}
-	return resolved;
-}
 
 describe("LiteLLMProxy", () => {
 	it("creates namespace, secrets, configmap, deployment, and service", async () => {
@@ -196,7 +143,7 @@ describe("LiteLLMProxy", () => {
 		]);
 
 		// SA key secret should be created.
-		const saKeySecret = findResource("sidecar-proxy-cloudsql-sa-key");
+		const saKeySecret = findResource("sidecar-proxy-cloudsql-credentials");
 		expect(saKeySecret?.type).toBe("kubernetes:core/v1:Secret");
 
 		// Runtime secret should have the rewritten DATABASE_URL pointing at localhost.
@@ -226,9 +173,7 @@ describe("LiteLLMProxy", () => {
 				},
 			],
 			modelGroups: [{ name: "smart", deploymentIds: ["anthropic-smart"] }],
-			databaseUrl: pulumi.secret(
-				"postgres://db-user:***@db.internal/litellm",
-			),
+			databaseUrl: pulumi.secret("postgres://db-user:***@db.internal/litellm"),
 		});
 
 		await resolveOutput(proxy.proxyUrl);

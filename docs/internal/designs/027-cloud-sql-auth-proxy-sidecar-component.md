@@ -114,18 +114,12 @@ export interface CloudSqlAuthProxySidecarArgs {
     | {
         mode: "inline-key";
         serviceAccountKey: pulumi.Input<string>;
-        namespace: pulumi.Input<string>;
-        provider?: k8s.Provider;
-        secretName?: pulumi.Input<string>;
       }
     | {
         mode: "managed-key";
         project: pulumi.Input<string>;
         accountId: pulumi.Input<string>;
         displayName?: pulumi.Input<string>;
-        namespace: pulumi.Input<string>;
-        provider?: k8s.Provider;
-        secretName?: pulumi.Input<string>;
       }
     | {
         mode: "ambient-iam";
@@ -154,12 +148,14 @@ The parent stack or parent component remains responsible for building the final 
 const proxy = new CloudSqlAuthProxySidecar(`${name}-db-proxy`, {
   connectionName,
   databaseUrl,
+  kubernetes: {
+    namespace,
+    provider,
+  },
   credentials: {
     mode: "managed-key",
     project: gcpProject,
     accountId: `${name}-proxy`,
-    namespace,
-    provider,
   },
 }, { parent: this });
 
@@ -167,8 +163,17 @@ const deployment = new k8s.apps.v1.Deployment(`${name}-deployment`, {
   spec: {
     template: {
       spec: pulumi.all([proxy.container, proxy.volumes]).apply(([proxyContainer, proxyVolumes]) => ({
-        containers: [appContainer, proxyContainer],
         volumes: [...baseVolumes, ...proxyVolumes],
+        containers: [
+          {
+            ...appContainer,
+            env: [
+              ...(appContainer.env ?? []),
+              { name: "DATABASE_URL", value: proxy.rewrittenDatabaseUrl },
+            ],
+          },
+          proxyContainer,
+        ],
       })),
     },
   },
@@ -187,7 +192,7 @@ The component MUST:
 - force `sslmode=disable` for the local hop
 - mount credentials at a stable path when a key-backed mode is selected
 - default to `runAsNonRoot: true` and `allowPrivilegeEscalation: false`
-- avoid pod-IP TCP probes when the sidecar binds only localhost
+- omit default readiness and liveness probes; localhost-bound sidecars MUST NOT ship pod-IP TCP probes
 - provide sane default resource requests and limits when none are supplied
 
 The component SHOULD:
@@ -276,6 +281,7 @@ Package exports:
 # Operational Notes
 
 - Default image should track a v2 Cloud SQL Proxy release, but the image must stay overrideable.
+- Migrations from in-place sidecar resources SHOULD use Pulumi aliases when child resources move under `CloudSqlAuthProxySidecar`, especially for existing LiteLLM credential `Secret` state.
 - Consumers remain responsible for application rollout semantics. If a secret value derived from `rewrittenDatabaseUrl` changes, the owning Deployment still needs a pod-template change or explicit restart policy.
 - Tests must cover both URL rewriting and the credential-mode matrix.
 - The first migration targets should be:
