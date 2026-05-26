@@ -7,14 +7,17 @@ attic_cache_name="${INPUT_ATTIC_CACHE_NAME}"
 attic_token="${INPUT_ATTIC_TOKEN}"
 server_name="${INPUT_SERVER_NAME:-ci}"
 
-export PATH="$HOME/.nix-profile/bin:$PATH"
-if ! command -v attic >/dev/null 2>&1; then
-  nix profile install nixpkgs#attic-client
-  export PATH="$HOME/.nix-profile/bin:$PATH"
-fi
+run_attic() {
+  if command -v attic >/dev/null 2>&1; then
+    attic "$@"
+    return 0
+  fi
+
+  nix run nixpkgs#attic-client -- "$@"
+}
 
 mkdir -p "$HOME/.config/attic"
-attic login "$server_name" "$attic_endpoint" "$attic_token"
+run_attic login "$server_name" "$attic_endpoint" "$attic_token"
 
 echo "Realizing flake output for Attic push: $flake_attr"
-nix build "$flake_attr" --no-link --print-out-paths -L | attic push --stdin "$server_name:$attic_cache_name"
+nix build "$flake_attr" --no-link --print-out-paths -L | run_attic push --stdin "$server_name:$attic_cache_name"

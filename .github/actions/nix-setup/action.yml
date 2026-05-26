@@ -36,4 +36,4 @@ runs:
       env:
         INPUT_EXTRA_SUBSTITUTERS: ${{ inputs.extra-substituters }}
         INPUT_EXTRA_TRUSTED_PUBLIC_KEYS: ${{ inputs.extra-trusted-public-keys }}
-      run: $GITHUB_ACTION_PATH/configure-binary-cache.sh
+      run: bash "${{ github.action_path }}/configure-binary-cache.sh"

@@ -22,18 +22,31 @@ nix_eval_args=(
   --option extra-trusted-public-keys "nix-community.cachix.org-1:mB9FSh9qf2dCimDSUo8Zy7bkq5CX+/rkCWyvRCYg3Fs="
 )
 
+append_option_values() {
+  local existing_values="$1"
+  local extra_values="$2"
+  local merged="$existing_values"
+  local value=""
+
+  if [ -z "$extra_values" ]; then
+    printf '%s\n' "$merged"
+    return 0
+  fi
+
+  while IFS= read -r value; do
+    [ -n "$value" ] || continue
+    merged+=" $value"
+  done < <(printf '%s\n' "$extra_values" | tr -s '[:space:]' '\n')
+
+  printf '%s\n' "$merged"
+}
+
 if [ -n "$EXTRA_SUBSTITUTERS" ]; then
-  while IFS= read -r substituter; do
-    [ -n "$substituter" ] || continue
-    nix_eval_args+=(--option extra-substituters "$substituter")
-  done <<<"$EXTRA_SUBSTITUTERS"
+  nix_eval_args[1]="$(append_option_values "${nix_eval_args[1]}" "$EXTRA_SUBSTITUTERS")"
 fi
 
 if [ -n "$EXTRA_TRUSTED_PUBLIC_KEYS" ]; then
-  while IFS= read -r public_key; do
-    [ -n "$public_key" ] || continue
-    nix_eval_args+=(--option extra-trusted-public-keys "$public_key")
-  done <<<"$EXTRA_TRUSTED_PUBLIC_KEYS"
+  nix_eval_args[3]="$(append_option_values "${nix_eval_args[3]}" "$EXTRA_TRUSTED_PUBLIC_KEYS")"
 fi
 
 nix run github:nix-community/nix-eval-jobs "${nix_eval_args[@]}" --   --flake .   --check-cache-status   --meta   --workers 1   --select "(${select_expr}) \"${system}\"" >"$tmp_all"

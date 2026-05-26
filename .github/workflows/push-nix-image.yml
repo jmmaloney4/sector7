@@ -73,6 +73,8 @@ on:
 jobs:
   push-image:
     runs-on: ${{ startsWith(inputs.runs-on, '[') && fromJson(inputs.runs-on) || inputs.runs-on }}
+    env:
+      BINARY_CACHE_TOKEN: ${{ secrets.BINARY_CACHE_TOKEN }}
     permissions:
       contents: read
       packages: write
@@ -103,8 +105,6 @@ jobs:
           registry-password: ${{ secrets.REGISTRY_PASSWORD }}
       - name: Push image derivation to binary cache
         if: ${{ inputs.binary-cache-endpoint != '' && inputs.binary-cache-name != '' && env.BINARY_CACHE_TOKEN != '' }}
-        env:
-          BINARY_CACHE_TOKEN: ${{ secrets.BINARY_CACHE_TOKEN }}
         uses: jmmaloney4/sector7/.github/actions/push-attic-cache@main
         with:
           flake-attr: ${{ format('.#packages.{0}.{1}', inputs.system, inputs.package-name) }}

@@ -27,4 +27,4 @@ runs:
         INPUT_ATTIC_CACHE_NAME: ${{ inputs.attic-cache-name }}
         INPUT_ATTIC_TOKEN: ${{ inputs.attic-token }}
         INPUT_SERVER_NAME: ${{ inputs.server-name }}
-      run: $GITHUB_ACTION_PATH/main.sh
+      run: bash "${{ github.action_path }}/main.sh"

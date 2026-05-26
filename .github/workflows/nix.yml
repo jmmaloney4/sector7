@@ -99,6 +99,8 @@ jobs:
     needs: [detect]
     runs-on: ${{ startsWith(inputs.runs-on, '[') && fromJson(inputs.runs-on) || inputs.runs-on }}
     if: ${{ needs.detect.outputs.build_has_work == 'true' }}
+    env:
+      BINARY_CACHE_TOKEN: ${{ secrets.BINARY_CACHE_TOKEN }}
     strategy:
       fail-fast: false
       max-parallel: 1
@@ -124,8 +126,6 @@ jobs:
           nix-fast-build --skip-cached --no-nom --no-link -j 1 --flake "$attr"
       - name: Push built store paths to binary cache
         if: ${{ inputs.binary-cache-endpoint != '' && inputs.binary-cache-name != '' && env.BINARY_CACHE_TOKEN != '' }}
-        env:
-          BINARY_CACHE_TOKEN: ${{ secrets.BINARY_CACHE_TOKEN }}
         uses: jmmaloney4/sector7/.github/actions/push-attic-cache@main
         with:
           flake-attr: ${{ matrix.flake_attr }}

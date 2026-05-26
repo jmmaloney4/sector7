@@ -15,22 +15,56 @@ tmp_path="$(mktemp)"
 trap 'rm -f "$tmp_path"' EXIT
 cp "$config_path" "$tmp_path" 2>/dev/null || :
 
-append_unique_lines() {
-  local prefix="$1"
-  local lines="$2"
-  [ -n "$lines" ] || return 0
+contains_element() {
+  local needle="$1"
+  shift
 
-  while IFS= read -r line; do
-    [ -n "$line" ] || continue
-    if grep -Fqx "$prefix = $line" "$tmp_path" 2>/dev/null; then
-      continue
+  local item
+  for item in "$@"; do
+    if [ "$item" = "$needle" ]; then
+      return 0
     fi
-    printf '%s = %s\n' "$prefix" "$line" >>"$tmp_path"
-  done <<<"$lines"
+  done
+
+  return 1
 }
 
-append_unique_lines "extra-substituters" "$substituters"
-append_unique_lines "extra-trusted-public-keys" "$trusted_keys"
+append_config_values() {
+  local key="$1"
+  local new_values="$2"
+  [ -n "$new_values" ] || return 0
+
+  local existing_value=""
+  if [ -f "$tmp_path" ]; then
+    existing_value="$({
+      grep -E "^[[:space:]]*${key}[[:space:]]*=" "$tmp_path" || :
+    } | tail -n 1 | cut -d '=' -f 2-)"
+  fi
+
+  local merged=()
+  local item=""
+  while IFS= read -r item; do
+    [ -n "$item" ] || continue
+    if ! contains_element "$item" "${merged[@]}"; then
+      merged+=("$item")
+    fi
+  done < <(printf '%s\n%s\n' "$existing_value" "$new_values" | tr -s '[:space:]' '\n')
+
+  if [ ${#merged[@]} -eq 0 ]; then
+    return 0
+  fi
+
+  local clean_tmp
+  clean_tmp="$(mktemp)"
+  if [ -f "$tmp_path" ]; then
+    grep -Ev "^[[:space:]]*${key}[[:space:]]*=" "$tmp_path" >"$clean_tmp" || :
+  fi
+  printf '%s = %s\n' "$key" "${merged[*]}" >>"$clean_tmp"
+  mv "$clean_tmp" "$tmp_path"
+}
+
+append_config_values "extra-substituters" "$substituters"
+append_config_values "extra-trusted-public-keys" "$trusted_keys"
 
 mv "$tmp_path" "$config_path"
 echo "Configured extra Nix binary caches in $config_path"
