@@ -5,6 +5,14 @@ inputs:
     description: Timeout (in seconds) for nix-eval-jobs cache probe
     required: false
     default: '180'
+  extra-substituters:
+    description: Optional newline-delimited extra substituter URLs to pass to nix-eval-jobs cache probing
+    required: false
+    default: ''
+  extra-trusted-public-keys:
+    description: Optional newline-delimited extra trusted public keys to pass to nix-eval-jobs cache probing
+    required: false
+    default: ''
 outputs:
   matrix_include:
     description: JSON array for strategy.matrix.include
@@ -19,5 +27,7 @@ runs:
       shell: bash
       env:
         PROBE_TIMEOUT_SECONDS: ${{ inputs.probe-timeout-seconds }}
+        INPUT_EXTRA_SUBSTITUTERS: ${{ inputs.extra-substituters }}
+        INPUT_EXTRA_TRUSTED_PUBLIC_KEYS: ${{ inputs.extra-trusted-public-keys }}
       run: |
         bash "${{ github.action_path }}/main.sh"

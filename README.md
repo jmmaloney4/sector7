@@ -53,6 +53,28 @@ jobs:
       ref: ${{ github.ref }}
 ```
 
+#### Optional Attic binary cache inputs
+
+When a caller has a private or self-hosted Attic cache, pass the cache explicitly instead of teaching Sector7 about your runner topology:
+
+```yaml
+jobs:
+  nix:
+    uses: jmmaloney4/sector7/.github/workflows/nix.yml@main
+    with:
+      runs-on: '["self-hosted","room-of-requirement"]'
+      repository: ${{ github.repository }}
+      ref: ${{ github.ref }}
+      binary-cache-url: ${{ vars.ATTIC_CACHE_URL }}
+      binary-cache-public-key: ${{ vars.ATTIC_CACHE_PUBLIC_KEY }}
+      binary-cache-endpoint: ${{ vars.ATTIC_SERVER_URL }}
+      binary-cache-name: ${{ vars.ATTIC_CACHE_NAME }}
+    secrets:
+      BINARY_CACHE_TOKEN: ${{ secrets.ATTIC_CACHE_TOKEN }}
+```
+
+`binary-cache-url` is the full Nix substituter URL (for example `https://attic.example.com/cache`). `binary-cache-endpoint` is the Attic server root URL used for `attic login` before pushes.
+
 ### Pulumi Components
 
 Install the Pulumi package:

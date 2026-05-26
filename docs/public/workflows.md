@@ -45,6 +45,13 @@ jobs:
   - **runs-on**: Runner label (e.g., `ubuntu-latest` or your self-hosted label). For multiple labels, pass a JSON array string like `["self-hosted","linux","x64"]`.
   - **repository**: Repository to build (`owner/repo`), typically `${{ github.repository }}`
   - **ref**: Git ref to build, typically `${{ github.ref }}`
+- **Optional inputs**:
+  - **binary-cache-url**: Full substituter URL for an extra binary cache (for example `https://attic.example.com/cache`)
+  - **binary-cache-public-key**: Trusted public key for that binary cache
+  - **binary-cache-endpoint**: Attic server root URL used for `attic login` before cache pushes
+  - **binary-cache-name**: Attic cache name used for cache pushes
+- **Optional secrets**:
+  - **BINARY_CACHE_TOKEN**: Attic token with push permission for `binary-cache-name`
 
 #### Minimal consumer workflow (copy-paste)
 
@@ -87,6 +94,30 @@ jobs:
       repository: ${{ github.repository }}
       ref: ${{ github.ref }}
 ```
+
+#### Attic-backed binary cache example
+
+```yaml
+jobs:
+  nix:
+    uses: jmmaloney4/sector7/.github/workflows/nix.yml@main
+    with:
+      runs-on: '["self-hosted","room-of-requirement"]'
+      repository: ${{ github.repository }}
+      ref: ${{ github.ref }}
+      binary-cache-url: ${{ vars.ATTIC_CACHE_URL }}
+      binary-cache-public-key: ${{ vars.ATTIC_CACHE_PUBLIC_KEY }}
+      binary-cache-endpoint: ${{ vars.ATTIC_SERVER_URL }}
+      binary-cache-name: ${{ vars.ATTIC_CACHE_NAME }}
+    secrets:
+      BINARY_CACHE_TOKEN: ${{ secrets.ATTIC_CACHE_TOKEN }}
+```
+
+This contract keeps the reusable workflow generic:
+
+- placement stays in the caller's `runs-on`
+- the caller decides which cache to use
+- Sector7 only wires the supplied cache into `nix.conf`, cache probing, and post-build Attic pushes
 
 ### 📦 `pnpm.yml`
 
@@ -138,20 +169,23 @@ jobs:
   - **google_service_account_email**: GCP service account email
   - **pulumi_backend_url**: GCS bucket URL for Pulumi backend (e.g., `gs://my-bucket-name`)
 - **Optional inputs**:
-  - **pr_number**: Pull request number for commenting (pass `0` or omit for non-PR triggers)
-  - **is_fork**: Whether the PR comes from a fork (affects commenting permissions)
+  - **runs-on**: Runner label (defaults to `ubuntu-latest`)
+  - **stack-filter**: Regex to limit which stack directories run
+  - **stack-config-passphrase**: Passphrase for Pulumi secrets when using passphrase backend
+  - **nodejs_package_manager**: `pnpm`, `npm`, or `none`
+  - **pr_number**: Pull request number for comment posting
+  - **is_fork**: Whether the PR comes from a fork
+  - **preview_only**: Skip `pulumi up` on pushes and run previews only
+  - **working_directory**: Relative path to the Pulumi project root inside the caller repo
 
 #### Minimal consumer workflow (copy-paste)
 
 ```yaml
-name: ☁️ pulumi
-
+name: '☁️ pulumi'
 on:
   push:
     branches:
     - main
-    tags:
-    - 'v*'
   pull_request:
   workflow_dispatch:
 

@@ -40,6 +40,26 @@ on:
         description: 'Git ref to checkout'
         required: true
         type: string
+      binary-cache-url:
+        description: 'Optional full binary cache URL to add as a substituter'
+        required: false
+        type: string
+        default: ''
+      binary-cache-public-key:
+        description: 'Optional trusted public key for the binary cache'
+        required: false
+        type: string
+        default: ''
+      binary-cache-endpoint:
+        description: 'Optional Attic server endpoint (root URL) for cache pushes'
+        required: false
+        type: string
+        default: ''
+      binary-cache-name:
+        description: 'Optional Attic cache name for cache pushes'
+        required: false
+        type: string
+        default: ''
     secrets:
       REGISTRY_USERNAME:
         description: 'Registry username (defaults to github.actor)'
@@ -47,6 +67,9 @@ on:
       REGISTRY_PASSWORD:
         description: 'Registry password/token (usually GITHUB_TOKEN)'
         required: true
+      BINARY_CACHE_TOKEN:
+        description: 'Optional Attic token used to push built store paths into the binary cache'
+        required: false
 jobs:
   push-image:
     runs-on: ${{ startsWith(inputs.runs-on, '[') && fromJson(inputs.runs-on) || inputs.runs-on }}
@@ -64,7 +87,9 @@ jobs:
         uses: jmmaloney4/sector7/.github/actions/nix-setup@main
         with:
           runs-on: ${{ inputs.runs-on }}
-          cache: ${{ !contains(inputs.runs-on, 'self-hosted') }}
+          cache: ${{ !contains(inputs.runs-on, 'self-hosted') && inputs.binary-cache-url == '' }}
+          extra-substituters: ${{ inputs.binary-cache-url }}
+          extra-trusted-public-keys: ${{ inputs.binary-cache-public-key }}
       - name: Push Nix Image
         uses: jmmaloney4/sector7/.github/actions/push-nix-image@main
         with:
@@ -76,3 +101,13 @@ jobs:
           system: ${{ inputs.system }}
           registry-username: ${{ secrets.REGISTRY_USERNAME || github.actor }}
           registry-password: ${{ secrets.REGISTRY_PASSWORD }}
+      - name: Push image derivation to binary cache
+        if: ${{ inputs.binary-cache-endpoint != '' && inputs.binary-cache-name != '' && env.BINARY_CACHE_TOKEN != '' }}
+        env:
+          BINARY_CACHE_TOKEN: ${{ secrets.BINARY_CACHE_TOKEN }}
+        uses: jmmaloney4/sector7/.github/actions/push-attic-cache@main
+        with:
+          flake-attr: ${{ format('.#packages.{0}.{1}', inputs.system, inputs.package-name) }}
+          attic-endpoint: ${{ inputs.binary-cache-endpoint }}
+          attic-cache-name: ${{ inputs.binary-cache-name }}
+          attic-token: ${{ env.BINARY_CACHE_TOKEN }}
