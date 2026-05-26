@@ -17,10 +17,8 @@ tmp_all="$(mktemp)"
 select_expr="$(<"${GITHUB_ACTION_PATH}/select.nix")"
 echo "Running nix-eval-jobs to detect flake outputs..." >&2
 
-nix_eval_args=(
-  --option extra-substituters "https://nix-community.cachix.org"
-  --option extra-trusted-public-keys "nix-community.cachix.org-1:mB9FSh9qf2dCimDSUo8Zy7bkq5CX+/rkCWyvRCYg3Fs="
-)
+extra_substituters_value="https://nix-community.cachix.org"
+extra_trusted_public_keys_value="nix-community.cachix.org-1:mB9FSh9qf2dCimDSUo8Zy7bkq5CX+/rkCWyvRCYg3Fs="
 
 append_option_values() {
   local existing_values="$1"
@@ -42,12 +40,17 @@ append_option_values() {
 }
 
 if [ -n "$EXTRA_SUBSTITUTERS" ]; then
-  nix_eval_args[1]="$(append_option_values "${nix_eval_args[1]}" "$EXTRA_SUBSTITUTERS")"
+  extra_substituters_value="$(append_option_values "$extra_substituters_value" "$EXTRA_SUBSTITUTERS")"
 fi
 
 if [ -n "$EXTRA_TRUSTED_PUBLIC_KEYS" ]; then
-  nix_eval_args[3]="$(append_option_values "${nix_eval_args[3]}" "$EXTRA_TRUSTED_PUBLIC_KEYS")"
+  extra_trusted_public_keys_value="$(append_option_values "$extra_trusted_public_keys_value" "$EXTRA_TRUSTED_PUBLIC_KEYS")"
 fi
+
+nix_eval_args=(
+  --option extra-substituters "$extra_substituters_value"
+  --option extra-trusted-public-keys "$extra_trusted_public_keys_value"
+)
 
 nix run github:nix-community/nix-eval-jobs "${nix_eval_args[@]}" --   --flake .   --check-cache-status   --meta   --workers 1   --select "(${select_expr}) \"${system}\"" >"$tmp_all"
 
