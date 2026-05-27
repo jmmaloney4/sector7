@@ -9,7 +9,7 @@
       "description": "Track pinned nix run github: refs in shell scripts",
       "fileMatch": ["\\.sh$"],
       "matchStrings": [
-        "nix (?:-\\w+ )*run github:(?<depName>[^#/]+)/(?<packageName>[^#/]+)/(?<currentValue>v?\\d+(?:\\.\\d+)*)"
+        "nix (?:-\\w+ )*run github:(?<depName>[^#/]+/[^#/]+)/(?<currentValue>v?\\d+(?:\\.\\d+)*)"
       ],
       "datasourceTemplate": "github-tags"
     }

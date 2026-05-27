@@ -11,7 +11,7 @@ fi
 
 mkdir -p "$HOME/.config/nix"
 config_path="$HOME/.config/nix/nix.conf"
-tmp_path="$(mktemp)"
+tmp_path="$(mktemp -t nix-config-XXXXXX)"
 trap 'rm -f "$tmp_path"' EXIT
 cp "$config_path" "$tmp_path" 2>/dev/null || :
 
@@ -55,7 +55,7 @@ append_config_values() {
   fi
 
   local clean_tmp
-  clean_tmp="$(mktemp)"
+  clean_tmp="$(mktemp -t nix-config-clean-XXXXXX)"
   if [ -f "$tmp_path" ]; then
     grep -Ev "^[[:space:]]*${key}[[:space:]]*=" "$tmp_path" >"$clean_tmp" || :
   fi
