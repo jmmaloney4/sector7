@@ -260,4 +260,40 @@ describe("UptimeMonitor", () => {
 		expect(content).toContain("api");
 		expect(content).toContain("homepage");
 	});
+
+	it("includes fetch handler in Worker script when enableReadApi is true", async () => {
+		const monitor = new UptimeMonitor("readapi", {
+			...DEFAULT_ARGS,
+			name: "readapi-uptime",
+			monitors: [{ id: "api", url: "https://api.example.com/healthz" }],
+			enableReadApi: true,
+			readApiAuth: { type: "service-token" },
+		});
+
+		await resolveOutput(monitor.worker.id);
+
+		const worker = findResource("readapi-worker");
+		const content = worker?.inputs.content as string;
+		expect(content).toContain("async fetch(request, env)");
+		expect(content).toContain('pathname === "/stats"');
+		expect(content).toContain("handleStats");
+		// Must have exactly one export default
+		const exportDefaults = content.match(/export default \{/g);
+		expect(exportDefaults).toHaveLength(1);
+	});
+
+	it("omits fetch handler when enableReadApi is false or unset", async () => {
+		const monitor = new UptimeMonitor("noreadapi", {
+			...DEFAULT_ARGS,
+			name: "noreadapi-uptime",
+			monitors: [{ id: "api", url: "https://api.example.com/healthz" }],
+		});
+
+		await resolveOutput(monitor.worker.id);
+
+		const worker = findResource("noreadapi-worker");
+		const content = worker?.inputs.content as string;
+		expect(content).not.toContain("async fetch(request, env)");
+		expect(content).not.toContain("handleStats");
+	});
 });

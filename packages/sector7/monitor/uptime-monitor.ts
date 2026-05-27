@@ -114,6 +114,26 @@ export interface UptimeMonitorArgs {
 	 * `pulumi.secret("...")` or `pulumi.config.requireSecret("cloudflare:apiToken")`.
 	 */
 	apiToken: pulumi.Input<string>;
+
+	/**
+	 * Enable a read API (`GET /stats`) on the Worker.
+	 * When true, the Worker will accept requests and return aggregated uptime data.
+	 *
+	 * **Note:** The current implementation uses a placeholder auth check
+	 * (header presence only). Full Cloudflare Access Service Token validation
+	 * (JWT assertion verification) is a follow-up per ADR-028.
+	 *
+	 * @default false
+	 */
+	enableReadApi?: pulumi.Input<boolean>;
+
+	/**
+	 * Authentication configuration for the read API.
+	 * Currently only supports Service Tokens.
+	 */
+	readApiAuth?: {
+		type: "service-token";
+	};
 }
 
 const DEFAULT_D1_SCHEMA = [
@@ -296,7 +316,16 @@ export class UptimeMonitor extends pulumi.ComponentResource {
 		}
 
 		// 3. Generate Worker script
-		const scriptContent = generateMonitorScript(args.monitors);
+		// Resolve pulumi.Input<boolean> via .apply() so Output values are
+		// unwrapped before being passed to the synchronous script generator.
+		const scriptContent = pulumi
+			.output(args.enableReadApi ?? false)
+			.apply((enabled: boolean) =>
+				generateMonitorScript(args.monitors, {
+					enableReadApi: enabled,
+					readApiAuth: args.readApiAuth,
+				}),
+			);
 
 		// 4. Create Worker with D1 and KV bindings
 		const baseBindings: Array<cloudflare.types.input.WorkersScriptBinding> = [

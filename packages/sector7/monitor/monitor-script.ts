@@ -57,7 +57,14 @@ export interface MonitorTarget {
  * - A monitor transitions back to "healthy" after RECOVERY_THRESHOLD consecutive successes.
  * - Webhook fires only on state transitions, not on every probe.
  */
-export function generateMonitorScript(monitors: MonitorTarget[]): string {
+export function generateMonitorScript(
+	monitors: MonitorTarget[],
+	options: {
+		enableReadApi?: boolean;
+		/** Auth config — reserved for ADR-028 follow-up (full JWT validation). */
+		readApiAuth?: { type: "service-token" };
+	} = {},
+): string {
 	const monitorsJson = JSON.stringify(
 		monitors.map((m) => ({
 			id: m.id,
@@ -72,6 +79,40 @@ export function generateMonitorScript(monitors: MonitorTarget[]): string {
 		"\t",
 	);
 
+	// Build the fetch handler block — only included when enableReadApi is true.
+	// This is a placeholder: real D1 aggregation queries and full Service Token
+	// validation are follow-up work (per ADR-028).
+	const fetchHandler = options.enableReadApi
+		? `
+	async fetch(request, env) {
+		const url = new URL(request.url);
+		if (url.pathname === "/stats") {
+			const clientId = request.headers.get("CF-Access-Client-Id");
+			if (!clientId) {
+				return new Response("Unauthorized", { status: 401 });
+			}
+			return handleStats(env, request);
+		}
+		return new Response("Not found", { status: 404 });
+	},`
+		: "";
+
+	// handleStats stub — returns a placeholder response.
+	// Full D1 query aggregation to be implemented in follow-up.
+	const handleStatsFn = options.enableReadApi
+		? `
+async function handleStats(env, request) {
+	return new Response(JSON.stringify({
+		status: "ok",
+		message: "Stats endpoint placeholder — D1 queries pending (ADR-028 follow-up)",
+		generated_at: new Date().toISOString(),
+	}), {
+		headers: { "Content-Type": "application/json" },
+	});
+}
+`
+		: "";
+
 	return `
 /**
  * UptimeMonitor - Synthetic HTTP probe with D1 storage and webhook alerting
@@ -84,7 +125,7 @@ const MONITORS = ${monitorsJson};
 const ALERT_THRESHOLD = 3;
 const RECOVERY_THRESHOLD = 1;
 
-export default {
+export default {${fetchHandler}
 	async scheduled(controller, env, ctx) {
 		const results = [];
 
@@ -247,5 +288,5 @@ async function sendWebhook(env, payload) {
 		console.error("Failed to send webhook:", e);
 	}
 }
-`.trim();
+${handleStatsFn}`.trim();
 }
