@@ -59,7 +59,11 @@ export interface MonitorTarget {
  */
 export function generateMonitorScript(
 	monitors: MonitorTarget[],
-	options: { enableReadApi?: boolean; readApiAuth?: { type: "service-token" } } = {},
+	options: {
+		enableReadApi?: boolean;
+		/** Auth config — reserved for ADR-028 follow-up (full JWT validation). */
+		readApiAuth?: { type: "service-token" };
+	} = {},
 ): string {
 	const monitorsJson = JSON.stringify(
 		monitors.map((m) => ({

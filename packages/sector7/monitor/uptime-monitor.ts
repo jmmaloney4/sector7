@@ -118,7 +118,10 @@ export interface UptimeMonitorArgs {
 	/**
 	 * Enable a read API (`GET /stats`) on the Worker.
 	 * When true, the Worker will accept requests and return aggregated uptime data.
-	 * Protected by Cloudflare Access Service Tokens.
+	 *
+	 * **Note:** The current implementation uses a placeholder auth check
+	 * (header presence only). Full Cloudflare Access Service Token validation
+	 * (JWT assertion verification) is a follow-up per ADR-028.
 	 *
 	 * @default false
 	 */
