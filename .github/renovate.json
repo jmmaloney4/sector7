@@ -5,7 +5,7 @@
 		{
 			"customType": "regex",
 			"description": "Track pinned nix run github: refs in shell scripts",
-			"fileMatch": ["\\.sh$"],
+			"managerFilePatterns": ["/\\.sh$/"],
 			"matchStrings": [
 				"nix (?:-\\w+ )*run github:(?<depName>[^#/]+/[^#/]+)/(?<currentValue>v?\\d+(?:\\.\\d+)*)"
 			],
