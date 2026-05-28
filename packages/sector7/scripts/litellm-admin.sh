@@ -62,12 +62,15 @@ PYEOF
 extract_field() {
   local json_text="$1"
   local field="$2"
-  python3 - "$field" <<'PYEOF' <<<"$json_text"
+  local json_b64
+  json_b64=$(printf '%s' "$json_text" | base64)
+  python3 - "$json_b64" "$field" <<'PYEOF'
+import base64
 import json
 import sys
 
-field = sys.argv[1]
-payload = json.loads(sys.stdin.read())
+payload = json.loads(base64.b64decode(sys.argv[1]).decode())
+field = sys.argv[2]
 value = payload
 for part in field.split('.'):
     if isinstance(value, dict):
