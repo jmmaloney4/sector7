@@ -7,12 +7,12 @@
 			"description": "Update @jmmaloney4/sector7 release tarball URLs in package.json files",
 			"managerFilePatterns": ["/(^|/)package\\.json$/"],
 			"matchStrings": [
-				"\"(?<depName>@jmmaloney4/sector7)\":\\s*\"https://github\\.com/jmmaloney4/sector7/releases/download/sector7-v(?<currentValue>\\d+\\.\\d+\\.\\d+-[0-9a-f]+)/jmmaloney4-sector7-(?:\\d+\\.\\d+\\.\\d+)\\.tgz\""
+				"\"(?<depName>@jmmaloney4/sector7)\":\\s*\"https://github\\.com/jmmaloney4/sector7/releases/download/v(?<currentValue>\\d+\\.\\d+\\.\\d+)/jmmaloney4-sector7-(?:\\d+\\.\\d+\\.\\d+)\\.tgz\""
 			],
 			"packageNameTemplate": "jmmaloney4/sector7",
 			"datasourceTemplate": "github-releases",
 			"versioningTemplate": "semver",
-			"autoReplaceStringTemplate": "\"{{{depName}}}\": \"https://github.com/jmmaloney4/sector7/releases/download/sector7-v{{{newValue}}}/jmmaloney4-sector7-{{{replace '-[0-9a-f]+$' '' newValue}}}.tgz\""
+			"autoReplaceStringTemplate": "\"{{{depName}}}\": \"https://github.com/jmmaloney4/sector7/releases/download/v{{{newValue}}}/jmmaloney4-sector7-{{{newValue}}}.tgz\""
 		}
 	],
 	"packageRules": [
@@ -21,7 +21,7 @@
 			"matchDatasources": ["github-releases"],
 			"matchPackageNames": ["jmmaloney4/sector7"],
 			"minimumReleaseAge": null,
-			"extractVersion": "^sector7-v(?<version>\\d+\\.\\d+\\.\\d+-[0-9a-f]+)$"
+			"extractVersion": "^v(?<version>\\d+\\.\\d+\\.\\d+)$"
 		}
 	]
 }
