@@ -101,6 +101,8 @@ jobs:
         with:
           runs-on: ${{ inputs.runs-on }}
           cache: ${{ !contains(inputs.runs-on, 'self-hosted') }}
+      - name: Add ci-pnpm tools to PATH
+        run: nix develop .#ci-pnpm --command bash -c 'echo "$PATH" >> "$GITHUB_PATH"'
       - name: Install dependencies
         run: nix develop .#ci-pnpm --command pnpm install --frozen-lockfile
       - name: Build packages
