@@ -7,6 +7,11 @@ attic_cache_name="${INPUT_ATTIC_CACHE_NAME}"
 attic_token="${INPUT_ATTIC_TOKEN}"
 server_name="${INPUT_SERVER_NAME:-ci}"
 
+if [ -z "$attic_token" ]; then
+  echo "Attic token is empty (likely a fork PR). Skipping Attic cache push."
+  exit 0
+fi
+
 xdg_config_home_tmp="$(mktemp -d -t attic-config-XXXXXX)"
 export XDG_CONFIG_HOME="$xdg_config_home_tmp"
 trap 'rm -rf "$xdg_config_home_tmp"' EXIT

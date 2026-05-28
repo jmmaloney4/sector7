@@ -45,7 +45,7 @@ append_config_values() {
   local item=""
   while IFS= read -r item; do
     [ -n "$item" ] || continue
-    if ! contains_element "$item" "${merged[@]}"; then
+    if ! contains_element "$item" ${merged[@]+"${merged[@]}"}; then
       merged+=("$item")
     fi
   done < <(printf '%s\n%s\n' "$existing_value" "$new_values" | tr -s '[:space:]' '\n')
