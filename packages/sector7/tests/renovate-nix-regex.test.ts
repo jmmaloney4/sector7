@@ -3,7 +3,10 @@ import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 
 const nixConfig = JSON.parse(
-	readFileSync(resolve(import.meta.dirname, "../../../renovate/nix.json"), "utf8"),
+	readFileSync(
+		resolve(import.meta.dirname, "../../../renovate/nix.json"),
+		"utf8",
+	),
 ) as {
 	customManagers: Array<{
 		description: string;

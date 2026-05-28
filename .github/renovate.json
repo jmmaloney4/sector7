@@ -1,0 +1,15 @@
+{
+	"$schema": "https://docs.renovatebot.com/renovate-schema.json",
+	"extends": ["github>jmmaloney4/.github//renovate/default.json5"],
+	"customManagers": [
+		{
+			"customType": "regex",
+			"description": "Track pinned nix run github: refs in shell scripts",
+			"managerFilePatterns": ["/\\.sh$/"],
+			"matchStrings": [
+				"nix (?:-\\w+ )*run github:(?<depName>[^#/]+/[^#/]+)/(?<currentValue>v?\\d+(?:\\.\\d+)*)"
+			],
+			"datasourceTemplate": "github-tags"
+		}
+	]
+}

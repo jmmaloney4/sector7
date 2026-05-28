@@ -85,7 +85,7 @@ chmod 600 "${AUTH_FILE}"
 
 if [ "${SCRIPT_MODE}" = "resolve" ]; then
   echo "--- resolving digest ---"
-  nix run github:nlewo/nix2container#skopeo-nix2container -- \
+  nix run github:nlewo/nix2container/v1.0.0#skopeo-nix2container -- \
     --insecure-policy inspect --format '{{.Digest}}' \
     --authfile "${AUTH_FILE}" \
     docker://"${FULL_TAG}" |
@@ -95,7 +95,7 @@ else
   IMAGE_PATH="nix:${STORE_PATH}"
 
   echo "--- skopeo copy ---"
-  nix run github:nlewo/nix2container#skopeo-nix2container -- \
+  nix run github:nlewo/nix2container/v1.0.0#skopeo-nix2container -- \
     --insecure-policy copy --digestfile "${DIGEST_FILE}" \
     --authfile "${AUTH_FILE}" \
     "${IMAGE_PATH}" \

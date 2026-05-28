@@ -109,10 +109,7 @@ describe("requireMixedConfig", () => {
 	it("reads array-shaped config with plain and secret fields", async () => {
 		const config = fakeConfig({
 			objects: {
-				accounts: [
-					{ name: "jmmaloney4" },
-					{ name: "cavinsresearch" },
-				],
+				accounts: [{ name: "jmmaloney4" }, { name: "cavinsresearch" }],
 			},
 			secrets: {
 				"accounts[0].apiToken": "jmm-secret",

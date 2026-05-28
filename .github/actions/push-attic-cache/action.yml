@@ -1,0 +1,30 @@
+name: Push Attic Cache
+description: Log into an Attic server and push one flake output path into a binary cache
+inputs:
+  flake-attr:
+    description: Flake attribute to realize and push (for example .#packages.x86_64-linux.foo)
+    required: true
+  attic-endpoint:
+    description: Attic server endpoint (root URL, without cache name)
+    required: true
+  attic-cache-name:
+    description: Attic cache name to push into
+    required: true
+  attic-token:
+    description: Token with push permission for the target Attic cache
+    required: true
+  server-name:
+    description: Local Attic server alias used for attic login
+    required: false
+    default: ci
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      env:
+        INPUT_FLAKE_ATTR: ${{ inputs.flake-attr }}
+        INPUT_ATTIC_ENDPOINT: ${{ inputs.attic-endpoint }}
+        INPUT_ATTIC_CACHE_NAME: ${{ inputs.attic-cache-name }}
+        INPUT_ATTIC_TOKEN: ${{ inputs.attic-token }}
+        INPUT_SERVER_NAME: ${{ inputs.server-name }}
+      run: bash "${{ github.action_path }}/main.sh"

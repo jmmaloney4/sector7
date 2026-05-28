@@ -10,9 +10,7 @@
 		":enableVulnerabilityAlertsWithLabel(security)",
 		":pinAllExceptPeerDependencies"
 	],
-	"schedule": [
-		"before 4:00 am"
-	],
+	"schedule": ["before 4:00 am"],
 	"prHourlyLimit": 10,
 	"prConcurrentLimit": 5,
 	"rebaseWhen": "conflicted",
@@ -21,16 +19,11 @@
 	"platformAutomerge": false,
 	"dependencyDashboard": true,
 	"dependencyDashboardTitle": "Renovate Dashboard \ud83e\udd16",
-	"dependencyDashboardLabels": [
-		"chore/deps"
-	],
+	"dependencyDashboardLabels": ["chore/deps"],
 	"rangeStrategy": "pin",
 	"minimumReleaseAge": "4 days",
 	"pinDigests": true,
-	"labels": [
-		"chore/deps",
-		"renovate"
-	],
+	"labels": ["chore/deps", "renovate"],
 	"commitMessagePrefix": "deps: ",
 	"commitMessageAction": "update",
 	"prHeader": "This PR contains dependency updates managed by Renovate.",
@@ -38,12 +31,7 @@
 	"vulnerabilityAlerts": {
 		"enabled": true,
 		"automerge": true,
-		"addLabels": [
-			"security",
-			"vulnerability",
-			"deps/security",
-			"renovate"
-		]
+		"addLabels": ["security", "vulnerability", "deps/security", "renovate"]
 	},
 	"nix": {
 		"enabled": true
@@ -51,17 +39,13 @@
 	"packageRules": [
 		{
 			"description": "Skip pinning and stability days for internal sector7 actions (own repo)",
-			"matchPackageNames": [
-				"/^jmmaloney4\\/sector7($|\\/)/"
-			],
+			"matchPackageNames": ["/^jmmaloney4\\/sector7($|\\/)/"],
 			"minimumReleaseAge": null,
 			"pinDigests": false
 		},
 		{
 			"description": "Disable requires-python updates \u2014 managed manually per project as a capped minor range (e.g. >=3.13,<3.14)",
-			"matchDepTypes": [
-				"requires-python"
-			],
+			"matchDepTypes": ["requires-python"],
 			"enabled": false
 		}
 	]

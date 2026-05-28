@@ -1,5 +1,5 @@
 name: Nix Setup
-description: Install Nix and enable flakehub cache for GitHub Actions
+description: Install Nix and optionally configure additional binary caches for GitHub Actions
 inputs:
   runs-on:
     description: Runner label to determine if runs-on/actions@v2 should be used
@@ -9,6 +9,14 @@ inputs:
     description: Enable FlakeHub cache (set to 'false' for self-hosted runners with cache already configured)
     required: false
     default: 'true'
+  extra-substituters:
+    description: Optional newline-delimited extra substituter URLs to append to the runner Nix config
+    required: false
+    default: ''
+  extra-trusted-public-keys:
+    description: Optional newline-delimited extra trusted public keys to append to the runner Nix config
+    required: false
+    default: ''
 runs:
   using: composite
   steps:
@@ -23,3 +31,9 @@ runs:
       # TODO: Fix this
       # with:
       # use-gha-cache: enabled
+    - if: ${{ inputs.extra-substituters != '' || inputs.extra-trusted-public-keys != '' }}
+      shell: bash
+      env:
+        INPUT_EXTRA_SUBSTITUTERS: ${{ inputs.extra-substituters }}
+        INPUT_EXTRA_TRUSTED_PUBLIC_KEYS: ${{ inputs.extra-trusted-public-keys }}
+      run: bash "${{ github.action_path }}/configure-binary-cache.sh"

@@ -64,7 +64,9 @@ function parseStorePath(stdout: string, name: string): string {
 		.split(/\r?\n/)
 		.find((entry) => entry.startsWith(prefix));
 	if (!line) {
-		throw new Error(`Could not parse STORE_PATH_OUTPUT from output for ${name}`);
+		throw new Error(
+			`Could not parse STORE_PATH_OUTPUT from output for ${name}`,
+		);
 	}
 	return line.slice(prefix.length);
 }

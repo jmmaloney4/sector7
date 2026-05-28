@@ -20,9 +20,32 @@ on:
         required: false
         default: 'cavinsresearch'
         type: string
+      binary-cache-url:
+        description: 'Optional full binary cache URL to add as a substituter (for example https://cache.example.com/cache)'
+        required: false
+        default: ''
+        type: string
+      binary-cache-public-key:
+        description: 'Optional trusted public key for the binary cache'
+        required: false
+        default: ''
+        type: string
+      binary-cache-endpoint:
+        description: 'Optional Attic server endpoint (root URL) used for cache pushes'
+        required: false
+        default: ''
+        type: string
+      binary-cache-name:
+        description: 'Optional Attic cache name used for cache pushes'
+        required: false
+        default: ''
+        type: string
     secrets:
       REGISTRY_PASSWORD:
         description: 'Registry password/token (usually GITHUB_TOKEN)'
+        required: false
+      BINARY_CACHE_TOKEN:
+        description: 'Optional Attic token used to push built store paths into the binary cache'
         required: false
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
@@ -47,12 +70,16 @@ jobs:
       - uses: jmmaloney4/sector7/.github/actions/nix-setup@main
         with:
           runs-on: ${{ inputs.runs-on }}
-          cache: ${{ !contains(inputs.runs-on, 'self-hosted') }}
+          cache: ${{ !contains(inputs.runs-on, 'self-hosted') && inputs.binary-cache-url == '' }}
+          extra-substituters: ${{ inputs.binary-cache-url }}
+          extra-trusted-public-keys: ${{ inputs.binary-cache-public-key }}
       - name: compute build-needed matrix via nix-eval-jobs
         id: compute
         uses: jmmaloney4/sector7/.github/actions/compute-flake-build-matrix@main
         with:
           probe-timeout-seconds: '180'
+          extra-substituters: ${{ inputs.binary-cache-url }}
+          extra-trusted-public-keys: ${{ inputs.binary-cache-public-key }}
       - name: split build and image matrices
         id: split
         shell: 'nix shell nixpkgs#jq -c bash {0}'
@@ -72,6 +99,8 @@ jobs:
     needs: [detect]
     runs-on: ${{ startsWith(inputs.runs-on, '[') && fromJson(inputs.runs-on) || inputs.runs-on }}
     if: ${{ needs.detect.outputs.build_has_work == 'true' }}
+    env:
+      BINARY_CACHE_TOKEN: ${{ secrets.BINARY_CACHE_TOKEN }}
     strategy:
       fail-fast: false
       max-parallel: 1
@@ -85,19 +114,27 @@ jobs:
       - uses: jmmaloney4/sector7/.github/actions/nix-setup@main
         with:
           runs-on: ${{ inputs.runs-on }}
-          cache: ${{ !contains(inputs.runs-on, 'self-hosted') }}
+          cache: ${{ !contains(inputs.runs-on, 'self-hosted') && inputs.binary-cache-url == '' }}
+          extra-substituters: ${{ inputs.binary-cache-url }}
+          extra-trusted-public-keys: ${{ inputs.binary-cache-public-key }}
       - name: "🚀 build with nix-fast-build"
         shell: 'nix -L shell nixpkgs#nix-fast-build -c bash {0}'
         run: |-
           set -euo pipefail
           attr='${{ matrix.flake_attr }}'
           echo "Building via nix-fast-build: $attr"
-          # Build only missing (uncached) derivations, with CI-friendly logs and no out-link
           nix-fast-build --skip-cached --no-nom --no-link -j 1 --flake "$attr"
+      - name: Push built store paths to binary cache
+        if: ${{ inputs.binary-cache-endpoint != '' && inputs.binary-cache-name != '' && env.BINARY_CACHE_TOKEN != '' }}
+        uses: jmmaloney4/sector7/.github/actions/push-attic-cache@main
+        with:
+          flake-attr: ${{ matrix.flake_attr }}
+          attic-endpoint: ${{ inputs.binary-cache-endpoint }}
+          attic-cache-name: ${{ inputs.binary-cache-name }}
+          attic-token: ${{ env.BINARY_CACHE_TOKEN }}
   build-and-push-images:
     name: "🐳 build+push ${{ matrix.package-name }}"
     needs: [detect]
-    # Only run if there are actually images to push
     if: ${{ needs.detect.outputs.images_to_push != '[]' }}
     strategy:
       fail-fast: false
@@ -110,7 +147,11 @@ jobs:
       namespace: ${{ inputs.image-namespace }}
       repository: ${{ inputs.repository }}
       ref: ${{ inputs.ref }}
-      # Tag with PR number if PR, otherwise SHA + branch/latest
       tags: ${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.number) || format('sha-{0},{1}{2}', github.sha, github.ref_name, github.ref_name == 'main' && ',latest' || '') }}
+      binary-cache-url: ${{ inputs.binary-cache-url }}
+      binary-cache-public-key: ${{ inputs.binary-cache-public-key }}
+      binary-cache-endpoint: ${{ inputs.binary-cache-endpoint }}
+      binary-cache-name: ${{ inputs.binary-cache-name }}
     secrets:
       REGISTRY_PASSWORD: ${{ secrets.REGISTRY_PASSWORD || secrets.GITHUB_TOKEN }}
+      BINARY_CACHE_TOKEN: ${{ secrets.BINARY_CACHE_TOKEN }}
