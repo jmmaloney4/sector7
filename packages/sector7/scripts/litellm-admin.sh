@@ -5,7 +5,7 @@ ACTION="${1:-}"
 
 require_env() {
   local name="$1"
-  if [[ -z "${!name:-}" ]]; then
+  if [[ -z ${!name:-} ]]; then
     echo "missing required env: $name" >&2
     exit 1
   fi
@@ -89,10 +89,11 @@ require_env LITELLM_MASTER_KEY
 require_env LITELLM_PROXY_DEPLOYMENT
 
 case "$ACTION" in
-  create-key)
-    require_env LITELLM_KEY_ALIAS
-    require_env LITELLM_KEY_VALUE
-    body=$(python3 - <<'PYEOF'
+create-key)
+  require_env LITELLM_KEY_ALIAS
+  require_env LITELLM_KEY_VALUE
+  body=$(
+    python3 - <<'PYEOF'
 import json
 import os
 
@@ -102,8 +103,11 @@ body = {
     "models": json.loads(os.environ.get("LITELLM_KEY_MODELS_JSON", "[]")),
     "aliases": json.loads(os.environ.get("LITELLM_KEY_ALIASES_JSON", "{}")),
     "metadata": json.loads(os.environ.get("LITELLM_KEY_METADATA_JSON", "{}")),
-    "tags": json.loads(os.environ.get("LITELLM_KEY_TAGS_JSON", "[]")),
 }
+# tags is a LiteLLM Enterprise feature — only include when non-empty.
+_tags = json.loads(os.environ.get("LITELLM_KEY_TAGS_JSON", "[]"))
+if _tags:
+    body["tags"] = _tags
 for env_key, body_key in [
     ("LITELLM_KEY_TEAM_ID", "team_id"),
     ("LITELLM_KEY_USER_ID", "user_id"),
@@ -121,32 +125,36 @@ for env_key, body_key in [
         body[body_key] = value
 print(json.dumps(body))
 PYEOF
-)
-    response=$(run_proxy_python "$(printf '%s' "$body" | base64)" "/key/generate")
-    extract_field "$response" "token"
-    ;;
+  )
+  response=$(run_proxy_python "$(printf '%s' "$body" | base64)" "/key/generate")
+  extract_field "$response" "token"
+  ;;
 
-  delete-key)
-    token_id="${PULUMI_COMMAND_STDOUT:-${LITELLM_KEY_VALUE:-}}"
-    if [[ -z "$token_id" ]]; then
-      exit 0
-    fi
-    body=$(printf '{"keys":["%s"]}' "$token_id")
-    run_proxy_python "$(printf '%s' "$body" | base64)" "/key/delete" >/dev/null
-    ;;
+delete-key)
+  token_id="${PULUMI_COMMAND_STDOUT:-${LITELLM_KEY_VALUE:-}}"
+  if [[ -z $token_id ]]; then
+    exit 0
+  fi
+  body=$(printf '{"keys":["%s"]}' "$token_id")
+  run_proxy_python "$(printf '%s' "$body" | base64)" "/key/delete" >/dev/null
+  ;;
 
-  create-team)
-    require_env LITELLM_TEAM_ALIAS
-    body=$(python3 - <<'PYEOF'
+create-team)
+  require_env LITELLM_TEAM_ALIAS
+  body=$(
+    python3 - <<'PYEOF'
 import json
 import os
 
 body = {
     "team_alias": os.environ["LITELLM_TEAM_ALIAS"],
     "models": json.loads(os.environ.get("LITELLM_TEAM_MODELS_JSON", "[]")),
-    "tags": json.loads(os.environ.get("LITELLM_TEAM_TAGS_JSON", "[]")),
     "metadata": json.loads(os.environ.get("LITELLM_TEAM_METADATA_JSON", "{}")),
 }
+# tags is a LiteLLM Enterprise feature — only include when non-empty.
+_tags = json.loads(os.environ.get("LITELLM_TEAM_TAGS_JSON", "[]"))
+if _tags:
+    body["tags"] = _tags
 for env_key, body_key in [
     ("LITELLM_TEAM_ID", "team_id"),
     ("LITELLM_TEAM_MAX_BUDGET", "max_budget"),
@@ -161,22 +169,22 @@ for env_key, body_key in [
         body[body_key] = value
 print(json.dumps(body))
 PYEOF
-)
-    response=$(run_proxy_python "$(printf '%s' "$body" | base64)" "/team/new")
-    extract_field "$response" "team_id"
-    ;;
+  )
+  response=$(run_proxy_python "$(printf '%s' "$body" | base64)" "/team/new")
+  extract_field "$response" "team_id"
+  ;;
 
-  delete-team)
-    team_id="${LITELLM_TEAM_ID:-${PULUMI_COMMAND_STDOUT:-}}"
-    if [[ -z "$team_id" ]]; then
-      exit 0
-    fi
-    body=$(printf '{"team_ids":["%s"]}' "$team_id")
-    run_proxy_python "$(printf '%s' "$body" | base64)" "/team/delete" >/dev/null
-    ;;
+delete-team)
+  team_id="${LITELLM_TEAM_ID:-${PULUMI_COMMAND_STDOUT:-}}"
+  if [[ -z $team_id ]]; then
+    exit 0
+  fi
+  body=$(printf '{"team_ids":["%s"]}' "$team_id")
+  run_proxy_python "$(printf '%s' "$body" | base64)" "/team/delete" >/dev/null
+  ;;
 
-  *)
-    echo "usage: $0 {create-key|delete-key|create-team|delete-team}" >&2
-    exit 1
-    ;;
+*)
+  echo "usage: $0 {create-key|delete-key|create-team|delete-team}" >&2
+  exit 1
+  ;;
 esac
