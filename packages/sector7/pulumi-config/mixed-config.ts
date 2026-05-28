@@ -1,4 +1,4 @@
-import * as pulumi from "@pulumi/pulumi";
+import type * as pulumi from "@pulumi/pulumi";
 
 export type SecretFieldsOf<
 	T extends Record<string, unknown>,

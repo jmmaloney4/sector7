@@ -52,7 +52,7 @@ nix_eval_args=(
   --option extra-trusted-public-keys "$extra_trusted_public_keys_value"
 )
 
-nix run github:nix-community/nix-eval-jobs/v2.34.1 "${nix_eval_args[@]}" --   --flake .   --check-cache-status   --meta   --workers 1   --select "(${select_expr}) \"${system}\"" >"$tmp_all"
+nix run github:nix-community/nix-eval-jobs/v2.34.1 "${nix_eval_args[@]}" -- --flake . --check-cache-status --meta --workers 1 --select "(${select_expr}) \"${system}\"" >"$tmp_all"
 
 # Transform nix-eval-jobs output to matrix format
 echo "Processing nix-eval-jobs output..." >&2

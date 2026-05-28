@@ -1,11 +1,12 @@
 ---
 id: ADR-028
-title: "Uptime Monitor Read Api"
+title: Uptime Monitor Read Api
 status: proposed
 date: 2026-05-24
 ---
 
 # ADR 028: Uptime Monitor Read Api
+
 *Date:* 2026-05-24
 *Status:* proposed
 

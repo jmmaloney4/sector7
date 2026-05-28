@@ -30,7 +30,7 @@ if [[ ! -f "${ROOT}/package.json" ]]; then
 fi
 
 VERSION="$(jq -r '.version // empty' "${ROOT}/package.json")"
-if [[ -z "$VERSION" || "$VERSION" == "null" ]]; then
+if [[ -z $VERSION || $VERSION == "null" ]]; then
   echo "Error: version field missing or empty in ${ROOT}/package.json" >&2
   exit 1
 fi
@@ -38,7 +38,7 @@ fi
 TAG="v${VERSION}"
 
 echo "# 📦 Unified release analysis" >>"$SUMMARY_FILE"
-if [[ "${DRY_RUN}" == "true" ]]; then
+if [[ ${DRY_RUN} == "true" ]]; then
   echo "> **DRY RUN MODE** - No packages will be published" >>"$SUMMARY_FILE"
 fi
 echo "" >>"$SUMMARY_FILE"
@@ -48,16 +48,16 @@ echo "- **Target:** \`${TARGET}\`" >>"$SUMMARY_FILE"
 
 # ── Validate all package versions match the root version ────────────
 
-if [[ "${DRY_RUN}" == "true" ]]; then
+if [[ ${DRY_RUN} == "true" ]]; then
   echo "- **Version check:** skipped in dry run" >>"$SUMMARY_FILE"
 else
   if [[ -d "${ROOT}/packages" ]]; then
     VERSION_MISMATCH=0
     for pkg_json in "${ROOT}"/packages/*/package.json; do
-      [[ -f "$pkg_json" ]] || continue
+      [[ -f $pkg_json ]] || continue
       pkg_name="$(jq -r '.name' "$pkg_json")"
       pkg_ver="$(jq -r '.version // empty' "$pkg_json")"
-      if [[ "$pkg_ver" != "$VERSION" ]]; then
+      if [[ $pkg_ver != "$VERSION" ]]; then
         echo "❌ Version mismatch: ${pkg_name} is ${pkg_ver}, expected ${VERSION}" >&2
         VERSION_MISMATCH=1
       fi
@@ -75,7 +75,7 @@ fi
 PKG_PATHS=()
 if [[ -d "${ROOT}/packages" ]]; then
   for pkg_json in "${ROOT}/packages"/*/package.json; do
-    [[ -f "$pkg_json" ]] && PKG_PATHS+=("${pkg_json%/package.json}")
+    [[ -f $pkg_json ]] && PKG_PATHS+=("${pkg_json%/package.json}")
   done
 fi
 
@@ -93,45 +93,45 @@ fi
 
 ALREADY_PUBLISHED="false"
 case "$TARGET" in
-  release)
-    if [[ -n "$GITHUB_REPO" ]]; then
-      if gh release view "$TAG" --repo "$GITHUB_REPO" >/dev/null 2>&1; then
-        # Release exists — verify all expected assets are present.
-        # Partial releases (tag created but upload failed) must be retried.
-        # Fetch asset list once to avoid N API calls per package.
-        EXISTING_ASSETS="$(gh release view "$TAG" --repo "$GITHUB_REPO" --json assets -q ".assets[].name" 2>/dev/null || true)"
-        MISSING_ASSETS=()
-        for pkg_path in "${PKG_PATHS[@]}"; do
-          name="$(jq -r '.name' "${pkg_path}/package.json")"
-          pkg_version="$(jq -r '.version // empty' "${pkg_path}/package.json")"
-          stem="${name#@}"
-          stem="${stem//\//-}"
-          asset_name="${stem}-${pkg_version}.tgz"
-          # grep -F for literal match (asset names contain dots)
-          if ! echo "$EXISTING_ASSETS" | grep -Fqx "$asset_name"; then
-            MISSING_ASSETS+=("$asset_name")
-          fi
-        done
-        if [[ ${#MISSING_ASSETS[@]} -eq 0 ]]; then
-          ALREADY_PUBLISHED="true"
-          echo "- **Status:** already published (tag \`${TAG}\` exists with all assets)" >>"$SUMMARY_FILE"
-        else
-          echo "- **Status:** incomplete release (missing: ${MISSING_ASSETS[*]}), will republish" >>"$SUMMARY_FILE"
-          for asset in "${MISSING_ASSETS[@]}"; do
-            echo "  ⚠️ Missing asset: $asset" >&2
-          done
+release)
+  if [[ -n $GITHUB_REPO ]]; then
+    if gh release view "$TAG" --repo "$GITHUB_REPO" >/dev/null 2>&1; then
+      # Release exists — verify all expected assets are present.
+      # Partial releases (tag created but upload failed) must be retried.
+      # Fetch asset list once to avoid N API calls per package.
+      EXISTING_ASSETS="$(gh release view "$TAG" --repo "$GITHUB_REPO" --json assets -q ".assets[].name" 2>/dev/null || true)"
+      MISSING_ASSETS=()
+      for pkg_path in "${PKG_PATHS[@]}"; do
+        name="$(jq -r '.name' "${pkg_path}/package.json")"
+        pkg_version="$(jq -r '.version // empty' "${pkg_path}/package.json")"
+        stem="${name#@}"
+        stem="${stem//\//-}"
+        asset_name="${stem}-${pkg_version}.tgz"
+        # grep -F for literal match (asset names contain dots)
+        if ! echo "$EXISTING_ASSETS" | grep -Fqx "$asset_name"; then
+          MISSING_ASSETS+=("$asset_name")
         fi
+      done
+      if [[ ${#MISSING_ASSETS[@]} -eq 0 ]]; then
+        ALREADY_PUBLISHED="true"
+        echo "- **Status:** already published (tag \`${TAG}\` exists with all assets)" >>"$SUMMARY_FILE"
       else
-        echo "- **Status:** new release needed" >>"$SUMMARY_FILE"
+        echo "- **Status:** incomplete release (missing: ${MISSING_ASSETS[*]}), will republish" >>"$SUMMARY_FILE"
+        for asset in "${MISSING_ASSETS[@]}"; do
+          echo "  ⚠️ Missing asset: $asset" >&2
+        done
       fi
     else
-      echo "- **Status:** unknown (no GITHUB_REPO set, assuming not published)" >>"$SUMMARY_FILE"
+      echo "- **Status:** new release needed" >>"$SUMMARY_FILE"
     fi
-    ;;
-  *)
-    echo "Error: unknown or deprecated target '${TARGET}'. Only 'release' is supported." >&2
-    exit 1
-    ;;
+  else
+    echo "- **Status:** unknown (no GITHUB_REPO set, assuming not published)" >>"$SUMMARY_FILE"
+  fi
+  ;;
+*)
+  echo "Error: unknown or deprecated target '${TARGET}'. Only 'release' is supported." >&2
+  exit 1
+  ;;
 esac
 
 # ── Build matrix entries ────────────────────────────────────────────
@@ -168,7 +168,7 @@ done
 # ── Decide action ───────────────────────────────────────────────────
 
 ACTION="publish"
-if [[ "$ALREADY_PUBLISHED" == "true" || "$DRY_RUN" == "true" ]]; then
+if [[ $ALREADY_PUBLISHED == "true" || $DRY_RUN == "true" ]]; then
   ACTION="skip"
 fi
 
@@ -176,7 +176,7 @@ echo "" >>"$SUMMARY_FILE"
 echo "| Package | Version | Action |" >>"$SUMMARY_FILE"
 echo "|---|---|---|" >>"$SUMMARY_FILE"
 
-if [[ "$ACTION" == "skip" ]]; then
+if [[ $ACTION == "skip" ]]; then
   for entry in "${MATRIX_ENTRIES[@]}"; do
     name="$(echo "$entry" | jq -r '.name')"
     echo "| ${name} | ${VERSION} | ⏭️ skip |" >>"$SUMMARY_FILE"

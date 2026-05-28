@@ -5,7 +5,7 @@ ACTION="${1:-}"
 
 require_env() {
   local name="$1"
-  if [[ -z "${!name:-}" ]]; then
+  if [[ -z ${!name:-} ]]; then
     echo "missing required env: $name" >&2
     exit 1
   fi
@@ -89,10 +89,11 @@ require_env LITELLM_MASTER_KEY
 require_env LITELLM_PROXY_DEPLOYMENT
 
 case "$ACTION" in
-  create-key)
-    require_env LITELLM_KEY_ALIAS
-    require_env LITELLM_KEY_VALUE
-    body=$(python3 - <<'PYEOF'
+create-key)
+  require_env LITELLM_KEY_ALIAS
+  require_env LITELLM_KEY_VALUE
+  body=$(
+    python3 - <<'PYEOF'
 import json
 import os
 
@@ -121,23 +122,24 @@ for env_key, body_key in [
         body[body_key] = value
 print(json.dumps(body))
 PYEOF
-)
-    response=$(run_proxy_python "$(printf '%s' "$body" | base64)" "/key/generate")
-    extract_field "$response" "token"
-    ;;
+  )
+  response=$(run_proxy_python "$(printf '%s' "$body" | base64)" "/key/generate")
+  extract_field "$response" "token"
+  ;;
 
-  delete-key)
-    token_id="${PULUMI_COMMAND_STDOUT:-${LITELLM_KEY_VALUE:-}}"
-    if [[ -z "$token_id" ]]; then
-      exit 0
-    fi
-    body=$(printf '{"keys":["%s"]}' "$token_id")
-    run_proxy_python "$(printf '%s' "$body" | base64)" "/key/delete" >/dev/null
-    ;;
+delete-key)
+  token_id="${PULUMI_COMMAND_STDOUT:-${LITELLM_KEY_VALUE:-}}"
+  if [[ -z $token_id ]]; then
+    exit 0
+  fi
+  body=$(printf '{"keys":["%s"]}' "$token_id")
+  run_proxy_python "$(printf '%s' "$body" | base64)" "/key/delete" >/dev/null
+  ;;
 
-  create-team)
-    require_env LITELLM_TEAM_ALIAS
-    body=$(python3 - <<'PYEOF'
+create-team)
+  require_env LITELLM_TEAM_ALIAS
+  body=$(
+    python3 - <<'PYEOF'
 import json
 import os
 
@@ -161,22 +163,22 @@ for env_key, body_key in [
         body[body_key] = value
 print(json.dumps(body))
 PYEOF
-)
-    response=$(run_proxy_python "$(printf '%s' "$body" | base64)" "/team/new")
-    extract_field "$response" "team_id"
-    ;;
+  )
+  response=$(run_proxy_python "$(printf '%s' "$body" | base64)" "/team/new")
+  extract_field "$response" "team_id"
+  ;;
 
-  delete-team)
-    team_id="${LITELLM_TEAM_ID:-${PULUMI_COMMAND_STDOUT:-}}"
-    if [[ -z "$team_id" ]]; then
-      exit 0
-    fi
-    body=$(printf '{"team_ids":["%s"]}' "$team_id")
-    run_proxy_python "$(printf '%s' "$body" | base64)" "/team/delete" >/dev/null
-    ;;
+delete-team)
+  team_id="${LITELLM_TEAM_ID:-${PULUMI_COMMAND_STDOUT:-}}"
+  if [[ -z $team_id ]]; then
+    exit 0
+  fi
+  body=$(printf '{"team_ids":["%s"]}' "$team_id")
+  run_proxy_python "$(printf '%s' "$body" | base64)" "/team/delete" >/dev/null
+  ;;
 
-  *)
-    echo "usage: $0 {create-key|delete-key|create-team|delete-team}" >&2
-    exit 1
-    ;;
+*)
+  echo "usage: $0 {create-key|delete-key|create-team|delete-team}" >&2
+  exit 1
+  ;;
 esac
