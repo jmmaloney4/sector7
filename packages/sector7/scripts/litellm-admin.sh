@@ -140,10 +140,10 @@ for team in teams:
     if not isinstance(team, dict):
         continue
     if search_id and team.get("team_id") == search_id:
-        print(team["team_id"])
+        print(team.get("team_id", ""))
         sys.exit(0)
     if search_alias and team.get("team_alias") == search_alias:
-        print(team["team_id"])
+        print(team.get("team_id", ""))
         sys.exit(0)
 
 sys.exit(1)
@@ -213,6 +213,9 @@ def check_key(key_hash):
 
 
 # Check key info in parallel for matching alias
+if not keys:
+    sys.exit(1)
+
 with ThreadPoolExecutor(max_workers=min(len(keys), 8)) as pool:
     futures = {pool.submit(check_key, kh): kh for kh in keys}
     for future in as_completed(futures):
