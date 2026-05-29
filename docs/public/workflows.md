@@ -225,6 +225,61 @@ jobs:
 
 **Note**: Ensure each Pulumi stack defines `gcp:project` in its stack configuration to specify the target GCP project.
 
+### 🔎☁️ `pulumi-drift-detection.yml`
+
+- **Path**: `.github/workflows/pulumi-drift-detection.yml` (callable-only)
+- **Purpose**: Detect Pulumi drift across one or more stacks and automatically create, update, or close a GitHub issue
+- **Required inputs**:
+  - **runs-on**: Runner label (e.g., `ubuntu-latest`). For multiple labels, pass a JSON array string like `["self-hosted","linux","x64"]`.
+  - **repository**: Repository to checkout (`owner/repo`), typically `${{ github.repository }}`
+  - **ref**: Git ref to inspect, typically `${{ github.ref }}`
+  - **stacks**: JSON array of stack names, e.g. `["dev","stage","prod"]`
+- **Optional inputs**:
+  - **working-directory**: Directory containing the Pulumi project - defaults to `.`
+  - **pulumi-version**: Pulumi CLI version or semver range - defaults to `^3`
+  - **pulumi-backend-url**: Backend URL to `pulumi login` against before preview
+  - **pulumi-flags**: Extra flags appended to `pulumi preview --refresh --expect-no-changes --non-interactive`
+  - **issue-title**: Title for the managed drift issue - defaults to `Pulumi drift detected`
+  - **issue-labels**: JSON array of labels to apply if they already exist - defaults to `["pulumi","drift"]`
+- **Optional secrets**:
+  - **PULUMI_ACCESS_TOKEN**: Pulumi Cloud access token
+  - **PULUMI_CONFIG_PASSPHRASE**: Passphrase for passphrase-based secrets providers
+
+#### Minimal consumer workflow (copy-paste)
+
+```yaml
+name: Drift Detection
+
+on:
+  schedule:
+    - cron: '0 9 * * 1-5'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  detect-drift:
+    uses: jmmaloney4/toolbox/.github/workflows/pulumi-drift-detection.yml@main
+    with:
+      runs-on: ubuntu-latest
+      repository: ${{ github.repository }}
+      ref: ${{ github.ref }}
+      stacks: '["dev","stage","prod"]'
+      working-directory: ./infra
+    secrets:
+      PULUMI_ACCESS_TOKEN: ${{ secrets.PULUMI_ACCESS_TOKEN }}
+```
+
+**Behavior**:
+
+- Runs `pulumi preview --refresh --expect-no-changes --non-interactive` for each stack in parallel
+- Opens or updates a single drift issue for the target working directory when any stack drifts
+- Reopens the same issue if drift returns later
+- Closes the issue automatically after a clean run with no drift and no stack-check errors
+- Leaves the issue open if one or more stack checks fail so a later clean run can confirm resolution
+
 ### 🤖 `claude.yml`
 
 - **Path**: `.github/workflows/claude.yml` (callable-only)
