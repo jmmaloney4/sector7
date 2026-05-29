@@ -11,11 +11,16 @@ require_env() {
   fi
 }
 
+# Encode a string to single-line base64 (safe for heredoc expansion).
+b64() {
+  printf '%s' "$1" | base64 | tr -d '\n'
+}
+
 run_proxy_python() {
   local body_b64="$1"
   local path="$2"
   local master_key_b64
-  master_key_b64=$(printf '%s' "$LITELLM_MASTER_KEY" | base64)
+  master_key_b64=$(b64 "$LITELLM_MASTER_KEY")
 
   kubectl exec -i \
     -n "$LITELLM_PROXY_NAMESPACE" \
@@ -63,7 +68,7 @@ extract_field() {
   local json_text="$1"
   local field="$2"
   local json_b64
-  json_b64=$(printf '%s' "$json_text" | base64)
+  json_b64=$(b64 "$json_text")
   python3 - "$json_b64" "$field" <<'PYEOF'
 import base64
 import json
@@ -87,6 +92,146 @@ else:
 PYEOF
 }
 
+# Find an existing team by team_id or team_alias.
+# Performs the full lookup inside the container (single kubectl exec).
+# Prints the team_id if found, exits with code 1 if not found.
+find_team() {
+  local search_id="${1:-}"
+  local search_alias="${2:-}"
+  local master_key_b64
+  master_key_b64=$(b64 "$LITELLM_MASTER_KEY")
+
+  kubectl exec -i \
+    -n "$LITELLM_PROXY_NAMESPACE" \
+    "deploy/$LITELLM_PROXY_DEPLOYMENT" -- \
+    python3 - "$master_key_b64" "${LITELLM_PROXY_PORT:-4000}" "$search_id" "$search_alias" <<'PYEOF'
+import base64
+import json
+import sys
+import urllib.error
+import urllib.request
+
+master_key = base64.b64decode(sys.argv[1]).decode()
+port = int(sys.argv[2])
+search_id = sys.argv[3]
+search_alias = sys.argv[4]
+
+req = urllib.request.Request(
+    f"http://localhost:{port}/team/list",
+    headers={"Authorization": f"Bearer {master_key}"},
+)
+try:
+    with urllib.request.urlopen(req, timeout=30) as resp:
+        data = json.loads(resp.read().decode())
+except Exception as exc:
+    print(str(exc), file=sys.stderr)
+    sys.exit(1)
+
+if not isinstance(data, (list, dict)):
+    print("unexpected /team/list response format", file=sys.stderr)
+    sys.exit(1)
+
+teams = data if isinstance(data, list) else data.get("teams", data.get("data", []))
+if not isinstance(teams, list):
+    print("unexpected /team/list response format", file=sys.stderr)
+    sys.exit(1)
+
+for team in teams:
+    if not isinstance(team, dict):
+        continue
+    if search_id and team.get("team_id") == search_id:
+        print(team.get("team_id", ""))
+        sys.exit(0)
+    if search_alias and team.get("team_alias") == search_alias:
+        print(team.get("team_id", ""))
+        sys.exit(0)
+
+sys.exit(1)
+PYEOF
+}
+
+# Find an existing key by key_alias.
+# Performs the full lookup inside the container (single kubectl exec).
+# Iterates /key/list -> /key/info for each key to match alias.
+# Prints the token if found, exits with code 1 if not found.
+find_key_by_alias() {
+  local search_alias="$1"
+  local master_key_b64
+  master_key_b64=$(b64 "$LITELLM_MASTER_KEY")
+
+  kubectl exec -i \
+    -n "$LITELLM_PROXY_NAMESPACE" \
+    "deploy/$LITELLM_PROXY_DEPLOYMENT" -- \
+    python3 - "$master_key_b64" "${LITELLM_PROXY_PORT:-4000}" "$search_alias" <<'PYEOF'
+import base64
+import json
+import sys
+import urllib.error
+import urllib.request
+from concurrent.futures import ThreadPoolExecutor, as_completed
+
+master_key = base64.b64decode(sys.argv[1]).decode()
+port = int(sys.argv[2])
+search_alias = sys.argv[3]
+
+# List all key hashes
+list_req = urllib.request.Request(
+    f"http://localhost:{port}/key/list",
+    headers={"Authorization": f"Bearer {master_key}"},
+)
+try:
+    with urllib.request.urlopen(list_req, timeout=30) as resp:
+        data = json.loads(resp.read().decode())
+except Exception as exc:
+    print(str(exc), file=sys.stderr)
+    sys.exit(1)
+
+if not isinstance(data, (list, dict)):
+    print("unexpected /key/list response format", file=sys.stderr)
+    sys.exit(1)
+
+keys = data.get("keys", data) if isinstance(data, dict) else data
+if not isinstance(keys, list):
+    print("unexpected /key/list response format", file=sys.stderr)
+    sys.exit(1)
+
+
+def check_key(key_hash):
+    """Return (key_hash, info_dict) or (key_hash, None) on failure."""
+    info_req = urllib.request.Request(
+        f"http://localhost:{port}/key/info?key={key_hash}",
+        headers={"Authorization": f"Bearer {master_key}"},
+    )
+    try:
+        with urllib.request.urlopen(info_req, timeout=15) as resp:
+            info_data = json.loads(resp.read().decode())
+    except Exception:
+        return key_hash, None
+    if not isinstance(info_data, dict):
+        return key_hash, None
+    return key_hash, info_data.get("info", info_data)
+
+
+# Check key info in parallel for matching alias
+if not keys:
+    sys.exit(1)
+
+with ThreadPoolExecutor(max_workers=min(len(keys), 8)) as pool:
+    futures = {pool.submit(check_key, kh): kh for kh in keys}
+    for future in as_completed(futures):
+        _, info = future.result()
+        if not isinstance(info, dict):
+            continue
+        if info.get("key_alias") == search_alias:
+            token = info.get("token", "")
+            if token:
+                print(token)
+                sys.exit(0)
+
+sys.exit(1)
+PYEOF
+}
+
 require_env LITELLM_PROXY_NAMESPACE
 require_env LITELLM_MASTER_KEY
 require_env LITELLM_PROXY_DEPLOYMENT
@@ -95,6 +240,15 @@ case "$ACTION" in
 create-key)
   require_env LITELLM_KEY_ALIAS
   require_env LITELLM_KEY_VALUE
+
+  # Idempotency: check if a key with this alias already exists.
+  existing_token=$(find_key_by_alias "$LITELLM_KEY_ALIAS" 2>/dev/null) || true
+  if [[ -n $existing_token ]]; then
+    echo "$existing_token"
+    exit 0
+  fi
+
+  # Key not found — create it.
   body=$(
     python3 - <<'PYEOF'
 import json
@@ -129,7 +283,7 @@ for env_key, body_key in [
 print(json.dumps(body))
 PYEOF
   )
-  response=$(run_proxy_python "$(printf '%s' "$body" | base64)" "/key/generate")
+  response=$(run_proxy_python "$(b64 "$body")" "/key/generate")
   extract_field "$response" "token"
   ;;
 
@@ -139,11 +293,20 @@ delete-key)
     exit 0
   fi
   body=$(printf '{"keys":["%s"]}' "$token_id")
-  run_proxy_python "$(printf '%s' "$body" | base64)" "/key/delete" >/dev/null
+  run_proxy_python "$(b64 "$body")" "/key/delete" >/dev/null
   ;;
 
 create-team)
   require_env LITELLM_TEAM_ALIAS
+
+  # Idempotency: check if a team with this team_id or team_alias already exists.
+  existing_team=$(find_team "${LITELLM_TEAM_ID:-}" "$LITELLM_TEAM_ALIAS" 2>/dev/null) || true
+  if [[ -n $existing_team ]]; then
+    echo "$existing_team"
+    exit 0
+  fi
+
+  # Team not found — create it.
   body=$(
     python3 - <<'PYEOF'
 import json
@@ -173,7 +336,7 @@ for env_key, body_key in [
 print(json.dumps(body))
 PYEOF
   )
-  response=$(run_proxy_python "$(printf '%s' "$body" | base64)" "/team/new")
+  response=$(run_proxy_python "$(b64 "$body")" "/team/new")
   extract_field "$response" "team_id"
   ;;
 
@@ -183,7 +346,7 @@ delete-team)
     exit 0
   fi
   body=$(printf '{"team_ids":["%s"]}' "$team_id")
-  run_proxy_python "$(printf '%s' "$body" | base64)" "/team/delete" >/dev/null
+  run_proxy_python "$(b64 "$body")" "/team/delete" >/dev/null
   ;;
 
 *)
