@@ -153,7 +153,8 @@ PYEOF
 # Find an existing key by key_alias.
 # Performs the full lookup inside the container (single kubectl exec).
 # Iterates /key/list -> /key/info for each key to match alias.
-# Prints the token if found, exits with code 1 if not found.
+# Prints the key hash if found, exits with code 1 if not found.
+# NOTE: LiteLLM /key/info does not expose the token. We can only get the hash.
 find_key_by_alias() {
   local search_alias="$1"
   local master_key_b64
@@ -219,14 +220,13 @@ if not keys:
 with ThreadPoolExecutor(max_workers=min(len(keys), 8)) as pool:
     futures = {pool.submit(check_key, kh): kh for kh in keys}
     for future in as_completed(futures):
-        _, info = future.result()
+        found_hash, info = future.result()
         if not isinstance(info, dict):
             continue
         if info.get("key_alias") == search_alias:
-            token = info.get("token", "")
-            if token:
-                print(token)
-                sys.exit(0)
+            # Return the key hash (LiteLLM doesn't expose the token via /key/info)
+            print(found_hash)
+            sys.exit(0)
 
 sys.exit(1)
 PYEOF
@@ -242,10 +242,13 @@ create-key)
   require_env LITELLM_KEY_VALUE
 
   # Idempotency: check if a key with this alias already exists.
-  existing_token=$(find_key_by_alias "$LITELLM_KEY_ALIAS" 2>/dev/null) || true
-  if [[ -n $existing_token ]]; then
-    echo "$existing_token"
-    exit 0
+  # LiteLLM /key/info does not expose the token, so we can't recover
+  # the original secret. If the key exists and Pulumi wants to recreate
+  # (detected a diff), delete the old key first, then create a new one.
+  existing_hash=$(find_key_by_alias "$LITELLM_KEY_ALIAS" 2>/dev/null) || true
+  if [[ -n $existing_hash ]]; then
+    echo "Key with alias '$LITELLM_KEY_ALIAS' already exists (hash: ${existing_hash:0:12}...), deleting for replacement" >&2
+    LITELLM_KEY_ID=$existing_hash "$0" delete-key
   fi
 
   # Key not found — create it.
@@ -288,7 +291,7 @@ PYEOF
   ;;
 
 delete-key)
-  token_id="${PULUMI_COMMAND_STDOUT:-${LITELLM_KEY_VALUE:-}}"
+  token_id="${LITELLM_KEY_ID:-${PULUMI_COMMAND_STDOUT:-${LITELLM_KEY_VALUE:-}}}"
   if [[ -z $token_id ]]; then
     exit 0
   fi
