@@ -218,7 +218,9 @@ export function generateLiteLLMConfig(args: {
 	validateLiteLLMConfig(args);
 
 	const providerEnvVars = Object.entries(args.providers)
-		.map(([providerName, provider]) => getProviderEnvVar(providerName, provider))
+		.map(([providerName, provider]) =>
+			getProviderEnvVar(providerName, provider),
+		)
 		.filter((value): value is string => value !== undefined);
 	const deploymentsById = new Map(
 		args.deployments.map((deployment) => [deployment.id, deployment] as const),
@@ -290,11 +292,7 @@ export function generateLiteLLMConfig(args: {
 				"output_cost_per_token",
 				deployment.outputCostPerToken,
 			);
-			addIfDefined(
-				modelInfo,
-				"team_id",
-				deployment.teamId ?? group.teamId,
-			);
+			addIfDefined(modelInfo, "team_id", deployment.teamId ?? group.teamId);
 			addIfDefined(
 				modelInfo,
 				"team_alias",

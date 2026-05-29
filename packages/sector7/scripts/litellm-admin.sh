@@ -243,7 +243,7 @@ create-key)
 
   # Idempotency: check if a key with this alias already exists.
   existing_token=$(find_key_by_alias "$LITELLM_KEY_ALIAS" 2>/dev/null) || true
-  if [[ -n "$existing_token" ]]; then
+  if [[ -n $existing_token ]]; then
     echo "$existing_token"
     exit 0
   fi
@@ -301,7 +301,7 @@ create-team)
 
   # Idempotency: check if a team with this team_id or team_alias already exists.
   existing_team=$(find_team "${LITELLM_TEAM_ID:-}" "$LITELLM_TEAM_ALIAS" 2>/dev/null) || true
-  if [[ -n "$existing_team" ]]; then
+  if [[ -n $existing_team ]]; then
     echo "$existing_team"
     exit 0
   fi

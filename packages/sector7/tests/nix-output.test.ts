@@ -266,9 +266,11 @@ describe("NixOutput", () => {
 	});
 
 	it("eager preview helper resolves a concrete store path when env is static", () => {
-		const execSpy = vi.mocked(execFileSync).mockReturnValue(
-			"=== Resolved: /nix/store/eager123-myapp-1.0.0 ===\nSTORE_PATH_OUTPUT:/nix/store/eager123-myapp-1.0.0\n",
-		);
+		const execSpy = vi
+			.mocked(execFileSync)
+			.mockReturnValue(
+				"=== Resolved: /nix/store/eager123-myapp-1.0.0 ===\nSTORE_PATH_OUTPUT:/nix/store/eager123-myapp-1.0.0\n",
+			);
 
 		const storePath = resolvePreviewStorePath(
 			"test-preview-eager",

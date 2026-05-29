@@ -59,12 +59,10 @@ export class LiteLLMApiKey extends pulumi.ComponentResource {
 					LITELLM_KEY_TEAM_ID: pulumi.output(args.teamId ?? ""),
 					LITELLM_KEY_USER_ID: pulumi.output(args.userId ?? ""),
 					LITELLM_KEY_BUDGET_ID: pulumi.output(args.budgetId ?? ""),
-					LITELLM_KEY_MAX_BUDGET: pulumi.output(args.maxBudget).apply((value) =>
-						value === undefined ? "" : String(value),
-					),
-					LITELLM_KEY_BUDGET_DURATION: pulumi.output(
-						args.budgetDuration ?? "",
-					),
+					LITELLM_KEY_MAX_BUDGET: pulumi
+						.output(args.maxBudget)
+						.apply((value) => (value === undefined ? "" : String(value))),
+					LITELLM_KEY_BUDGET_DURATION: pulumi.output(args.budgetDuration ?? ""),
 					LITELLM_KEY_DURATION: pulumi.output(args.duration ?? ""),
 					LITELLM_KEY_ALIASES_JSON: pulumiJsonString(args.aliases, {}),
 					LITELLM_KEY_TAGS_JSON: pulumiJsonString(args.tags, []),
@@ -75,9 +73,9 @@ export class LiteLLMApiKey extends pulumi.ComponentResource {
 		);
 
 		this.key = pulumi.secret(actualKey);
-		this.tokenId = pulumi.secret(commandResource.stdout).apply((stdout) =>
-			stdout.trim(),
-		);
+		this.tokenId = pulumi
+			.secret(commandResource.stdout)
+			.apply((stdout) => stdout.trim());
 
 		this.registerOutputs({
 			key: this.key,
@@ -107,9 +105,9 @@ export class LiteLLMTeam extends pulumi.ComponentResource {
 					LITELLM_TEAM_ALIAS: args.teamAlias,
 					LITELLM_TEAM_ID: pulumi.output(args.teamId ?? ""),
 					LITELLM_TEAM_MODELS_JSON: pulumiJsonString(args.models, []),
-					LITELLM_TEAM_MAX_BUDGET: pulumi.output(args.maxBudget).apply((value) =>
-						value === undefined ? "" : String(value),
-					),
+					LITELLM_TEAM_MAX_BUDGET: pulumi
+						.output(args.maxBudget)
+						.apply((value) => (value === undefined ? "" : String(value))),
 					LITELLM_TEAM_BUDGET_DURATION: pulumi.output(
 						args.budgetDuration ?? "",
 					),

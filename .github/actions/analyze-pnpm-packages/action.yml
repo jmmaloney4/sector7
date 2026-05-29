@@ -1,11 +1,8 @@
 name: Analyze pnpm packages
 description: >
-  Unified monorepo release analyzer. Reads version from root package.json,
-  checks whether a v${version} GitHub Release with all expected tarballs already
-  exists, and emits a JSON matrix of packages to publish if needed.
+  Unified monorepo release analyzer. Reads version from root package.json, checks whether a v${version} GitHub Release with all expected tarballs already exists, and emits a JSON matrix of packages to publish if needed.
 
-  Only the 'release' target is supported. Registry targets (ghcr, npm, gcp)
-  have been removed.
+  Only the 'release' target is supported. Registry targets (ghcr, npm, gcp) have been removed.
 
 inputs:
   dry_run:
@@ -22,11 +19,10 @@ inputs:
     default: "."
   github_repository:
     description: >
-      Owner/repository for GitHub Release checks. Defaults to the workflow's
-      github.repository (set automatically by GitHub Actions).
+      Owner/repository for GitHub Release checks. Defaults to the workflow's github.repository (set automatically by GitHub Actions).
+
     required: false
     default: "${{ github.repository }}"
-
 outputs:
   matrix:
     description: JSON matrix of packages to publish
@@ -34,7 +30,6 @@ outputs:
   has_packages:
     description: Whether there are packages to publish (true/false)
     value: ${{ steps.analyze.outputs.has_packages }}
-
 runs:
   using: composite
   steps:

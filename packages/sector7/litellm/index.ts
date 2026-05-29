@@ -1,3 +1,4 @@
+export { LiteLLMApiKey, LiteLLMTeam } from "./admin.ts";
 export { generateLiteLLMConfig } from "./config.ts";
 export type {
 	BuildLiteLLMTeamScopedModelGroupsArgs,
@@ -19,6 +20,5 @@ export type {
 	LiteLLMTeamCapability,
 	LiteLLMTeamDefinition,
 } from "./config-types.ts";
-export { LiteLLMApiKey, LiteLLMTeam } from "./admin.ts";
 export { LiteLLMProxy } from "./litellm-proxy.ts";
 export { buildLiteLLMTeamScopedModelGroups } from "./team-plan.ts";

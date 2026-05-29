@@ -50,7 +50,11 @@ describe("generateMonitorScript", () => {
 	it("embeds monitor config as JSON", () => {
 		const script = generateMonitorScript([
 			{ id: "grafana", url: "https://grafana.example.com/healthz" },
-			{ id: "api", url: "https://api.example.com/healthz", expectedCodes: [200, 204] },
+			{
+				id: "api",
+				url: "https://api.example.com/healthz",
+				expectedCodes: [200, 204],
+			},
 		]);
 		expect(script).toContain("grafana");
 		expect(script).toContain("https://grafana.example.com/healthz");
