@@ -248,7 +248,8 @@ create-key)
   existing_hash=$(find_key_by_alias "$LITELLM_KEY_ALIAS" 2>/dev/null) || true
   if [[ -n $existing_hash ]]; then
     echo "Key with alias '$LITELLM_KEY_ALIAS' already exists (hash: ${existing_hash:0:12}...), deleting for replacement" >&2
-    LITELLM_KEY_ID=$existing_hash "$0" delete-key
+    del_body=$(printf '{"keys":["%s"]}' "$existing_hash")
+    run_proxy_python "$(b64 "$del_body")" "/key/delete" >/dev/null
   fi
 
   # Key not found — create it.
