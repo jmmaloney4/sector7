@@ -127,12 +127,18 @@ except Exception as exc:
     print(str(exc), file=sys.stderr)
     sys.exit(1)
 
+if not isinstance(data, (list, dict)):
+    print("unexpected /team/list response format", file=sys.stderr)
+    sys.exit(1)
+
 teams = data if isinstance(data, list) else data.get("teams", data.get("data", []))
 if not isinstance(teams, list):
     print("unexpected /team/list response format", file=sys.stderr)
     sys.exit(1)
 
 for team in teams:
+    if not isinstance(team, dict):
+        continue
     if search_id and team.get("team_id") == search_id:
         print(team["team_id"])
         sys.exit(0)
@@ -162,6 +168,7 @@ import json
 import sys
 import urllib.error
 import urllib.request
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 master_key = base64.b64decode(sys.argv[1]).decode()
 port = int(sys.argv[2])
@@ -179,13 +186,18 @@ except Exception as exc:
     print(str(exc), file=sys.stderr)
     sys.exit(1)
 
+if not isinstance(data, (list, dict)):
+    print("unexpected /key/list response format", file=sys.stderr)
+    sys.exit(1)
+
 keys = data.get("keys", data) if isinstance(data, dict) else data
 if not isinstance(keys, list):
     print("unexpected /key/list response format", file=sys.stderr)
     sys.exit(1)
 
-# Check each key's info for matching alias
-for key_hash in keys:
+
+def check_key(key_hash):
+    """Return (key_hash, info_dict) or (key_hash, None) on failure."""
     info_req = urllib.request.Request(
         f"http://localhost:{port}/key/info?key={key_hash}",
         headers={"Authorization": f"Bearer {master_key}"},
@@ -194,14 +206,24 @@ for key_hash in keys:
         with urllib.request.urlopen(info_req, timeout=15) as resp:
             info_data = json.loads(resp.read().decode())
     except Exception:
-        continue
+        return key_hash, None
+    if not isinstance(info_data, dict):
+        return key_hash, None
+    return key_hash, info_data.get("info", info_data)
 
-    info = info_data.get("info", info_data)
-    if info.get("key_alias") == search_alias:
-        token = info.get("token", "")
-        if token:
-            print(token)
-            sys.exit(0)
+
+# Check key info in parallel for matching alias
+with ThreadPoolExecutor(max_workers=min(len(keys), 8)) as pool:
+    futures = {pool.submit(check_key, kh): kh for kh in keys}
+    for future in as_completed(futures):
+        _, info = future.result()
+        if not isinstance(info, dict):
+            continue
+        if info.get("key_alias") == search_alias:
+            token = info.get("token", "")
+            if token:
+                print(token)
+                sys.exit(0)
 
 sys.exit(1)
 PYEOF
