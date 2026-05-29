@@ -241,6 +241,11 @@ export function generateLiteLLMConfig(args: {
 			litellmParams.model = deployment.providerModel;
 			if (envVar) {
 				litellmParams.api_key = `os.environ/${envVar}`;
+			} else if (!provider.hasApiKey) {
+				// Provider has no API key (e.g., internal cluster proxy).
+				// LiteLLM's OpenAI SDK wrapper requires api_key to be set even
+				// if the upstream doesn't validate it. Inject a placeholder.
+				litellmParams.api_key = "no-key-required";
 			}
 			addIfDefined(
 				litellmParams,

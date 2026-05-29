@@ -166,7 +166,7 @@ describe("generateLiteLLMConfig", () => {
 		expect(codingParams.api_base).toBe(
 			"http://codex-proxy.default.svc.cluster.local:9879",
 		);
-		expect(codingParams.api_key).toBeUndefined();
+  expect(codingParams.api_key).toBe("no-key-required");
 		expect(codingParams.stream_timeout).toBe(45);
 		expect(codingInfo.team_id).toBe("personal");
 		expect(codingInfo.team_public_model_name).toBe("coding");
