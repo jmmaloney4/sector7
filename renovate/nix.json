@@ -38,6 +38,15 @@
 			],
 			"datasourceTemplate": "github-releases",
 			"depNameTemplate": "{{{owner}}}/{{{repo}}}"
+		},
+		{
+			"customType": "regex",
+			"description": "Update nix run github:owner/repo/version pins in shell scripts",
+			"managerFilePatterns": ["/\\.sh$/"],
+			"matchStrings": [
+				"nix (?:-\\w+ )*run github:(?<depName>[^#/]+/[^#/]+)/(?<currentValue>v?\\d+(?:\\.\\d+)*)"
+			],
+			"datasourceTemplate": "github-tags"
 		}
 	]
 }
