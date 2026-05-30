@@ -17,6 +17,6 @@
 		"tests/**/*.ts",
 		"examples/**/*.ts",
 		"vitest.config.ts",
-		"**/barrel-guard.ts"
+		"**/barrel-guard*.ts"
 	]
 }

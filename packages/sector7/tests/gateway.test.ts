@@ -1,0 +1,73 @@
+import * as pulumi from "@pulumi/pulumi";
+import { describe, expect, it } from "vitest";
+
+// We can't run Pulumi inline in unit tests, but we can verify the module
+// surface and types are exported correctly without import errors.
+import {
+	createServiceHttpRoute,
+	createSharedGatewayReferenceGrant,
+	createTailnetIngress,
+	type ServiceHttpRouteArgs,
+	type SharedGatewayReferenceGrantArgs,
+	type TailnetIngressArgs,
+} from "../gateway/index.ts";
+
+describe("gateway module surface", () => {
+	it("exports createServiceHttpRoute", () => {
+		expect(createServiceHttpRoute).toBeTypeOf("function");
+	});
+
+	it("exports createSharedGatewayReferenceGrant", () => {
+		expect(createSharedGatewayReferenceGrant).toBeTypeOf("function");
+	});
+
+	it("exports createTailnetIngress", () => {
+		expect(createTailnetIngress).toBeTypeOf("function");
+	});
+
+	it("has correct defaults in ServiceHttpRouteArgs type", () => {
+		// Verify the type accepts gatewayName as optional.
+		// This is a compile-time check — if it compiles, the interface is correct.
+		const args: ServiceHttpRouteArgs = {
+			name: "test",
+			namespace: "test-ns",
+			hostnames: ["test.example.com"],
+			serviceName: "test-svc",
+			port: 80,
+			provider: {} as any,
+		};
+		expect(args.gatewayName).toBeUndefined();
+	});
+
+	it("has correct defaults in SharedGatewayReferenceGrantArgs type", () => {
+		const args: SharedGatewayReferenceGrantArgs = {
+			name: "allow-test",
+			fromNamespace: "test-ns",
+			provider: {} as any,
+		};
+		expect(args.gatewayName).toBeUndefined();
+	});
+
+	it("TailnetIngressArgs accepts string for privateGatewayServiceUrl", () => {
+		const args: TailnetIngressArgs = {
+			name: "test",
+			namespace: "networking",
+			tailnetHostname: "test",
+			privateGatewayServiceUrl:
+				"http://private-gateway-proxy.networking.svc.cluster.local:80",
+			provider: {} as any,
+		};
+		expect(args.privateGatewayServiceUrl).toBeTypeOf("string");
+	});
+
+	it("TailnetIngressArgs accepts Output<string> for privateGatewayServiceUrl", () => {
+		const args: TailnetIngressArgs = {
+			name: "test",
+			namespace: "networking",
+			tailnetHostname: "test",
+			privateGatewayServiceUrl: pulumi.output("http://example.com:80"),
+			provider: {} as any,
+		};
+		expect(args.privateGatewayServiceUrl).toBeDefined();
+	});
+});

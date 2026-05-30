@@ -62,6 +62,10 @@
 		"./pulumi-config": {
 			"types": "./dist/pulumi-config/index.d.ts",
 			"default": "./dist/pulumi-config/index.js"
+		},
+		"./gateway": {
+			"types": "./dist/gateway/index.d.ts",
+			"default": "./dist/gateway/index.js"
 		}
 	},
 	"files": [
