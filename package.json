@@ -1,7 +1,7 @@
 {
 	"name": "@jmmaloney4/sector7",
 	"private": true,
-	"version": "0.10.7",
+	"version": "0.10.8",
 	"description": "Sector7 monorepo",
 	"license": "MPL-2.0",
 	"workspaces": [

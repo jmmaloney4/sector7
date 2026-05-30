@@ -242,10 +242,11 @@ export function generateLiteLLMConfig(args: {
 			if (envVar) {
 				litellmParams.api_key = `os.environ/${envVar}`;
 			} else if (!provider.hasApiKey) {
-				// Provider has no API key (e.g., internal cluster proxy).
-				// LiteLLM's OpenAI SDK wrapper requires api_key to be set even
-				// if the upstream doesn't validate it. Inject a placeholder.
-				litellmParams.api_key = "no-key-required";
+				throw new Error(
+					`LiteLLM provider '${deployment.provider}' has no apiKey and no envVar. ` +
+						`Every provider must supply an apiKey (or envVar). ` +
+						`If the upstream doesn't validate keys, pass the upstream's admin/shared key as apiKey.`,
+				);
 			}
 			addIfDefined(
 				litellmParams,

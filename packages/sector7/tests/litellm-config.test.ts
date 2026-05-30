@@ -115,7 +115,10 @@ describe("generateLiteLLMConfig", () => {
 
 		const generated = generateLiteLLMConfig({
 			providers: {
-				codex: { apiBase: "http://codex-proxy.default.svc.cluster.local:9879" },
+				codex: {
+					apiBase: "http://codex-proxy.default.svc.cluster.local:9879",
+					hasApiKey: true,
+				},
 				openai: { hasApiKey: true },
 			},
 			deployments: [
@@ -154,7 +157,10 @@ describe("generateLiteLLMConfig", () => {
 			},
 		});
 
-		expect(generated.providerEnvVars).toEqual(["OPENAI_API_KEY"]);
+		expect(generated.providerEnvVars).toEqual([
+			"CODEX_API_KEY",
+			"OPENAI_API_KEY",
+		]);
 
 		const parsed = parse(generated.configYaml) as Record<string, unknown>;
 		const modelList = parsed.model_list as Array<Record<string, unknown>>;
@@ -166,7 +172,7 @@ describe("generateLiteLLMConfig", () => {
 		expect(codingParams.api_base).toBe(
 			"http://codex-proxy.default.svc.cluster.local:9879",
 		);
-  expect(codingParams.api_key).toBe("no-key-required");
+		expect(codingParams.api_key).toBe("os.environ/CODEX_API_KEY");
 		expect(codingParams.stream_timeout).toBe(45);
 		expect(codingInfo.team_id).toBe("personal");
 		expect(codingInfo.team_public_model_name).toBe("coding");
@@ -236,5 +242,31 @@ describe("buildLiteLLMTeamScopedModelGroups", () => {
 				],
 			}),
 		).toThrow(/duplicate capability/i);
+	});
+
+	it("throws when a provider has no apiKey and no envVar", () => {
+		expect(() =>
+			generateLiteLLMConfig({
+				providers: {
+					codex: {
+						apiBase: "http://codex-proxy.default.svc.cluster.local:9879",
+					},
+				},
+				deployments: [
+					{
+						id: "codex-main",
+						provider: "codex",
+						providerModel: "openai/gpt-5-codex",
+						mode: "chat",
+					},
+				],
+				modelGroups: [
+					{
+						name: "personal::coding",
+						deploymentIds: ["codex-main"],
+					},
+				],
+			}),
+		).toThrow(/no apiKey and no envVar/);
 	});
 });
