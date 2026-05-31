@@ -79,7 +79,9 @@ describe("UptimeMonitor", () => {
 		await resolveOutput(monitor.worker.id);
 		await resolveOutput(monitor.cronTrigger.id);
 
-		expect(findResource("basic-d1")).toBeDefined();
+		const d1 = findResource("basic-d1");
+		expect(d1).toBeDefined();
+		expect(d1?.inputs.readReplication).toEqual({ mode: "disabled" });
 		expect(findResource("basic-kv")).toBeDefined();
 		expect(findResource("basic-worker")).toBeDefined();
 		expect(findResource("basic-cron")).toBeDefined();

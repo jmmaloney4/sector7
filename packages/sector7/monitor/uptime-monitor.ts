@@ -272,6 +272,7 @@ export class UptimeMonitor extends pulumi.ComponentResource {
 					{
 						accountId: args.accountId,
 						name: dbName,
+						readReplication: { mode: "disabled" },
 					},
 					resourceOpts,
 				);
