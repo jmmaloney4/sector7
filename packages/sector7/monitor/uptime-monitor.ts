@@ -272,6 +272,8 @@ export class UptimeMonitor extends pulumi.ComponentResource {
 					{
 						accountId: args.accountId,
 						name: dbName,
+						// Explicitly set to avoid the @pulumi/cloudflare >= 6.17.0
+						// null-serialization bug on D1 updates after refresh.
 						readReplication: { mode: "disabled" },
 					},
 					resourceOpts,
