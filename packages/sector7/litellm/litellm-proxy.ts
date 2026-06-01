@@ -203,21 +203,31 @@ export class LiteLLMProxy extends pulumi.ComponentResource {
 				.filter((provider) => provider.hasApiKey && provider.envVar)
 				.map((provider) => provider.envVar!),
 		);
-		const extraEnv = pulumi.all(
-			extraEnvEntries.map(([name, value]) =>
-				pulumi.output(value).apply((resolvedValue) => ({
-					name,
-					value: resolvedValue,
-				})),
-			),
-		);
+		const extraEnv = pulumi
+			.all(
+				extraEnvEntries.map(([name, value]) =>
+					pulumi.output(value).apply((resolvedValue) =>
+						resolvedValue == null ? undefined : { name, value: resolvedValue },
+					),
+				),
+			)
+			.apply((entries) =>
+				entries.filter(
+					(entry): entry is { name: string; value: string } => entry !== undefined,
+				),
+			);
 		const extraSecretEnv = pulumi
 			.all(
 				extraSecretEnvEntries.map(([name, value]) =>
-					pulumi.output(value).apply((resolvedValue) => [name, resolvedValue] as const),
+					pulumi.output(value).apply((resolvedValue) =>
+						resolvedValue == null ? undefined : ([name, resolvedValue] as const),
+					),
 				),
 			)
-			.apply((entries) => Object.fromEntries(entries));
+			.apply((entries) =>
+				Object.fromEntries(entries.filter((entry): entry is readonly [string, string] => entry !== undefined)),
+			);
+		const extraSecretEnvKeys = extraSecretEnv.apply((resolvedEnv) => Object.keys(resolvedEnv));
 
 		const configYaml = pulumi
 			.all([resolvedProviderConfigs, resolvedDeployments, replicas])
@@ -384,6 +394,7 @@ export class LiteLLMProxy extends pulumi.ComponentResource {
 				this.runtimeSecret.metadata.name,
 				this.providerSecret.metadata.name,
 				extraEnv,
+				extraSecretEnvKeys,
 			])
 			.apply(
 				([
@@ -391,6 +402,7 @@ export class LiteLLMProxy extends pulumi.ComponentResource {
 					runtimeSecretName,
 					providerSecretName,
 					extraEnvVars,
+					resolvedExtraSecretEnvKeys,
 				]) => {
 					validateExtraEnvNameCollisions(
 						extraEnvEntries.map(([name]) => name),
@@ -425,7 +437,7 @@ export class LiteLLMProxy extends pulumi.ComponentResource {
 								},
 							},
 						})),
-						...extraSecretEnvEntries.map(([name]) => ({
+						...resolvedExtraSecretEnvKeys.map((name) => ({
 							name,
 							valueFrom: {
 								secretKeyRef: {

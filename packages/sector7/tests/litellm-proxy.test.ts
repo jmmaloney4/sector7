@@ -269,6 +269,58 @@ describe("LiteLLMProxy", () => {
 		);
 	});
 
+	it("omits nullish resolved extra env values from rendered resources", async () => {
+		const proxy = new LiteLLMProxy("filtered-proxy", {
+			namespace: "litellm-prod",
+			providers: { anthropic: { apiKey: pulumi.secret("anthropic-secret") } },
+			deployments: [
+				{
+					id: "anthropic-smart",
+					provider: "anthropic",
+					providerModel: "anthropic/claude-sonnet-4-20250514",
+				},
+			],
+			modelGroups: [{ name: "smart", deploymentIds: ["anthropic-smart"] }],
+			databaseUrl: pulumi.secret("postgres://db-user:***@db.internal/litellm"),
+			extraEnv: {
+				LANGFUSE_TRACING_ENVIRONMENT: "prod",
+				IGNORED_ENV: undefined as unknown as pulumi.Input<string>,
+			},
+			extraSecretEnv: {
+				LANGFUSE_SECRET_KEY: pulumi.secret("sk-lf-test"),
+				IGNORED_SECRET: undefined as unknown as pulumi.Input<string>,
+			},
+		});
+
+		await Promise.all([
+			resolveOutput(proxy.runtimeSecret.id),
+			resolveOutput(proxy.deployment.id),
+		]);
+
+		const runtimeSecret = findResource("filtered-proxy-runtime");
+		const runtimeSecretData = runtimeSecret?.inputs.stringData as {
+			value: Record<string, string>;
+		};
+		expect(runtimeSecretData.value).toMatchObject({
+			LANGFUSE_SECRET_KEY: "sk-lf-test",
+		});
+		expect(runtimeSecretData.value).not.toHaveProperty("IGNORED_SECRET");
+
+		const deployment = findResource("filtered-proxy-deployment");
+		const spec = (await resolveRecord(
+			deployment?.inputs.spec as Record<string, unknown> | undefined,
+		)) as {
+			template: { spec: { containers: Array<{ env?: Array<Record<string, unknown>> }> } };
+		};
+		const env = spec.template.spec.containers[0]?.env ?? [];
+		expect(env.find((entry) => entry.name === "LANGFUSE_TRACING_ENVIRONMENT")).toMatchObject({
+			name: "LANGFUSE_TRACING_ENVIRONMENT",
+			value: "prod",
+		});
+		expect(env.find((entry) => entry.name === "IGNORED_ENV")).toBeUndefined();
+		expect(env.find((entry) => entry.name === "IGNORED_SECRET")).toBeUndefined();
+	});
+
 	it("creates admin command resources for teams and api keys", async () => {
 		const team = new LiteLLMTeam("personal-team", {
 			proxyNamespace: "litellm-prod",
