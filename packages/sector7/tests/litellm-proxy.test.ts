@@ -1,7 +1,7 @@
 import * as pulumi from "@pulumi/pulumi";
 import { beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { LiteLLMApiKey, LiteLLMTeam } from "../litellm/admin.ts";
-import { LiteLLMProxy } from "../litellm/litellm-proxy.ts";
+import { LiteLLMProxy, validateExtraEnvNameCollisions } from "../litellm/litellm-proxy.ts";
 import {
 	findResource,
 	installPulumiMocks,
@@ -244,27 +244,28 @@ describe("LiteLLMProxy", () => {
 		});
 	});
 
-	it("rejects collisions between provider secrets and extra env", () => {
-		expect(
-			() =>
-				new LiteLLMProxy("conflict-proxy", {
-					namespace: "litellm-prod",
-					providers: { anthropic: { apiKey: pulumi.secret("anthropic-secret") } },
-					deployments: [
-						{
-							id: "anthropic-smart",
-							provider: "anthropic",
-							providerModel: "anthropic/claude-sonnet-4-20250514",
-						},
-					],
-					modelGroups: [{ name: "smart", deploymentIds: ["anthropic-smart"] }],
-					databaseUrl: pulumi.secret("postgres://db-user:***@db.internal/litellm"),
-					extraEnv: {
-						ANTHROPIC_API_KEY: "should-not-override-provider-secret",
-					},
-				}),
+	it("rejects collisions between provider secrets and extra env names", () => {
+		expect(() =>
+			validateExtraEnvNameCollisions(
+				["ANTHROPIC_API_KEY"],
+				[],
+				["ANTHROPIC_API_KEY"],
+			),
 		).toThrow(
 			"extraEnv cannot override provider environment variable 'ANTHROPIC_API_KEY'",
+		);
+	});
+
+	it("rejects collisions against provider env vars resolved from outputs", async () => {
+		const resolvedProviderEnvVar = await resolveOutput(pulumi.output("LANGFUSE_SECRET_KEY"));
+		expect(() =>
+			validateExtraEnvNameCollisions(
+				[],
+				["LANGFUSE_SECRET_KEY"],
+				[resolvedProviderEnvVar],
+			),
+		).toThrow(
+			"extraSecretEnv cannot override provider environment variable 'LANGFUSE_SECRET_KEY'",
 		);
 	});
 

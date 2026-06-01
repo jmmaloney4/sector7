@@ -46,25 +46,6 @@ function assertUniqueEnvNames(
 	}
 }
 
-function getStaticProviderEnvVarNames(
-	providers: Record<string, LiteLLMProviderConfig>,
-): string[] {
-	return Object.entries(providers)
-		.flatMap(([providerName, provider]) => {
-			if (provider.apiKey === undefined) {
-				return [];
-			}
-			return [
-				getProviderEnvVar(providerName, {
-					hasApiKey: true,
-					envVar:
-						typeof provider.envVar === "string" ? provider.envVar : undefined,
-				}) ?? `${providerName.toUpperCase()}_API_KEY`,
-			];
-		})
-		.filter((name): name is string => Boolean(name));
-}
-
 function assertNoEnvOverlap(
 	names: string[],
 	conflictingNames: Iterable<string>,
@@ -76,6 +57,35 @@ function assertNoEnvOverlap(
 			throw new Error(`${context} cannot override provider environment variable '${name}'`);
 		}
 	}
+}
+
+export function validateExtraEnvNameCollisions(
+	extraEnvNames: string[],
+	extraSecretEnvNames: string[],
+	providerEnvVarNames: Iterable<string> = [],
+): void {
+	assertUniqueEnvNames(
+		extraEnvNames,
+		"LiteLLMProxy extraEnv",
+		RESERVED_RUNTIME_ENV_VARS,
+	);
+	assertUniqueEnvNames(
+		extraSecretEnvNames,
+		"LiteLLMProxy extraSecretEnv",
+		RESERVED_RUNTIME_ENV_VARS,
+	);
+	const extraEnvKeys = new Set(extraEnvNames);
+	for (const name of extraSecretEnvNames) {
+		if (extraEnvKeys.has(name)) {
+			throw new Error(`LiteLLMProxy extraEnv and extraSecretEnv both define '${name}'`);
+		}
+	}
+	assertNoEnvOverlap(extraEnvNames, providerEnvVarNames, "LiteLLMProxy extraEnv");
+	assertNoEnvOverlap(
+		extraSecretEnvNames,
+		providerEnvVarNames,
+		"LiteLLMProxy extraSecretEnv",
+	);
 }
 
 function resolveProviderConfig(
@@ -172,33 +182,9 @@ export class LiteLLMProxy extends pulumi.ComponentResource {
 		);
 		const extraEnvEntries = Object.entries(args.extraEnv ?? {});
 		const extraSecretEnvEntries = Object.entries(args.extraSecretEnv ?? {});
-		const staticProviderEnvVarNames = getStaticProviderEnvVarNames(args.providers);
-		assertUniqueEnvNames(
+		validateExtraEnvNameCollisions(
 			extraEnvEntries.map(([name]) => name),
-			"LiteLLMProxy extraEnv",
-			RESERVED_RUNTIME_ENV_VARS,
-		);
-		assertUniqueEnvNames(
 			extraSecretEnvEntries.map(([name]) => name),
-			"LiteLLMProxy extraSecretEnv",
-			RESERVED_RUNTIME_ENV_VARS,
-		);
-		for (const [name] of extraSecretEnvEntries) {
-			if (extraEnvEntries.some(([plainName]) => plainName === name)) {
-				throw new Error(
-					`LiteLLMProxy extraEnv and extraSecretEnv both define '${name}'`,
-				);
-			}
-		}
-		assertNoEnvOverlap(
-			extraEnvEntries.map(([name]) => name),
-			staticProviderEnvVarNames,
-			"LiteLLMProxy extraEnv",
-		);
-		assertNoEnvOverlap(
-			extraSecretEnvEntries.map(([name]) => name),
-			staticProviderEnvVarNames,
-			"LiteLLMProxy extraSecretEnv",
 		);
 
 		const providerSecretName = `${name}-provider-keys`;
@@ -225,6 +211,13 @@ export class LiteLLMProxy extends pulumi.ComponentResource {
 				})),
 			),
 		);
+		const extraSecretEnv = pulumi
+			.all(
+				extraSecretEnvEntries.map(([name, value]) =>
+					pulumi.output(value).apply((resolvedValue) => [name, resolvedValue] as const),
+				),
+			)
+			.apply((entries) => Object.fromEntries(entries));
 
 		const configYaml = pulumi
 			.all([resolvedProviderConfigs, resolvedDeployments, replicas])
@@ -342,18 +335,12 @@ export class LiteLLMProxy extends pulumi.ComponentResource {
 		);
 
 		const runtimeSecretData = pulumi
-			.all([
-				this.masterKey,
-				effectiveDatabaseUrl,
-				pulumi.output(args.extraSecretEnv ?? {}),
-			])
-			.apply<Record<string, string>>(
-				([masterKey, databaseUrl, extraSecretEnv]) => ({
-					LITELLM_MASTER_KEY: masterKey,
-					DATABASE_URL: databaseUrl,
-					...extraSecretEnv,
-				}),
-			);
+			.all([this.masterKey, effectiveDatabaseUrl, extraSecretEnv])
+			.apply(([masterKey, databaseUrl, resolvedExtraSecretEnv]) => ({
+				LITELLM_MASTER_KEY: masterKey,
+				DATABASE_URL: databaseUrl,
+				...resolvedExtraSecretEnv,
+			}));
 
 		this.runtimeSecret = new k8s.core.v1.Secret(
 			`${name}-runtime`,
@@ -405,6 +392,11 @@ export class LiteLLMProxy extends pulumi.ComponentResource {
 					providerSecretName,
 					extraEnvVars,
 				]) => {
+					validateExtraEnvNameCollisions(
+						extraEnvEntries.map(([name]) => name),
+						extraSecretEnvEntries.map(([name]) => name),
+						providerSecretEnvVars,
+					);
 					return [
 						{
 							name: "LITELLM_MASTER_KEY",
