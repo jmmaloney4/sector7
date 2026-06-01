@@ -192,6 +192,24 @@ export interface LiteLLMProxyArgs {
 	redis?: LiteLLMRedisPolicy;
 	service?: LiteLLMServiceSpec;
 	cloudSqlAuthProxy?: CloudSqlAuthProxy;
+	/**
+	 * Additional non-secret environment variables injected directly into the
+	 * LiteLLM container.
+	 *
+	 * Use this for runtime flags and metadata such as
+	 * `LANGFUSE_TRACING_ENVIRONMENT`. Values are rendered onto the Deployment,
+	 * so do not pass secrets here.
+	 */
+	extraEnv?: Record<string, pulumi.Input<string>>;
+	/**
+	 * Additional secret environment variables injected into the LiteLLM
+	 * container via the component-managed runtime Secret.
+	 *
+	 * Use this for integration credentials such as `LANGFUSE_PUBLIC_KEY`,
+	 * `LANGFUSE_SECRET_KEY`, or other callback-specific secrets that should not
+	 * be stored in git-tracked config.
+	 */
+	extraSecretEnv?: Record<string, pulumi.Input<string>>;
 	resources?: k8s.types.input.core.v1.ResourceRequirements;
 	extraLiteLLMSettings?: Record<string, unknown>;
 	extraGeneralSettings?: Record<string, unknown>;

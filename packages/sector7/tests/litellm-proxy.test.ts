@@ -1,7 +1,7 @@
 import * as pulumi from "@pulumi/pulumi";
 import { beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { LiteLLMApiKey, LiteLLMTeam } from "../litellm/admin.ts";
-import { LiteLLMProxy } from "../litellm/litellm-proxy.ts";
+import { LiteLLMProxy, validateExtraEnvNameCollisions } from "../litellm/litellm-proxy.ts";
 import {
 	findResource,
 	installPulumiMocks,
@@ -180,6 +180,145 @@ describe("LiteLLMProxy", () => {
 
 		expect(findResource("shared-proxy-ns")).toBeUndefined();
 		expect(await resolveOutput(proxy.namespace)).toBe("shared-services");
+	});
+
+	it("injects extra env and extra secret env into the proxy container", async () => {
+		const proxy = new LiteLLMProxy("observed-proxy", {
+			namespace: "litellm-prod",
+			providers: { anthropic: { apiKey: pulumi.secret("anthropic-secret") } },
+			deployments: [
+				{
+					id: "anthropic-smart",
+					provider: "anthropic",
+					providerModel: "anthropic/claude-sonnet-4-20250514",
+				},
+			],
+			modelGroups: [{ name: "smart", deploymentIds: ["anthropic-smart"] }],
+			databaseUrl: pulumi.secret("postgres://db-user:***@db.internal/litellm"),
+			extraEnv: {
+				LANGFUSE_TRACING_ENVIRONMENT: "prod",
+			},
+			extraSecretEnv: {
+				LANGFUSE_PUBLIC_KEY: pulumi.secret("pk-lf-test"),
+				LANGFUSE_SECRET_KEY: pulumi.secret("sk-lf-test"),
+				LANGFUSE_HOST: "http://langfuse-web.langfuse.svc.cluster.local:3000",
+			},
+		});
+
+		await Promise.all([
+			resolveOutput(proxy.runtimeSecret.id),
+			resolveOutput(proxy.deployment.id),
+		]);
+
+		const runtimeSecret = findResource("observed-proxy-runtime");
+		const runtimeSecretData = runtimeSecret?.inputs.stringData as {
+			value: Record<string, string>;
+		};
+		expect(runtimeSecretData.value).toMatchObject({
+			LANGFUSE_PUBLIC_KEY: "pk-lf-test",
+			LANGFUSE_SECRET_KEY: "sk-lf-test",
+			LANGFUSE_HOST: "http://langfuse-web.langfuse.svc.cluster.local:3000",
+		});
+
+		const deployment = findResource("observed-proxy-deployment");
+		const spec = (await resolveRecord(
+			deployment?.inputs.spec as Record<string, unknown> | undefined,
+		)) as {
+			template: { spec: { containers: Array<{ env?: Array<Record<string, unknown>> }> } };
+		};
+		const env = spec.template.spec.containers[0]?.env ?? [];
+		expect(
+			env.find((entry) => entry.name === "LANGFUSE_TRACING_ENVIRONMENT"),
+		).toMatchObject({
+			name: "LANGFUSE_TRACING_ENVIRONMENT",
+			value: "prod",
+		});
+		expect(env.find((entry) => entry.name === "LANGFUSE_HOST")).toMatchObject({
+			name: "LANGFUSE_HOST",
+			valueFrom: {
+				secretKeyRef: {
+					name: "observed-proxy-runtime",
+					key: "LANGFUSE_HOST",
+				},
+			},
+		});
+	});
+
+	it("rejects collisions between provider secrets and extra env names", () => {
+		expect(() =>
+			validateExtraEnvNameCollisions(
+				["ANTHROPIC_API_KEY"],
+				[],
+				["ANTHROPIC_API_KEY"],
+			),
+		).toThrow(
+			"extraEnv cannot override provider environment variable 'ANTHROPIC_API_KEY'",
+		);
+	});
+
+	it("rejects collisions against provider env vars resolved from outputs", async () => {
+		const resolvedProviderEnvVar = await resolveOutput(pulumi.output("LANGFUSE_SECRET_KEY"));
+		expect(() =>
+			validateExtraEnvNameCollisions(
+				[],
+				["LANGFUSE_SECRET_KEY"],
+				[resolvedProviderEnvVar],
+			),
+		).toThrow(
+			"extraSecretEnv cannot override provider environment variable 'LANGFUSE_SECRET_KEY'",
+		);
+	});
+
+	it("omits nullish resolved extra env values from rendered resources", async () => {
+		const proxy = new LiteLLMProxy("filtered-proxy", {
+			namespace: "litellm-prod",
+			providers: { anthropic: { apiKey: pulumi.secret("anthropic-secret") } },
+			deployments: [
+				{
+					id: "anthropic-smart",
+					provider: "anthropic",
+					providerModel: "anthropic/claude-sonnet-4-20250514",
+				},
+			],
+			modelGroups: [{ name: "smart", deploymentIds: ["anthropic-smart"] }],
+			databaseUrl: pulumi.secret("postgres://db-user:***@db.internal/litellm"),
+			extraEnv: {
+				LANGFUSE_TRACING_ENVIRONMENT: "prod",
+				IGNORED_ENV: undefined as unknown as pulumi.Input<string>,
+			},
+			extraSecretEnv: {
+				LANGFUSE_SECRET_KEY: pulumi.secret("sk-lf-test"),
+				IGNORED_SECRET: undefined as unknown as pulumi.Input<string>,
+			},
+		});
+
+		await Promise.all([
+			resolveOutput(proxy.runtimeSecret.id),
+			resolveOutput(proxy.deployment.id),
+		]);
+
+		const runtimeSecret = findResource("filtered-proxy-runtime");
+		const runtimeSecretData = runtimeSecret?.inputs.stringData as {
+			value: Record<string, string>;
+		};
+		expect(runtimeSecretData.value).toMatchObject({
+			LANGFUSE_SECRET_KEY: "sk-lf-test",
+		});
+		expect(runtimeSecretData.value).not.toHaveProperty("IGNORED_SECRET");
+
+		const deployment = findResource("filtered-proxy-deployment");
+		const spec = (await resolveRecord(
+			deployment?.inputs.spec as Record<string, unknown> | undefined,
+		)) as {
+			template: { spec: { containers: Array<{ env?: Array<Record<string, unknown>> }> } };
+		};
+		const env = spec.template.spec.containers[0]?.env ?? [];
+		expect(env.find((entry) => entry.name === "LANGFUSE_TRACING_ENVIRONMENT")).toMatchObject({
+			name: "LANGFUSE_TRACING_ENVIRONMENT",
+			value: "prod",
+		});
+		expect(env.find((entry) => entry.name === "IGNORED_ENV")).toBeUndefined();
+		expect(env.find((entry) => entry.name === "IGNORED_SECRET")).toBeUndefined();
 	});
 
 	it("creates admin command resources for teams and api keys", async () => {

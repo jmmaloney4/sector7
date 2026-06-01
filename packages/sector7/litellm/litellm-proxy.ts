@@ -20,8 +20,72 @@ type ResolvedDeployment = Omit<LiteLLMModelDeployment, "apiBase"> & {
 	apiBase?: string;
 };
 
+const RESERVED_RUNTIME_ENV_VARS = new Set(["LITELLM_MASTER_KEY", "DATABASE_URL"]);
+
 function toSecretKey(envVar: string): string {
 	return envVar.toLowerCase();
+}
+
+function assertUniqueEnvNames(
+	names: string[],
+	context: string,
+	reserved: Iterable<string> = [],
+): void {
+	const reservedSet = new Set(reserved);
+	const seen = new Set<string>();
+	for (const name of names) {
+		if (seen.has(name)) {
+			throw new Error(`${context} contains duplicate environment variable '${name}'`);
+		}
+		if (reservedSet.has(name)) {
+			throw new Error(
+				`${context} cannot override reserved environment variable '${name}'`,
+			);
+		}
+		seen.add(name);
+	}
+}
+
+function assertNoEnvOverlap(
+	names: string[],
+	conflictingNames: Iterable<string>,
+	context: string,
+): void {
+	const conflictingNameSet = new Set(conflictingNames);
+	for (const name of names) {
+		if (conflictingNameSet.has(name)) {
+			throw new Error(`${context} cannot override provider environment variable '${name}'`);
+		}
+	}
+}
+
+export function validateExtraEnvNameCollisions(
+	extraEnvNames: string[],
+	extraSecretEnvNames: string[],
+	providerEnvVarNames: Iterable<string> = [],
+): void {
+	assertUniqueEnvNames(
+		extraEnvNames,
+		"LiteLLMProxy extraEnv",
+		RESERVED_RUNTIME_ENV_VARS,
+	);
+	assertUniqueEnvNames(
+		extraSecretEnvNames,
+		"LiteLLMProxy extraSecretEnv",
+		RESERVED_RUNTIME_ENV_VARS,
+	);
+	const extraEnvKeys = new Set(extraEnvNames);
+	for (const name of extraSecretEnvNames) {
+		if (extraEnvKeys.has(name)) {
+			throw new Error(`LiteLLMProxy extraEnv and extraSecretEnv both define '${name}'`);
+		}
+	}
+	assertNoEnvOverlap(extraEnvNames, providerEnvVarNames, "LiteLLMProxy extraEnv");
+	assertNoEnvOverlap(
+		extraSecretEnvNames,
+		providerEnvVarNames,
+		"LiteLLMProxy extraSecretEnv",
+	);
 }
 
 function resolveProviderConfig(
@@ -116,6 +180,12 @@ export class LiteLLMProxy extends pulumi.ComponentResource {
 		const resolvedDeployments = pulumi.all(
 			args.deployments.map((deployment) => resolveDeployment(deployment)),
 		);
+		const extraEnvEntries = Object.entries(args.extraEnv ?? {});
+		const extraSecretEnvEntries = Object.entries(args.extraSecretEnv ?? {});
+		validateExtraEnvNameCollisions(
+			extraEnvEntries.map(([name]) => name),
+			extraSecretEnvEntries.map(([name]) => name),
+		);
 
 		const providerSecretName = `${name}-provider-keys`;
 
@@ -133,6 +203,31 @@ export class LiteLLMProxy extends pulumi.ComponentResource {
 				.filter((provider) => provider.hasApiKey && provider.envVar)
 				.map((provider) => provider.envVar!),
 		);
+		const extraEnv = pulumi
+			.all(
+				extraEnvEntries.map(([name, value]) =>
+					pulumi.output(value).apply((resolvedValue) =>
+						resolvedValue == null ? undefined : { name, value: resolvedValue },
+					),
+				),
+			)
+			.apply((entries) =>
+				entries.filter(
+					(entry): entry is { name: string; value: string } => entry !== undefined,
+				),
+			);
+		const extraSecretEnv = pulumi
+			.all(
+				extraSecretEnvEntries.map(([name, value]) =>
+					pulumi.output(value).apply((resolvedValue) =>
+						resolvedValue == null ? undefined : ([name, resolvedValue] as const),
+					),
+				),
+			)
+			.apply((entries) =>
+				Object.fromEntries(entries.filter((entry): entry is readonly [string, string] => entry !== undefined)),
+			);
+		const extraSecretEnvKeys = extraSecretEnv.apply((resolvedEnv) => Object.keys(resolvedEnv));
 
 		const configYaml = pulumi
 			.all([resolvedProviderConfigs, resolvedDeployments, replicas])
@@ -250,10 +345,11 @@ export class LiteLLMProxy extends pulumi.ComponentResource {
 		);
 
 		const runtimeSecretData = pulumi
-			.all([this.masterKey, effectiveDatabaseUrl])
-			.apply<Record<string, string>>(([masterKey, databaseUrl]) => ({
+			.all([this.masterKey, effectiveDatabaseUrl, extraSecretEnv])
+			.apply(([masterKey, databaseUrl, resolvedExtraSecretEnv]) => ({
 				LITELLM_MASTER_KEY: masterKey,
 				DATABASE_URL: databaseUrl,
+				...resolvedExtraSecretEnv,
 			}));
 
 		this.runtimeSecret = new k8s.core.v1.Secret(
@@ -297,36 +393,63 @@ export class LiteLLMProxy extends pulumi.ComponentResource {
 				providerEnvVars,
 				this.runtimeSecret.metadata.name,
 				this.providerSecret.metadata.name,
+				extraEnv,
+				extraSecretEnvKeys,
 			])
-			.apply(([envVars, runtimeSecretName, providerSecretName]) => [
-				{
-					name: "LITELLM_MASTER_KEY",
-					valueFrom: {
-						secretKeyRef: {
-							name: runtimeSecretName,
-							key: "LITELLM_MASTER_KEY",
+			.apply(
+				([
+					providerSecretEnvVars,
+					runtimeSecretName,
+					providerSecretName,
+					extraEnvVars,
+					resolvedExtraSecretEnvKeys,
+				]) => {
+					validateExtraEnvNameCollisions(
+						extraEnvEntries.map(([name]) => name),
+						extraSecretEnvEntries.map(([name]) => name),
+						providerSecretEnvVars,
+					);
+					return [
+						{
+							name: "LITELLM_MASTER_KEY",
+							valueFrom: {
+								secretKeyRef: {
+									name: runtimeSecretName,
+									key: "LITELLM_MASTER_KEY",
+								},
+							},
 						},
-					},
+						{
+							name: "DATABASE_URL",
+							valueFrom: {
+								secretKeyRef: {
+									name: runtimeSecretName,
+									key: "DATABASE_URL",
+								},
+							},
+						},
+						...providerSecretEnvVars.map((envVar) => ({
+							name: envVar,
+							valueFrom: {
+								secretKeyRef: {
+									name: providerSecretName,
+									key: toSecretKey(envVar),
+								},
+							},
+						})),
+						...resolvedExtraSecretEnvKeys.map((name) => ({
+							name,
+							valueFrom: {
+								secretKeyRef: {
+									name: runtimeSecretName,
+									key: name,
+								},
+							},
+						})),
+						...extraEnvVars,
+					];
 				},
-				{
-					name: "DATABASE_URL",
-					valueFrom: {
-						secretKeyRef: {
-							name: runtimeSecretName,
-							key: "DATABASE_URL",
-						},
-					},
-				},
-				...envVars.map((envVar) => ({
-					name: envVar,
-					valueFrom: {
-						secretKeyRef: {
-							name: providerSecretName,
-							key: toSecretKey(envVar),
-						},
-					},
-				})),
-			]);
+			);
 
 		this.deployment = new k8s.apps.v1.Deployment(
 			`${name}-deployment`,
