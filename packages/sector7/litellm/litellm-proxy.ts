@@ -283,13 +283,28 @@ export class LiteLLMProxy extends pulumi.ComponentResource {
 		);
 		// Env vars sourced from externally-managed Secrets (e.g. 1Password operator),
 		// rendered as valueFrom.secretKeyRef. Never enter the component's runtime Secret.
-		const extraSecretRefEnv = pulumi.all(
-			extraSecretRefEnvEntries.map(([envName, ref]) =>
-				pulumi
-					.all([pulumi.output(ref.secretName), pulumi.output(ref.key)])
-					.apply(([secretName, key]) => ({ envName, secretName, key })),
-			),
-		);
+		// Entries whose secretName/key resolve to nullish are dropped, mirroring how
+		// extraEnv/extraSecretEnv handle nullish values, to avoid an invalid secretKeyRef.
+		const extraSecretRefEnv = pulumi
+			.all(
+				extraSecretRefEnvEntries.map(([envName, ref]) =>
+					pulumi
+						.all([pulumi.output(ref.secretName), pulumi.output(ref.key)])
+						.apply(([secretName, key]) =>
+							secretName == null || key == null
+								? undefined
+								: { envName, secretName, key },
+						),
+				),
+			)
+			.apply((entries) =>
+				entries.filter(
+					(
+						entry,
+					): entry is { envName: string; secretName: string; key: string } =>
+						entry !== undefined,
+				),
+			);
 
 		const configYaml = pulumi
 			.all([resolvedProviderConfigs, resolvedDeployments, replicas])
