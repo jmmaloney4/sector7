@@ -157,9 +157,11 @@ export default {${fetchHandler}
 				.run();
 		}
 
-		// Check alert conditions using D1 state. Each monitor's check is
-		// independent (keyed by monitor_id), so run them concurrently.
-		await Promise.all(results.map((result) => checkAndAlert(result, env, ctx)));
+		// Check alert conditions using D1 state. Batched into one SELECT plus one
+		// db.batch() UPSERT so the whole run costs exactly 2 D1 queries regardless
+		// of monitor count, staying well under D1's 50-queries/invocation free-tier
+		// limit (a per-monitor SELECT+UPSERT would fail past ~24 monitors).
+		await checkAndAlertBatch(results, env, ctx);
 	},
 };
 
@@ -211,61 +213,76 @@ async function probe(monitor, env) {
 	};
 }
 
-async function checkAndAlert(result, env, ctx) {
-	let state;
+async function checkAndAlertBatch(results, env, ctx) {
+	if (results.length === 0) return;
 
+	// 1. Read all monitor states in a single SELECT (1 D1 query). Bound params
+	// are capped at 100/statement, so this supports up to 100 monitors per run.
+	const ids = results.map((r) => r.monitor_id);
+	const stateById = new Map();
 	try {
-		const row = await env.DB.prepare(
-			"SELECT consecutive_failures, consecutive_successes, last_status, last_ts FROM monitor_state WHERE monitor_id = ?"
+		const placeholders = ids.map(() => "?").join(", ");
+		const rows = await env.DB.prepare(
+			"SELECT monitor_id, consecutive_failures, consecutive_successes, last_status, last_ts FROM monitor_state WHERE monitor_id IN (" + placeholders + ")"
 		)
-			.bind(result.monitor_id)
-			.first();
-		state = row ?? { consecutive_failures: 0, consecutive_successes: 0, last_status: "healthy", last_ts: null };
+			.bind(...ids)
+			.all();
+		for (const row of (rows.results ?? [])) {
+			stateById.set(row.monitor_id, row);
+		}
 	} catch (e) {
-		// On a transient read error, do NOT fall back to a default "healthy"
-		// state: doing so would clear an active failure streak and overwrite the
-		// real state on the UPSERT below, silently dropping alerts. Skip this
-		// monitor's check and leave the persisted row untouched.
-		console.error("Failed to read monitor state for " + result.monitor_id + ":", e);
+		// On a transient read error, do NOT fall back to default "healthy"
+		// states: doing so would clear active failure streaks and overwrite the
+		// real rows on the UPSERT below, silently dropping alerts. Skip this run
+		// and leave the persisted rows untouched.
+		console.error("Failed to read monitor state:", e);
 		return;
 	}
 
-	if (result.ok) {
-		state.consecutive_failures = 0;
-		state.consecutive_successes++;
-	} else {
-		state.consecutive_failures++;
-		state.consecutive_successes = 0;
-	}
+	// 2. Compute the updated state for each monitor and collect the UPSERT
+	// statements plus any pending webhook alerts.
+	const upsertSql =
+		"INSERT INTO monitor_state (monitor_id, consecutive_failures, consecutive_successes, last_status, last_ts, updated_at)" +
+		" VALUES (?, ?, ?, ?, ?, ?)" +
+		" ON CONFLICT(monitor_id) DO UPDATE SET" +
+		"   consecutive_failures = excluded.consecutive_failures," +
+		"   consecutive_successes = excluded.consecutive_successes," +
+		"   last_status = excluded.last_status," +
+		"   last_ts = excluded.last_ts," +
+		"   updated_at = excluded.updated_at";
 
-	const previousStatus = state.last_status;
+	const writes = [];
+	const alerts = [];
 
-	// Determine new status based on thresholds
-	// Only transition from healthy -> unhealthy after ALERT_THRESHOLD failures
-	// Only transition from unhealthy -> healthy after RECOVERY_THRESHOLD successes
-	if (previousStatus === "healthy" && state.consecutive_failures >= ALERT_THRESHOLD) {
-		state.last_status = "unhealthy";
-	} else if (previousStatus === "unhealthy" && state.consecutive_successes >= RECOVERY_THRESHOLD) {
-		state.last_status = "healthy";
-	}
-	state.last_ts = result.ts;
+	for (const result of results) {
+		const state = stateById.get(result.monitor_id) ?? {
+			consecutive_failures: 0,
+			consecutive_successes: 0,
+			last_status: "healthy",
+			last_ts: null,
+		};
 
-	// Persist updated state to D1 BEFORE firing any webhook. We await the write
-	// (checkAndAlert runs concurrently via Promise.all, so awaiting here does not
-	// serialize monitors) and skip alerting if it fails: a dropped write would
-	// leave stale state and re-fire the same alert on the next run.
-	try {
-		await env.DB.prepare(
-			\`INSERT INTO monitor_state (monitor_id, consecutive_failures, consecutive_successes, last_status, last_ts, updated_at)
-			 VALUES (?, ?, ?, ?, ?, ?)
-			 ON CONFLICT(monitor_id) DO UPDATE SET
-			   consecutive_failures = excluded.consecutive_failures,
-			   consecutive_successes = excluded.consecutive_successes,
-			   last_status = excluded.last_status,
-			   last_ts = excluded.last_ts,
-			   updated_at = excluded.updated_at\`
-		)
-			.bind(
+		if (result.ok) {
+			state.consecutive_failures = 0;
+			state.consecutive_successes++;
+		} else {
+			state.consecutive_failures++;
+			state.consecutive_successes = 0;
+		}
+
+		const previousStatus = state.last_status;
+
+		// Only transition healthy -> unhealthy after ALERT_THRESHOLD failures,
+		// and unhealthy -> healthy after RECOVERY_THRESHOLD successes.
+		if (previousStatus === "healthy" && state.consecutive_failures >= ALERT_THRESHOLD) {
+			state.last_status = "unhealthy";
+		} else if (previousStatus === "unhealthy" && state.consecutive_successes >= RECOVERY_THRESHOLD) {
+			state.last_status = "healthy";
+		}
+		state.last_ts = result.ts;
+
+		writes.push(
+			env.DB.prepare(upsertSql).bind(
 				result.monitor_id,
 				state.consecutive_failures,
 				state.consecutive_successes,
@@ -273,14 +290,25 @@ async function checkAndAlert(result, env, ctx) {
 				state.last_ts,
 				result.ts,
 			)
-			.run();
+		);
+
+		if (previousStatus !== state.last_status) {
+			alerts.push({ result, previousStatus, state });
+		}
+	}
+
+	// 3. Persist all updated state in one db.batch() (1 D1 query) BEFORE firing
+	// any webhook. If the write fails we skip alerting so a dropped write can't
+	// re-fire the same alert on the next run.
+	try {
+		await env.DB.batch(writes);
 	} catch (e) {
-		console.error("Failed to write monitor state for " + result.monitor_id + ":", e);
+		console.error("Failed to write monitor state:", e);
 		return;
 	}
 
-	// Fire webhook on state transitions
-	if (previousStatus !== state.last_status) {
+	// 4. Fire webhooks for transitions, now that state is durably persisted.
+	for (const { result, previousStatus, state } of alerts) {
 		if (state.last_status === "healthy") {
 			ctx.waitUntil(sendWebhook(env, {
 				type: "recovery",

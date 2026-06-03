@@ -76,18 +76,30 @@ the primary key is the only index needed.
 
 ## Alert logic
 
-`checkAndAlert()` in `monitor-script.ts` reads and writes state via SQL instead
-of KV:
+`checkAndAlertBatch()` in `monitor-script.ts` reads and writes state via SQL
+instead of KV, batched across all monitors so a cron run costs a fixed **2 D1
+queries** regardless of monitor count:
 
-- **Read:** `SELECT ... FROM monitor_state WHERE monitor_id = ?`, falling back to
-  a zeroed `healthy` default when no row exists (first run, or after the table is
-  created).
-- **Write:** an `INSERT ... ON CONFLICT(monitor_id) DO UPDATE` UPSERT, kept inside
-  `ctx.waitUntil()` for consistency and future-proofing (it is a cron handler, so
-  `waitUntil` is not strictly required, but it matches the webhook calls and stays
-  correct if the logic is ever reused in a `fetch` handler).
+- **Read:** one `SELECT ... FROM monitor_state WHERE monitor_id IN (?, ?, ...)`
+  for all monitors. Missing rows fall back to a zeroed `healthy` default (first
+  run, or after the table is created). On a read error we log and abort the run
+  without writing — falling back to defaults would clear active streaks and
+  overwrite real rows on the UPSERT, silently dropping alerts.
+- **Write:** one `env.DB.batch([...])` of per-monitor
+  `INSERT ... ON CONFLICT(monitor_id) DO UPDATE` UPSERTs. The write is **awaited
+  before any webhook fires**: a transient write failure would otherwise leave
+  stale state and re-fire the same alert next run (duplicate alerts), so on write
+  failure we log and skip alerting. Webhooks then fire via `ctx.waitUntil()`,
+  only after the state is durably persisted.
 
 The streak-update and threshold-transition logic is otherwise unchanged.
+
+Why batch: D1's free tier allows only **50 queries per Worker invocation**, so a
+per-monitor `SELECT` + `UPSERT` (`2N` queries) would fail past ~24 monitors —
+ironic for a change whose point is fitting the free tier. `db.batch()` sends all
+statements in a single subrequest, counting as one query toward that limit. The
+per-statement bound-parameter cap (100) bounds a single run to ~100 monitors, far
+above realistic homelab scale.
 
 ## Component API
 
@@ -115,12 +127,14 @@ dead validation code.
 
 ## Negative
 
-- More D1 queries per cron run: per monitor, 1 `SELECT` + 1 UPSERT on top of the
-  existing batch `INSERT`. At 1 monitor/minute that is ~4,320 D1 queries/day,
-  well within the 100K-rows-written/day and 5M-rows-read/day free tiers. D1
-  allows 50 queries per Worker invocation on the free tier, so monitor count per
-  run must stay well under 25 (2 queries each) — fine at homelab scale, worth
-  noting before scaling to dozens of monitors in a single component.
+- More D1 queries per cron run: a batched `SELECT` + a batched UPSERT, on top of
+  the existing batch `INSERT` for `probe_results` — **3 D1 queries per run,
+  independent of monitor count**. At 1-minute cadence that is ~4,320 queries/day,
+  well within the 100K-rows-written/day and 5M-rows-read/day free tiers, and the
+  fixed 3 queries/invocation stay far under the 50-queries/invocation free-tier
+  limit. The 100-bound-param cap on the read `IN (...)` clause caps a single
+  component at ~100 monitors (split into multiple statements within one batch if
+  ever needed).
 - Loss of KV's implicit TTL cleanup: `monitor_state` rows persist indefinitely.
   The table is tiny and static (one row per monitor), so no cleanup mechanism is
   added.
@@ -173,8 +187,9 @@ PII.
 
 # Implementation Notes
 
-- `packages/sector7/monitor/monitor-script.ts` — `checkAndAlert()` rewritten to
-  D1 `SELECT` + UPSERT; all `env.KV` references removed.
+- `packages/sector7/monitor/monitor-script.ts` — alert logic rewritten as
+  `checkAndAlertBatch()`: one batched D1 `SELECT` + one `db.batch()` UPSERT, write
+  awaited before webhooks fire; all `env.KV` references removed.
 - `packages/sector7/monitor/uptime-monitor.ts` — `monitor_state` added to
   `DEFAULT_D1_SCHEMA` (now exported for tests); KV namespace creation, binding,
   args, and outputs removed.

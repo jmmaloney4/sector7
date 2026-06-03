@@ -318,10 +318,14 @@ describe("UptimeMonitor", () => {
 		const content = worker?.inputs.content as string;
 		// No KV access anywhere in the generated Worker.
 		expect(content).not.toContain("env.KV");
-		// State is read from and written to the monitor_state D1 table.
+		// State is read from and written to the monitor_state D1 table, batched
+		// into one SELECT + one db.batch() UPSERT (2 D1 queries/run) to stay under
+		// the 50-queries/invocation free-tier limit regardless of monitor count.
 		expect(content).toContain("FROM monitor_state");
+		expect(content).toContain("WHERE monitor_id IN (");
 		expect(content).toContain("INSERT INTO monitor_state");
 		expect(content).toContain("ON CONFLICT(monitor_id) DO UPDATE");
+		expect(content).toContain("env.DB.batch(");
 		// A read failure must not silently reset state (would clear active
 		// alerts), and a write failure must abort before the webhook fires
 		// (otherwise stale state would re-fire the same alert next run).
