@@ -157,10 +157,9 @@ export default {${fetchHandler}
 				.run();
 		}
 
-		// Check alert conditions for each monitor using D1 state
-		for (const result of results) {
-			await checkAndAlert(result, env, ctx);
-		}
+		// Check alert conditions using D1 state. Each monitor's check is
+		// independent (keyed by monitor_id), so run them concurrently.
+		await Promise.all(results.map((result) => checkAndAlert(result, env, ctx)));
 	},
 };
 
@@ -269,7 +268,7 @@ async function checkAndAlert(result, env, ctx) {
 				state.consecutive_successes,
 				state.last_status,
 				state.last_ts,
-				new Date().toISOString(),
+				result.ts,
 			)
 			.run()
 			.catch((e) => console.error("Failed to write monitor state for " + result.monitor_id + ":", e))
