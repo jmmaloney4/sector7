@@ -13,8 +13,8 @@ export type MonitorConfig = MonitorTarget;
  *
  * @remarks
  * Creates a Cloudflare Worker with cron trigger that probes HTTP endpoints,
- * stores results in D1, tracks failure streaks in KV, and fires webhook
- * alerts on state transitions.
+ * stores results in D1, tracks failure streaks in a D1 `monitor_state` table,
+ * and fires webhook alerts on state transitions.
  *
  * @example
  * ```typescript
@@ -82,24 +82,14 @@ export interface UptimeMonitorArgs {
 	d1DatabaseId?: pulumi.Input<string>;
 
 	/**
-	 * KV namespace title when creating a new namespace.
-	 * @default "<name>-state"
-	 */
-	kvNamespaceTitle?: pulumi.Input<string>;
-
-	/**
-	 * Existing KV namespace ID to use instead of creating one.
-	 * When set, `kvNamespaceTitle` is ignored.
-	 */
-	kvNamespaceId?: pulumi.Input<string>;
-
-	/**
 	 * D1 probe_results table CREATE statement.
 	 *
 	 * Override to customize the schema (add columns, change indexes).
 	 * The Worker script expects at minimum the columns referenced in the
 	 * default schema.
-	 * @default built-in schema with ts, monitor_id, url, ok, status, latency_ms, error, region_hint
+	 * @default built-in schema: a `probe_results` table (ts, monitor_id, url, ok,
+	 * status, latency_ms, error, region_hint) and a `monitor_state` table holding
+	 * per-monitor failure-streak alert state.
 	 *
 	 * Applied automatically during `pulumi up` via the D1 REST API.
 	 * Re-applied when the SQL content changes.
@@ -136,7 +126,13 @@ export interface UptimeMonitorArgs {
 	};
 }
 
-const DEFAULT_D1_SCHEMA = [
+/**
+ * Default D1 schema applied during `pulumi up`. Creates the `probe_results`
+ * history table and the `monitor_state` alert-state table (ADR-030).
+ *
+ * Exported for tests; not re-exported from the package barrel.
+ */
+export const DEFAULT_D1_SCHEMA = [
 	"CREATE TABLE IF NOT EXISTS probe_results (",
 	"    id INTEGER PRIMARY KEY AUTOINCREMENT,",
 	"    ts TEXT NOT NULL,",
@@ -151,23 +147,34 @@ const DEFAULT_D1_SCHEMA = [
 	"",
 	"CREATE INDEX IF NOT EXISTS idx_probe_ts ON probe_results(ts);",
 	"CREATE INDEX IF NOT EXISTS idx_probe_monitor_ts ON probe_results(monitor_id, ts);",
+	"",
+	// Per-monitor failure-streak alert state (ADR-030). Replaces the former KV
+	// `streak:<monitor_id>` keys. One row per monitor, always looked up by PK,
+	// so no additional indexes are needed beyond the primary key.
+	"CREATE TABLE IF NOT EXISTS monitor_state (",
+	"    monitor_id TEXT PRIMARY KEY,",
+	"    consecutive_failures INTEGER NOT NULL DEFAULT 0,",
+	"    consecutive_successes INTEGER NOT NULL DEFAULT 0,",
+	"    last_status TEXT NOT NULL DEFAULT 'healthy',",
+	"    last_ts TEXT,",
+	"    updated_at TEXT NOT NULL",
+	");",
 ].join("\n");
 
 /**
  * UptimeMonitor component for synthetic HTTP endpoint monitoring.
  *
  * @remarks
- * ADR-020 implementation:
+ * ADR-020 implementation (ADR-030: state in D1 instead of KV):
  * - Cloudflare Worker with cron trigger probes configured endpoints
  * - D1 stores probe results for querying and analytics
- * - KV tracks failure streak state for alerting
+ * - D1 `monitor_state` table tracks failure streak state for alerting
  * - Webhook alerts fire on healthy-to-unhealthy and unhealthy-to-healthy transitions
  *
  * The component creates:
  * 1. D1 database (or references existing)
- * 2. KV namespace (or references existing)
- * 3. Worker script with embedded monitor configuration
- * 4. Cron trigger for scheduled execution
+ * 2. Worker script with embedded monitor configuration
+ * 3. Cron trigger for scheduled execution
  *
  * @example
  * ```typescript
@@ -201,18 +208,6 @@ export class UptimeMonitor extends pulumi.ComponentResource {
 	 * The D1 database ID (either from created or referenced database).
 	 */
 	public readonly d1DatabaseId: pulumi.Output<string>;
-
-	/**
-	 * The KV namespace for failure streak state.
-	 * Present when the component creates the namespace.
-	 * Undefined when `kvNamespaceId` references an existing namespace.
-	 */
-	public readonly kvNamespace: cloudflare.WorkersKvNamespace | undefined;
-
-	/**
-	 * The KV namespace ID.
-	 */
-	public readonly kvNamespaceId: pulumi.Output<string>;
 
 	/**
 	 * The Worker script running the monitor logic.
@@ -298,27 +293,7 @@ export class UptimeMonitor extends pulumi.ComponentResource {
 			{ parent: this, dependsOn: this.d1Database ? [this.d1Database] : [] },
 		);
 
-		// 2. Create or reference KV namespace
-		if (args.kvNamespaceId) {
-			this.kvNamespaceId = pulumi.output(args.kvNamespaceId);
-			this.kvNamespace = undefined;
-		} else {
-			const kvTitle = pulumi
-				.output(args.kvNamespaceTitle ?? args.name)
-				.apply((n: string) => (n.endsWith("-state") ? n : `${n}-state`));
-
-			this.kvNamespace = new cloudflare.WorkersKvNamespace(
-				`${name}-kv`,
-				{
-					accountId: args.accountId,
-					title: kvTitle,
-				},
-				resourceOpts,
-			);
-			this.kvNamespaceId = this.kvNamespace.id;
-		}
-
-		// 3. Generate Worker script
+		// 2. Generate Worker script
 		// Resolve pulumi.Input<boolean> via .apply() so Output values are
 		// unwrapped before being passed to the synchronous script generator.
 		const scriptContent = pulumi
@@ -330,17 +305,12 @@ export class UptimeMonitor extends pulumi.ComponentResource {
 				}),
 			);
 
-		// 4. Create Worker with D1 and KV bindings
+		// 3. Create Worker with D1 binding
 		const baseBindings: Array<cloudflare.types.input.WorkersScriptBinding> = [
 			{
 				name: "DB",
 				type: "d1",
 				id: this.d1DatabaseId,
-			},
-			{
-				name: "KV",
-				type: "kv_namespace",
-				namespaceId: this.kvNamespaceId,
 			},
 		];
 
@@ -364,7 +334,7 @@ export class UptimeMonitor extends pulumi.ComponentResource {
 			{ parent: this, dependsOn: this.d1Query ? [this.d1Query] : [] },
 		);
 
-		// 5. Create cron trigger for scheduled execution
+		// 4. Create cron trigger for scheduled execution
 		this.cronTrigger = new cloudflare.WorkersCronTrigger(
 			`${name}-cron`,
 			{
@@ -382,8 +352,6 @@ export class UptimeMonitor extends pulumi.ComponentResource {
 			d1Database: this.d1Database,
 			d1DatabaseId: this.d1DatabaseId,
 			d1Query: this.d1Query,
-			kvNamespace: this.kvNamespace,
-			kvNamespaceId: this.kvNamespaceId,
 			worker: this.worker,
 			cronTrigger: this.cronTrigger,
 			workerName: this.workerName,

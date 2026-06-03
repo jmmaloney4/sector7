@@ -1,8 +1,10 @@
 /**
- * Worker script template for uptime monitoring with D1 storage, KV state
- * tracking, and webhook alerting on failure-state transitions.
+ * Worker script template for uptime monitoring with D1 storage for both probe
+ * results and failure-streak alert state, plus webhook alerting on
+ * failure-state transitions.
  *
  * ADR-020: Cloudflare Worker Uptime Monitor
+ * ADR-030: Move alert state from KV to D1 (removes the KV dependency)
  */
 
 /**
@@ -11,7 +13,7 @@
 export interface MonitorTarget {
 	/**
 	 * Unique identifier for this monitor (alphanumeric, dashes).
-	 * Used as monitor_id in D1 and as KV key prefix.
+	 * Used as monitor_id in D1 (both probe_results and monitor_state tables).
 	 */
 	id: string;
 	/** Full URL to probe (e.g., "https://grafana.example.com/healthz"). */
@@ -49,7 +51,7 @@ export interface MonitorTarget {
  * The generated script:
  * 1. Probes each configured endpoint (fetch with timing).
  * 2. Inserts a row into D1 for each probe result.
- * 3. Reads/writes failure streak state from KV.
+ * 3. Reads/writes failure streak state from the D1 monitor_state table.
  * 4. Fires webhook alerts on state transitions (healthy -> unhealthy or vice versa).
  *
  * Alert logic:
@@ -155,7 +157,7 @@ export default {${fetchHandler}
 				.run();
 		}
 
-		// Check alert conditions for each monitor using KV state
+		// Check alert conditions for each monitor using D1 state
 		for (const result of results) {
 			await checkAndAlert(result, env, ctx);
 		}
@@ -211,12 +213,15 @@ async function probe(monitor, env) {
 }
 
 async function checkAndAlert(result, env, ctx) {
-	const kvKey = \`streak:\${result.monitor_id}\`;
 	let state;
 
 	try {
-		const raw = await env.KV.get(kvKey, "json");
-		state = raw ?? { consecutive_failures: 0, consecutive_successes: 0, last_status: "healthy", last_ts: null };
+		const row = await env.DB.prepare(
+			"SELECT consecutive_failures, consecutive_successes, last_status, last_ts FROM monitor_state WHERE monitor_id = ?"
+		)
+			.bind(result.monitor_id)
+			.first();
+		state = row ?? { consecutive_failures: 0, consecutive_successes: 0, last_status: "healthy", last_ts: null };
 	} catch {
 		state = { consecutive_failures: 0, consecutive_successes: 0, last_status: "healthy", last_ts: null };
 	}
@@ -241,8 +246,28 @@ async function checkAndAlert(result, env, ctx) {
 	}
 	state.last_ts = result.ts;
 
-	// Write updated state back to KV (non-blocking)
-	ctx.waitUntil(env.KV.put(kvKey, JSON.stringify(state)));
+	// Write updated state back to D1 via UPSERT (non-blocking)
+	ctx.waitUntil(
+		env.DB.prepare(
+			\`INSERT INTO monitor_state (monitor_id, consecutive_failures, consecutive_successes, last_status, last_ts, updated_at)
+			 VALUES (?, ?, ?, ?, ?, ?)
+			 ON CONFLICT(monitor_id) DO UPDATE SET
+			   consecutive_failures = excluded.consecutive_failures,
+			   consecutive_successes = excluded.consecutive_successes,
+			   last_status = excluded.last_status,
+			   last_ts = excluded.last_ts,
+			   updated_at = excluded.updated_at\`
+		)
+			.bind(
+				result.monitor_id,
+				state.consecutive_failures,
+				state.consecutive_successes,
+				state.last_status,
+				state.last_ts,
+				new Date().toISOString(),
+			)
+			.run()
+	);
 
 	// Fire webhook on state transitions
 	if (previousStatus !== state.last_status) {
