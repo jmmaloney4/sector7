@@ -176,18 +176,6 @@ export interface CloudSqlAuthProxy {
 	>;
 }
 
-/**
- * Reference to a value in an existing Kubernetes Secret, used to inject an
- * environment variable via `secretKeyRef` without the value passing through
- * Pulumi state. See {@link LiteLLMProxyArgs.extraSecretRefEnv}.
- */
-export interface LiteLLMSecretKeyRef {
-	/** Name of the existing Kubernetes Secret to read from. */
-	secretName: pulumi.Input<string>;
-	/** Key within that Secret holding the value. */
-	key: pulumi.Input<string>;
-}
-
 export interface LiteLLMProxyArgs {
 	namespace?: pulumi.Input<string>;
 	createNamespace?: boolean;
@@ -222,16 +210,6 @@ export interface LiteLLMProxyArgs {
 	 * be stored in git-tracked config.
 	 */
 	extraSecretEnv?: Record<string, pulumi.Input<string>>;
-	/**
-	 * Additional secret environment variables sourced from an existing
-	 * Kubernetes Secret via `secretKeyRef`, keyed by environment variable name.
-	 *
-	 * Unlike {@link extraSecretEnv} — whose values are written into the
-	 * component-managed runtime Secret — these reference a Secret managed
-	 * outside the component (for example one synced by the 1Password operator),
-	 * so the secret values never pass through Pulumi state.
-	 */
-	extraSecretRefEnv?: Record<string, LiteLLMSecretKeyRef>;
 	resources?: k8s.types.input.core.v1.ResourceRequirements;
 	extraLiteLLMSettings?: Record<string, unknown>;
 	extraGeneralSettings?: Record<string, unknown>;
