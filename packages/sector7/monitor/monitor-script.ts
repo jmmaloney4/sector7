@@ -222,8 +222,13 @@ async function checkAndAlert(result, env, ctx) {
 			.bind(result.monitor_id)
 			.first();
 		state = row ?? { consecutive_failures: 0, consecutive_successes: 0, last_status: "healthy", last_ts: null };
-	} catch {
-		state = { consecutive_failures: 0, consecutive_successes: 0, last_status: "healthy", last_ts: null };
+	} catch (e) {
+		// On a transient read error, do NOT fall back to a default "healthy"
+		// state: doing so would clear an active failure streak and overwrite the
+		// real state on the UPSERT below, silently dropping alerts. Skip this
+		// monitor's check and leave the persisted row untouched.
+		console.error("Failed to read monitor state for " + result.monitor_id + ":", e);
+		return;
 	}
 
 	if (result.ok) {
@@ -267,6 +272,7 @@ async function checkAndAlert(result, env, ctx) {
 				new Date().toISOString(),
 			)
 			.run()
+			.catch((e) => console.error("Failed to write monitor state for " + result.monitor_id + ":", e))
 	);
 
 	// Fire webhook on state transitions

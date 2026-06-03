@@ -322,5 +322,10 @@ describe("UptimeMonitor", () => {
 		expect(content).toContain("FROM monitor_state");
 		expect(content).toContain("INSERT INTO monitor_state");
 		expect(content).toContain("ON CONFLICT(monitor_id) DO UPDATE");
+		// A read failure must not silently reset state (would clear active
+		// alerts); the write failure must not become an unhandled rejection.
+		expect(content).toContain("Failed to read monitor state");
+		expect(content).toContain("Failed to write monitor state");
+		expect(content).toContain(".catch(");
 	});
 });
