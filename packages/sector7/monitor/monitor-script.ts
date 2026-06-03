@@ -250,9 +250,12 @@ async function checkAndAlert(result, env, ctx) {
 	}
 	state.last_ts = result.ts;
 
-	// Write updated state back to D1 via UPSERT (non-blocking)
-	ctx.waitUntil(
-		env.DB.prepare(
+	// Persist updated state to D1 BEFORE firing any webhook. We await the write
+	// (checkAndAlert runs concurrently via Promise.all, so awaiting here does not
+	// serialize monitors) and skip alerting if it fails: a dropped write would
+	// leave stale state and re-fire the same alert on the next run.
+	try {
+		await env.DB.prepare(
 			\`INSERT INTO monitor_state (monitor_id, consecutive_failures, consecutive_successes, last_status, last_ts, updated_at)
 			 VALUES (?, ?, ?, ?, ?, ?)
 			 ON CONFLICT(monitor_id) DO UPDATE SET
@@ -270,9 +273,11 @@ async function checkAndAlert(result, env, ctx) {
 				state.last_ts,
 				result.ts,
 			)
-			.run()
-			.catch((e) => console.error("Failed to write monitor state for " + result.monitor_id + ":", e))
-	);
+			.run();
+	} catch (e) {
+		console.error("Failed to write monitor state for " + result.monitor_id + ":", e);
+		return;
+	}
 
 	// Fire webhook on state transitions
 	if (previousStatus !== state.last_status) {

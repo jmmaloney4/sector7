@@ -323,9 +323,14 @@ describe("UptimeMonitor", () => {
 		expect(content).toContain("INSERT INTO monitor_state");
 		expect(content).toContain("ON CONFLICT(monitor_id) DO UPDATE");
 		// A read failure must not silently reset state (would clear active
-		// alerts); the write failure must not become an unhandled rejection.
+		// alerts), and a write failure must abort before the webhook fires
+		// (otherwise stale state would re-fire the same alert next run).
 		expect(content).toContain("Failed to read monitor state");
 		expect(content).toContain("Failed to write monitor state");
-		expect(content).toContain(".catch(");
+		// The state write is awaited and ordered before the webhook send.
+		const writeIdx = content.indexOf("INSERT INTO monitor_state");
+		const webhookIdx = content.indexOf("sendWebhook(env");
+		expect(writeIdx).toBeGreaterThan(-1);
+		expect(webhookIdx).toBeGreaterThan(writeIdx);
 	});
 });
