@@ -1,10 +1,7 @@
 import * as pulumi from "@pulumi/pulumi";
 import { beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { LiteLLMApiKey, LiteLLMTeam } from "../litellm/admin.ts";
-import {
-	LiteLLMProxy,
-	validateExtraEnvNameCollisions,
-} from "../litellm/litellm-proxy.ts";
+import { LiteLLMProxy, validateExtraEnvNameCollisions } from "../litellm/litellm-proxy.ts";
 import {
 	findResource,
 	installPulumiMocks,
@@ -227,9 +224,7 @@ describe("LiteLLMProxy", () => {
 		const spec = (await resolveRecord(
 			deployment?.inputs.spec as Record<string, unknown> | undefined,
 		)) as {
-			template: {
-				spec: { containers: Array<{ env?: Array<Record<string, unknown>> }> };
-			};
+			template: { spec: { containers: Array<{ env?: Array<Record<string, unknown>> }> } };
 		};
 		const env = spec.template.spec.containers[0]?.env ?? [];
 		expect(
@@ -249,78 +244,6 @@ describe("LiteLLMProxy", () => {
 		});
 	});
 
-	it("injects extra secret-ref env from an existing secret without storing values", async () => {
-		const proxy = new LiteLLMProxy("ref-proxy", {
-			namespace: "litellm-prod",
-			providers: { anthropic: { apiKey: pulumi.secret("anthropic-secret") } },
-			deployments: [
-				{
-					id: "anthropic-smart",
-					provider: "anthropic",
-					providerModel: "anthropic/claude-sonnet-4-20250514",
-				},
-			],
-			modelGroups: [{ name: "smart", deploymentIds: ["anthropic-smart"] }],
-			databaseUrl: pulumi.secret("postgres://db-user:***@db.internal/litellm"),
-			extraSecretRefEnv: {
-				LANGFUSE_PUBLIC_KEY: { secretName: "langfuse-keys", key: "username" },
-				LANGFUSE_SECRET_KEY: {
-					secretName: pulumi.output("langfuse-keys"),
-					key: "credential",
-				},
-			},
-		});
-
-		await Promise.all([
-			resolveOutput(proxy.runtimeSecret.id),
-			resolveOutput(proxy.deployment.id),
-		]);
-
-		// The referenced values must NOT be copied into the component-managed
-		// runtime secret — they live only in the external (operator-synced) secret.
-		const runtimeSecret = findResource("ref-proxy-runtime");
-		const runtimeSecretData = runtimeSecret?.inputs.stringData as {
-			value: Record<string, string>;
-		};
-		expect(runtimeSecretData.value).not.toHaveProperty("LANGFUSE_PUBLIC_KEY");
-		expect(runtimeSecretData.value).not.toHaveProperty("LANGFUSE_SECRET_KEY");
-
-		const deployment = findResource("ref-proxy-deployment");
-		const spec = (await resolveRecord(
-			deployment?.inputs.spec as Record<string, unknown> | undefined,
-		)) as {
-			template: {
-				spec: { containers: Array<{ env?: Array<Record<string, unknown>> }> };
-			};
-		};
-		const env = spec.template.spec.containers[0]?.env ?? [];
-		expect(
-			env.find((entry) => entry.name === "LANGFUSE_PUBLIC_KEY"),
-		).toMatchObject({
-			name: "LANGFUSE_PUBLIC_KEY",
-			valueFrom: { secretKeyRef: { name: "langfuse-keys", key: "username" } },
-		});
-		expect(
-			env.find((entry) => entry.name === "LANGFUSE_SECRET_KEY"),
-		).toMatchObject({
-			name: "LANGFUSE_SECRET_KEY",
-			valueFrom: { secretKeyRef: { name: "langfuse-keys", key: "credential" } },
-		});
-	});
-
-	it("rejects collisions between extraSecretEnv and extraSecretRefEnv", () => {
-		expect(() =>
-			validateExtraEnvNameCollisions(
-				[],
-				["LANGFUSE_SECRET_KEY"],
-				[],
-				["LANGFUSE_SECRET_KEY"],
-			),
-		).toThrow(
-			"LiteLLMProxy extraSecretEnv and extraSecretRefEnv both define 'LANGFUSE_SECRET_KEY'",
-		);
-	});
-
 	it("rejects collisions between provider secrets and extra env names", () => {
 		expect(() =>
 			validateExtraEnvNameCollisions(
@@ -334,9 +257,7 @@ describe("LiteLLMProxy", () => {
 	});
 
 	it("rejects collisions against provider env vars resolved from outputs", async () => {
-		const resolvedProviderEnvVar = await resolveOutput(
-			pulumi.output("LANGFUSE_SECRET_KEY"),
-		);
+		const resolvedProviderEnvVar = await resolveOutput(pulumi.output("LANGFUSE_SECRET_KEY"));
 		expect(() =>
 			validateExtraEnvNameCollisions(
 				[],
@@ -389,21 +310,15 @@ describe("LiteLLMProxy", () => {
 		const spec = (await resolveRecord(
 			deployment?.inputs.spec as Record<string, unknown> | undefined,
 		)) as {
-			template: {
-				spec: { containers: Array<{ env?: Array<Record<string, unknown>> }> };
-			};
+			template: { spec: { containers: Array<{ env?: Array<Record<string, unknown>> }> } };
 		};
 		const env = spec.template.spec.containers[0]?.env ?? [];
-		expect(
-			env.find((entry) => entry.name === "LANGFUSE_TRACING_ENVIRONMENT"),
-		).toMatchObject({
+		expect(env.find((entry) => entry.name === "LANGFUSE_TRACING_ENVIRONMENT")).toMatchObject({
 			name: "LANGFUSE_TRACING_ENVIRONMENT",
 			value: "prod",
 		});
 		expect(env.find((entry) => entry.name === "IGNORED_ENV")).toBeUndefined();
-		expect(
-			env.find((entry) => entry.name === "IGNORED_SECRET"),
-		).toBeUndefined();
+		expect(env.find((entry) => entry.name === "IGNORED_SECRET")).toBeUndefined();
 	});
 
 	it("creates admin command resources for teams and api keys", async () => {

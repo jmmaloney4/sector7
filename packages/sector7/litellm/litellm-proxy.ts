@@ -20,10 +20,7 @@ type ResolvedDeployment = Omit<LiteLLMModelDeployment, "apiBase"> & {
 	apiBase?: string;
 };
 
-const RESERVED_RUNTIME_ENV_VARS = new Set([
-	"LITELLM_MASTER_KEY",
-	"DATABASE_URL",
-]);
+const RESERVED_RUNTIME_ENV_VARS = new Set(["LITELLM_MASTER_KEY", "DATABASE_URL"]);
 
 function toSecretKey(envVar: string): string {
 	return envVar.toLowerCase();
@@ -38,9 +35,7 @@ function assertUniqueEnvNames(
 	const seen = new Set<string>();
 	for (const name of names) {
 		if (seen.has(name)) {
-			throw new Error(
-				`${context} contains duplicate environment variable '${name}'`,
-			);
+			throw new Error(`${context} contains duplicate environment variable '${name}'`);
 		}
 		if (reservedSet.has(name)) {
 			throw new Error(
@@ -59,9 +54,7 @@ function assertNoEnvOverlap(
 	const conflictingNameSet = new Set(conflictingNames);
 	for (const name of names) {
 		if (conflictingNameSet.has(name)) {
-			throw new Error(
-				`${context} cannot override provider environment variable '${name}'`,
-			);
+			throw new Error(`${context} cannot override provider environment variable '${name}'`);
 		}
 	}
 }
@@ -70,7 +63,6 @@ export function validateExtraEnvNameCollisions(
 	extraEnvNames: string[],
 	extraSecretEnvNames: string[],
 	providerEnvVarNames: Iterable<string> = [],
-	extraSecretRefEnvNames: string[] = [],
 ): void {
 	assertUniqueEnvNames(
 		extraEnvNames,
@@ -82,46 +74,17 @@ export function validateExtraEnvNameCollisions(
 		"LiteLLMProxy extraSecretEnv",
 		RESERVED_RUNTIME_ENV_VARS,
 	);
-	assertUniqueEnvNames(
-		extraSecretRefEnvNames,
-		"LiteLLMProxy extraSecretRefEnv",
-		RESERVED_RUNTIME_ENV_VARS,
-	);
 	const extraEnvKeys = new Set(extraEnvNames);
 	for (const name of extraSecretEnvNames) {
 		if (extraEnvKeys.has(name)) {
-			throw new Error(
-				`LiteLLMProxy extraEnv and extraSecretEnv both define '${name}'`,
-			);
+			throw new Error(`LiteLLMProxy extraEnv and extraSecretEnv both define '${name}'`);
 		}
 	}
-	const secretEnvKeys = new Set(extraSecretEnvNames);
-	for (const name of extraSecretRefEnvNames) {
-		if (extraEnvKeys.has(name)) {
-			throw new Error(
-				`LiteLLMProxy extraEnv and extraSecretRefEnv both define '${name}'`,
-			);
-		}
-		if (secretEnvKeys.has(name)) {
-			throw new Error(
-				`LiteLLMProxy extraSecretEnv and extraSecretRefEnv both define '${name}'`,
-			);
-		}
-	}
-	assertNoEnvOverlap(
-		extraEnvNames,
-		providerEnvVarNames,
-		"LiteLLMProxy extraEnv",
-	);
+	assertNoEnvOverlap(extraEnvNames, providerEnvVarNames, "LiteLLMProxy extraEnv");
 	assertNoEnvOverlap(
 		extraSecretEnvNames,
 		providerEnvVarNames,
 		"LiteLLMProxy extraSecretEnv",
-	);
-	assertNoEnvOverlap(
-		extraSecretRefEnvNames,
-		providerEnvVarNames,
-		"LiteLLMProxy extraSecretRefEnv",
 	);
 }
 
@@ -219,14 +182,9 @@ export class LiteLLMProxy extends pulumi.ComponentResource {
 		);
 		const extraEnvEntries = Object.entries(args.extraEnv ?? {});
 		const extraSecretEnvEntries = Object.entries(args.extraSecretEnv ?? {});
-		const extraSecretRefEnvEntries = Object.entries(
-			args.extraSecretRefEnv ?? {},
-		);
 		validateExtraEnvNameCollisions(
 			extraEnvEntries.map(([name]) => name),
 			extraSecretEnvEntries.map(([name]) => name),
-			[],
-			extraSecretRefEnvEntries.map(([name]) => name),
 		);
 
 		const providerSecretName = `${name}-provider-keys`;
@@ -248,50 +206,28 @@ export class LiteLLMProxy extends pulumi.ComponentResource {
 		const extraEnv = pulumi
 			.all(
 				extraEnvEntries.map(([name, value]) =>
-					pulumi
-						.output(value)
-						.apply((resolvedValue) =>
-							resolvedValue == null
-								? undefined
-								: { name, value: resolvedValue },
-						),
+					pulumi.output(value).apply((resolvedValue) =>
+						resolvedValue == null ? undefined : { name, value: resolvedValue },
+					),
 				),
 			)
 			.apply((entries) =>
 				entries.filter(
-					(entry): entry is { name: string; value: string } =>
-						entry !== undefined,
+					(entry): entry is { name: string; value: string } => entry !== undefined,
 				),
 			);
 		const extraSecretEnv = pulumi
 			.all(
 				extraSecretEnvEntries.map(([name, value]) =>
-					pulumi
-						.output(value)
-						.apply((resolvedValue) =>
-							resolvedValue == null
-								? undefined
-								: ([name, resolvedValue] as const),
-						),
+					pulumi.output(value).apply((resolvedValue) =>
+						resolvedValue == null ? undefined : ([name, resolvedValue] as const),
+					),
 				),
 			)
 			.apply((entries) =>
-				Object.fromEntries(
-					entries.filter(
-						(entry): entry is readonly [string, string] => entry !== undefined,
-					),
-				),
+				Object.fromEntries(entries.filter((entry): entry is readonly [string, string] => entry !== undefined)),
 			);
-		const extraSecretEnvKeys = extraSecretEnv.apply((resolvedEnv) =>
-			Object.keys(resolvedEnv),
-		);
-		const extraSecretRefEnv = pulumi.all(
-			extraSecretRefEnvEntries.map(([name, ref]) =>
-				pulumi
-					.all([pulumi.output(ref.secretName), pulumi.output(ref.key)])
-					.apply(([secretName, key]) => ({ name, secretName, key })),
-			),
-		);
+		const extraSecretEnvKeys = extraSecretEnv.apply((resolvedEnv) => Object.keys(resolvedEnv));
 
 		const configYaml = pulumi
 			.all([resolvedProviderConfigs, resolvedDeployments, replicas])
@@ -459,7 +395,6 @@ export class LiteLLMProxy extends pulumi.ComponentResource {
 				this.providerSecret.metadata.name,
 				extraEnv,
 				extraSecretEnvKeys,
-				extraSecretRefEnv,
 			])
 			.apply(
 				([
@@ -468,13 +403,11 @@ export class LiteLLMProxy extends pulumi.ComponentResource {
 					providerSecretName,
 					extraEnvVars,
 					resolvedExtraSecretEnvKeys,
-					resolvedExtraSecretRefEnv,
 				]) => {
 					validateExtraEnvNameCollisions(
 						extraEnvEntries.map(([name]) => name),
 						extraSecretEnvEntries.map(([name]) => name),
 						providerSecretEnvVars,
-						extraSecretRefEnvEntries.map(([name]) => name),
 					);
 					return [
 						{
@@ -510,15 +443,6 @@ export class LiteLLMProxy extends pulumi.ComponentResource {
 								secretKeyRef: {
 									name: runtimeSecretName,
 									key: name,
-								},
-							},
-						})),
-						...resolvedExtraSecretRefEnv.map((ref) => ({
-							name: ref.name,
-							valueFrom: {
-								secretKeyRef: {
-									name: ref.secretName,
-									key: ref.key,
 								},
 							},
 						})),
