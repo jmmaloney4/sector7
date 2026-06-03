@@ -16,7 +16,10 @@ vi.mock("../d1/d1-query.ts", () => {
 	};
 });
 
-import { UptimeMonitor } from "../monitor/uptime-monitor.ts";
+import {
+	DEFAULT_D1_SCHEMA,
+	UptimeMonitor,
+} from "../monitor/uptime-monitor.ts";
 
 type MockResource = {
 	type: string;
@@ -69,7 +72,7 @@ const DEFAULT_ARGS = {
 } as const;
 
 describe("UptimeMonitor", () => {
-	it("creates D1, KV, Worker, cron trigger, and D1Query for a basic monitor", async () => {
+	it("creates D1, Worker, cron trigger, and D1Query for a basic monitor", async () => {
 		const monitor = new UptimeMonitor("basic", {
 			...DEFAULT_ARGS,
 			name: "basic-uptime",
@@ -82,22 +85,24 @@ describe("UptimeMonitor", () => {
 		const d1 = findResource("basic-d1");
 		expect(d1).toBeDefined();
 		expect(d1?.inputs.readReplication).toEqual({ mode: "disabled" });
-		expect(findResource("basic-kv")).toBeDefined();
 		expect(findResource("basic-worker")).toBeDefined();
 		expect(findResource("basic-cron")).toBeDefined();
 		expect(monitor.d1Query).toBeDefined();
 
+		// KV is no longer created (ADR-030: alert state moved to D1).
+		expect(findResource("basic-kv")).toBeUndefined();
+
 		const worker = findResource("basic-worker");
 		const bindings = worker?.inputs.bindings as Array<Record<string, unknown>>;
-		expect(bindings).toHaveLength(2);
+		expect(bindings).toHaveLength(1);
 
 		const d1Binding = bindings.find((b) => b.name === "DB");
 		expect(d1Binding).toBeDefined();
 		expect(d1Binding?.type).toBe("d1");
 
-		const kvBinding = bindings.find((b) => b.name === "KV");
-		expect(kvBinding).toBeDefined();
-		expect(kvBinding?.type).toBe("kv_namespace");
+		// No KV namespace binding should be present.
+		expect(bindings.find((b) => b.type === "kv_namespace")).toBeUndefined();
+		expect(bindings.find((b) => b.name === "KV")).toBeUndefined();
 	});
 
 	it("adds a webhook secret binding when webhookUrl is provided", async () => {
@@ -118,7 +123,8 @@ describe("UptimeMonitor", () => {
 			rawBindings as pulumi.Input<Array<Record<string, unknown>>>,
 		);
 
-		expect(bindings).toHaveLength(3);
+		// DB binding + webhook secret (no KV binding — ADR-030).
+		expect(bindings).toHaveLength(2);
 
 		const webhookBinding = bindings.find((b) => b.name === "WEBHOOK_URL");
 		expect(webhookBinding).toBeDefined();
@@ -178,21 +184,6 @@ describe("UptimeMonitor", () => {
 			worker?.inputs.bindings as Array<Record<string, unknown>>
 		).find((b) => b.name === "DB");
 		expect(d1Binding).toBeDefined();
-	});
-
-	it("uses existing KV namespace when kvNamespaceId is provided", async () => {
-		const monitor = new UptimeMonitor("exkv", {
-			...DEFAULT_ARGS,
-			name: "exkv-uptime",
-			monitors: [{ id: "site", url: "https://example.com/" }],
-			kvNamespaceId: "existing-kv-id",
-		});
-
-		await resolveOutput(monitor.worker.id);
-
-		expect(findResource("exkv-kv")).toBeUndefined();
-		expect(monitor.kvNamespace).toBeUndefined();
-		expect(await resolveOutput(monitor.kvNamespaceId)).toBe("existing-kv-id");
 	});
 
 	it("throws if no monitors are provided", () => {
@@ -297,5 +288,53 @@ describe("UptimeMonitor", () => {
 		const content = worker?.inputs.content as string;
 		expect(content).not.toContain("async fetch(request, env)");
 		expect(content).not.toContain("handleStats");
+	});
+
+	it("includes the monitor_state table in the default D1 schema (ADR-030)", () => {
+		expect(DEFAULT_D1_SCHEMA).toContain(
+			"CREATE TABLE IF NOT EXISTS monitor_state",
+		);
+		expect(DEFAULT_D1_SCHEMA).toContain("monitor_id TEXT PRIMARY KEY");
+		expect(DEFAULT_D1_SCHEMA).toContain("consecutive_failures INTEGER");
+		expect(DEFAULT_D1_SCHEMA).toContain("consecutive_successes INTEGER");
+		expect(DEFAULT_D1_SCHEMA).toContain("last_status TEXT");
+		expect(DEFAULT_D1_SCHEMA).toContain("updated_at TEXT NOT NULL");
+		// probe_results table must still be present.
+		expect(DEFAULT_D1_SCHEMA).toContain(
+			"CREATE TABLE IF NOT EXISTS probe_results",
+		);
+	});
+
+	it("generated script tracks alert state in D1, not KV (ADR-030)", async () => {
+		const monitor = new UptimeMonitor("nokv", {
+			...DEFAULT_ARGS,
+			name: "nokv-uptime",
+			monitors: [{ id: "api", url: "https://api.example.com/healthz" }],
+		});
+
+		await resolveOutput(monitor.worker.id);
+
+		const worker = findResource("nokv-worker");
+		const content = worker?.inputs.content as string;
+		// No KV access anywhere in the generated Worker.
+		expect(content).not.toContain("env.KV");
+		// State is read from and written to the monitor_state D1 table, batched
+		// into one SELECT + one db.batch() UPSERT (2 D1 queries/run) to stay under
+		// the 50-queries/invocation free-tier limit regardless of monitor count.
+		expect(content).toContain("FROM monitor_state");
+		expect(content).toContain("WHERE monitor_id IN (");
+		expect(content).toContain("INSERT INTO monitor_state");
+		expect(content).toContain("ON CONFLICT(monitor_id) DO UPDATE");
+		expect(content).toContain("env.DB.batch(");
+		// A read failure must not silently reset state (would clear active
+		// alerts), and a write failure must abort before the webhook fires
+		// (otherwise stale state would re-fire the same alert next run).
+		expect(content).toContain("Failed to read monitor state");
+		expect(content).toContain("Failed to write monitor state");
+		// The state write is awaited and ordered before the webhook send.
+		const writeIdx = content.indexOf("INSERT INTO monitor_state");
+		const webhookIdx = content.indexOf("sendWebhook(env");
+		expect(writeIdx).toBeGreaterThan(-1);
+		expect(webhookIdx).toBeGreaterThan(writeIdx);
 	});
 });

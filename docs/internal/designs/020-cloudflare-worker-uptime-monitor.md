@@ -1,13 +1,14 @@
 ---
 id: ADR-020
 title: Cloudflare Worker Uptime Monitor
-status: Accepted
+status: Amended # amended by ADR-030 (alert state moved from KV to D1)
 date: 2026-05-13
 deciders: [platform]
 consulted: []
 tags: [design, adr, cloudflare, workers, d1, kv, monitoring]
 supersedes: []
 superseded_by: []
+amended_by: [ADR-030]
 links:
   - cloudflare-workers: https://developers.cloudflare.com/workers/
   - cloudflare-d1: https://developers.cloudflare.com/d1/
@@ -94,6 +95,13 @@ Free-tier capacity at probe scale (validated against Cloudflare docs as of 2026-
 All within free-tier bounds. Storage, reads, and writes are independent quotas.
 
 ## State tracking: KV
+
+> **Amended by [ADR-030](030-uptime-monitor-state-in-d1.md) (2026-06-03):** Alert
+> state has been moved out of KV into a D1 `monitor_state` table, and the KV
+> dependency removed entirely. Even one batched KV write per minute (1,440/day)
+> exceeds the KV free tier (1,000 writes/day), so KV was never viable for a
+> 1-minute cron at free-tier cost. The rest of this section is retained for
+> historical context; see ADR-030 for the current design.
 
 Failure streak state lives in KV, not D1. Each monitor gets one key with a JSON blob:
 
@@ -201,6 +209,10 @@ Why dlt over custom scripts:
 # Status Transitions
 
 - This is a new ADR. No prior ADR is amended or superseded.
+- **Amended by ADR-030 (2026-06-03):** the "State tracking: KV" decision is
+  superseded — alert state now lives in a D1 `monitor_state` table and the KV
+  dependency is removed. The rest of this ADR (architecture, probe logic, D1
+  history schema, webhook alerting, dlt export) still stands.
 
 # Implementation Notes
 
