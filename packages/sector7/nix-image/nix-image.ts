@@ -2,6 +2,37 @@ import * as command from "@pulumi/command";
 import * as pulumi from "@pulumi/pulumi";
 import { NixOutput } from "../nix-output/nix-output.ts";
 import { getScriptPath } from "../scripts/index.ts";
+import { NixImagePushGroup } from "./push-group.ts";
+
+/**
+ * Internal default push groups, one per distinct `artifactRegistryUrl`.
+ *
+ * Layer-blob deduplication happens within a single registry (for GCP Artifact
+ * Registry, within one repository resource), so images pushed to the same
+ * registry are the ones that benefit from coordinated pushes. Keying on the
+ * `artifactRegistryUrl` Input means images sharing a registry are serialized by
+ * default, while images pushed to *different* registries stay fully parallel.
+ *
+ * The map is keyed on the Input itself: plain-string registries collapse by
+ * value, and Output registries collapse by reference (the common case where one
+ * `artifactRegistryUrl` Output is reused across several `NixImage`s). If a
+ * consumer passes a freshly-derived Output per image the keys differ and the
+ * default degrades to the previous fully-parallel behavior — never worse than
+ * before, since push order never affects correctness.
+ */
+const defaultPushGroups = new Map<pulumi.Input<string>, NixImagePushGroup>();
+
+function defaultPushGroupFor(
+	artifactRegistryUrl: pulumi.Input<string>,
+): NixImagePushGroup {
+	const existing = defaultPushGroups.get(artifactRegistryUrl);
+	if (existing) {
+		return existing;
+	}
+	const group = new NixImagePushGroup();
+	defaultPushGroups.set(artifactRegistryUrl, group);
+	return group;
+}
 
 export interface NixImageArgs {
 	/** Flake attribute path (e.g. "packages.x86_64-linux.lens-api-image") */
@@ -29,6 +60,22 @@ export interface NixImageArgs {
 	authMode?: "gcloud" | "ghcr";
 	/** Extra environment variables to pass to the build-push command. */
 	env?: Record<string, pulumi.Input<string>>;
+	/**
+	 * Coordinates the push phase with other images to avoid concurrently
+	 * uploading a shared base layer (see {@link NixImagePushGroup}). Only
+	 * affects `"build"` mode — `"resolve"` mode performs no upload.
+	 *
+	 * - omitted (default): the image joins an internal group shared by every
+	 *   `NixImage` pushing to the same `artifactRegistryUrl`, serializing their
+	 *   pushes so the shared layer is uploaded once. Images on different
+	 *   registries remain parallel. This is the zero-config "just works" path.
+	 * - a {@link NixImagePushGroup}: the image joins that explicit group
+	 *   instead, letting you widen, narrow, or re-strategize the coordination
+	 *   (e.g. opt into the `"primer"` strategy).
+	 * - `false`: the image opts out of coordination entirely and its push runs
+	 *   unordered (the pre-coordination behavior).
+	 */
+	pushGroup?: NixImagePushGroup | false;
 }
 
 export class NixImage extends pulumi.ComponentResource {
@@ -49,7 +96,13 @@ export class NixImage extends pulumi.ComponentResource {
 			aliases.push({ parent: opts.parent });
 		}
 
-		super("sector7:nix:NixImage", name, args, {
+		// Keep the push coordinator out of the component's registered inputs.
+		// It is scheduling-only state (and once populated holds references to
+		// this component's own child push commands); leaking it into the input
+		// bag would create a registration cycle.
+		const { pushGroup: _pushGroup, ...registrableArgs } = args;
+
+		super("sector7:nix:NixImage", name, registrableArgs, {
 			...opts,
 			aliases: [...aliases, ...(opts?.aliases ?? [])],
 		});
@@ -108,6 +161,15 @@ export class NixImage extends pulumi.ComponentResource {
 				{ parent: this },
 			);
 
+			// Coordinate the push with sibling images so a shared base layer
+			// is not uploaded concurrently. An explicit `pushGroup` wins; `false`
+			// opts out; otherwise join the default group for this registry.
+			const pushGroup =
+				args.pushGroup === false
+					? undefined
+					: (args.pushGroup ?? defaultPushGroupFor(args.artifactRegistryUrl));
+			const pushDependsOn = pushGroup?.dependencies() ?? [];
+
 			// Push the built image from the store path
 			const pushCmd = new command.local.Command(
 				`${name}-push`,
@@ -124,8 +186,9 @@ export class NixImage extends pulumi.ComponentResource {
 						...(args.triggers ?? []),
 					]),
 				},
-				{ parent: this },
+				{ parent: this, dependsOn: pushDependsOn },
 			);
+			pushGroup?.register(pushCmd);
 
 			this.digest = pushCmd.stdout.apply((stdout: string) => {
 				const match = stdout.trim().match(/DIGEST_OUTPUT:(sha256:[a-f0-9]+)/);

@@ -2,6 +2,7 @@ import * as command from "@pulumi/command";
 import * as pulumi from "@pulumi/pulumi";
 import { beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { NixImage } from "../nix-image/nix-image";
+import { NixImagePushGroup } from "../nix-image/push-group";
 
 type MockResource = {
 	type: string;
@@ -297,5 +298,60 @@ describe("NixImage", () => {
 		expect(pushCmds).toHaveLength(1);
 		const env = pushCmds[0].inputs.environment as Record<string, unknown>;
 		expect(env.STORE_PATH).toBe("/nix/store/abc123-my-image");
+	});
+
+	it("registers its push into an explicit push group (build mode)", async () => {
+		const group = new NixImagePushGroup();
+		expect(group.dependencies()).toHaveLength(0);
+
+		const img = new NixImage("group-build", {
+			nixAttr: "packages.x86_64-linux.my-image",
+			imageName: "build-img",
+			imageTag: "dev",
+			artifactRegistryUrl: "us-east1-docker.pkg.dev/my-project/my-repo",
+			repoRoot: "/home/user/my-repo",
+			pushGroup: group,
+		});
+		await resolveOutput(img.digest);
+
+		// The push command was registered, so the group now hands the next push
+		// a dependency. (Serial/primer chaining across multiple pushes is
+		// covered by the unit tests in nix-image-push-group.test.ts.)
+		expect(group.dependencies()).toHaveLength(1);
+	});
+
+	it("does not register resolve-mode images into a push group", async () => {
+		const group = new NixImagePushGroup();
+
+		const img = new NixImage("group-resolve", {
+			nixAttr: "packages.x86_64-linux.my-image",
+			imageName: "resolve-only",
+			imageTag: "v1.0.0",
+			artifactRegistryUrl: "us-east1-docker.pkg.dev/my-project/my-repo",
+			repoRoot: "/home/user/my-repo",
+			mode: "resolve",
+			pushGroup: group,
+		});
+		await resolveOutput(img.digest);
+
+		// Resolve mode performs no upload, so it never joins the group.
+		expect(group.dependencies()).toHaveLength(0);
+	});
+
+	it("still produces a working push when coordination is opted out (pushGroup: false)", async () => {
+		const img = new NixImage("group-optout", {
+			nixAttr: "packages.x86_64-linux.my-image",
+			imageName: "optout",
+			imageTag: "dev",
+			artifactRegistryUrl: "us-east1-docker.pkg.dev/my-project/my-repo",
+			repoRoot: "/home/user/my-repo",
+			pushGroup: false,
+		});
+
+		const digest = await resolveOutput(img.digest);
+		expect(digest).toBe("sha256:abc123def456");
+
+		const pushCmds = byName("group-optout-push");
+		expect(pushCmds).toHaveLength(1);
 	});
 });
