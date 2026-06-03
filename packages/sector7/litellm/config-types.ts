@@ -210,6 +210,21 @@ export interface LiteLLMProxyArgs {
 	 * be stored in git-tracked config.
 	 */
 	extraSecretEnv?: Record<string, pulumi.Input<string>>;
+	/**
+	 * Additional secret environment variables sourced from a Kubernetes Secret
+	 * the component does NOT manage — e.g. a Secret materialized by the 1Password
+	 * operator from an `OnePasswordItem`. Each entry maps an environment variable
+	 * name to a `{ secretName, key }` reference rendered as `valueFrom.secretKeyRef`.
+	 *
+	 * Use this instead of `extraSecretEnv` when the value lives in an externally
+	 * managed Secret (so it never transits Pulumi state), and when the Secret's
+	 * key names differ from the desired env var names (e.g. a 1Password item whose
+	 * fields are labeled `username`/`credential`).
+	 */
+	extraSecretRefEnv?: Record<
+		string,
+		{ secretName: pulumi.Input<string>; key: pulumi.Input<string> }
+	>;
 	resources?: k8s.types.input.core.v1.ResourceRequirements;
 	extraLiteLLMSettings?: Record<string, unknown>;
 	extraGeneralSettings?: Record<string, unknown>;
