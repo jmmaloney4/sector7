@@ -55,7 +55,7 @@ jobs:
     env:
       PULUMI_BACKEND_URL: ${{ inputs.pulumi_backend_url }}
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
         with:
           repository: ${{ inputs.repository }}
           ref: ${{ inputs.ref }}
@@ -92,7 +92,7 @@ jobs:
       PULUMI_CONFIG_PASSPHRASE: ""
       USE_GKE_GCLOUD_AUTH_PLUGIN: "True"
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
         with:
           repository: ${{ inputs.repository }}
           ref: ${{ inputs.ref }}
