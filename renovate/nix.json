@@ -41,12 +41,23 @@
 		},
 		{
 			"customType": "regex",
-			"description": "Update nix run github:owner/repo/version pins in shell scripts",
+			"description": "Update nix run github:owner/repo/version tag pins in shell scripts",
 			"managerFilePatterns": ["/\\.sh$/"],
 			"matchStrings": [
-				"nix (?:-\\w+ )*run github:(?<depName>[^#/]+/[^#/]+)/(?<currentValue>v?\\d+(?:\\.\\d+)*)"
+				"nix (?:-\\w+ )*run github:(?<depName>[^#/]+/[^#/]+)/(?<currentValue>v?\\d+(?:\\.\\d+)*)#"
 			],
 			"datasourceTemplate": "github-tags"
+		},
+		{
+			"customType": "regex",
+			"description": "Update nix run github:owner/repo/<commit> pins in shell scripts",
+			"managerFilePatterns": ["/\\.sh$/"],
+			"matchStrings": [
+				"nix (?:-\\w+ )*run github:(?<depName>[^#/]+/[^#/]+)/(?<currentDigest>[0-9a-f]{40})#"
+			],
+			"currentValueTemplate": "main",
+			"datasourceTemplate": "git-refs",
+			"packageNameTemplate": "https://github.com/{{{depName}}}"
 		}
 	]
 }

@@ -186,3 +186,41 @@ describe("renovate/nix.json mkHelmChartFromGitHub regex managers", () => {
 		expect(arcBlock.match(genericRegexes[0])).toBeNull();
 	});
 });
+
+describe("renovate/nix.json nix run github: shell-script regex managers", () => {
+	const versionDescription =
+		"Update nix run github:owner/repo/version tag pins in shell scripts";
+	const commitDescription =
+		"Update nix run github:owner/repo/<commit> pins in shell scripts";
+
+	const versionPin =
+		"nix run github:nlewo/nix2container/v1.0.0#skopeo-nix2container -- \\";
+	const commitPin =
+		"nix run github:jmmaloney4/jackpkgs/791f4529199a9c13a8a66f5ddd2eb642198447c5#skopeo-nix2container -- \\";
+
+	it("matches version-tag pins and extracts depName + currentValue", () => {
+		const match = firstMatch(managerRegexes(versionDescription), versionPin);
+		expect(match?.groups?.depName).toBe("nlewo/nix2container");
+		expect(match?.groups?.currentValue).toBe("v1.0.0");
+	});
+
+	it("matches commit-SHA pins and extracts depName + currentDigest", () => {
+		const match = firstMatch(managerRegexes(commitDescription), commitPin);
+		expect(match?.groups?.depName).toBe("jmmaloney4/jackpkgs");
+		expect(match?.groups?.currentDigest).toBe(
+			"791f4529199a9c13a8a66f5ddd2eb642198447c5",
+		);
+	});
+
+	it("does not let the version-tag manager swallow commit-SHA pins", () => {
+		expect(
+			firstMatch(managerRegexes(versionDescription), commitPin),
+		).toBeUndefined();
+	});
+
+	it("does not let the commit manager swallow version-tag pins", () => {
+		expect(
+			firstMatch(managerRegexes(commitDescription), versionPin),
+		).toBeUndefined();
+	});
+});
