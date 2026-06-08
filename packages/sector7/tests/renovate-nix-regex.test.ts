@@ -231,6 +231,15 @@ describe("renovate/nix.json nix run github: shell-script regex managers", () => 
 		expect(match?.groups?.currentValue).toBe("v1.0.0");
 	});
 
+	it("matches across arbitrary spacing and backslash-newline continuations", () => {
+		const match = firstMatch(
+			managerRegexes(versionDescription),
+			"nix   --extra-experimental-features   flakes \\\n  run   github:nlewo/nix2container/v1.0.0#skopeo-nix2container",
+		);
+		expect(match?.groups?.depName).toBe("nlewo/nix2container");
+		expect(match?.groups?.currentValue).toBe("v1.0.0");
+	});
+
 	it("matches commit-SHA pins and extracts depName + currentDigest", () => {
 		const match = firstMatch(managerRegexes(commitDescription), commitPin);
 		expect(match?.groups?.depName).toBe("jmmaloney4/jackpkgs");

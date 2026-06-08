@@ -44,7 +44,7 @@
 			"description": "Update nix run github:owner/repo/version tag pins in shell scripts",
 			"managerFilePatterns": ["/\\.sh$/"],
 			"matchStrings": [
-				"nix (?:\\S+ )*?run github:(?<depName>[^#/]+/[^#/]+)/(?<currentValue>v?\\d+(?:\\.\\d+)*(?:-[a-zA-Z0-9.-]+)?)(?:[#\\s]|$)"
+				"nix\\s+(?:\\S+\\s+)*?run\\s+github:(?<depName>[^#/]+/[^#/]+)/(?<currentValue>v?\\d+(?:\\.\\d+)*(?:-[a-zA-Z0-9.-]+)?)(?:[#\\s]|$)"
 			],
 			"datasourceTemplate": "github-tags"
 		},
@@ -53,7 +53,7 @@
 			"description": "Update nix run github:owner/repo/<commit> pins in shell scripts",
 			"managerFilePatterns": ["/\\.sh$/"],
 			"matchStrings": [
-				"nix (?:\\S+ )*?run github:(?<depName>[^#/]+/[^#/]+)/(?<currentDigest>[0-9a-f]{40})(?:[#\\s]|$)"
+				"nix\\s+(?:\\S+\\s+)*?run\\s+github:(?<depName>[^#/]+/[^#/]+)/(?<currentDigest>[0-9a-f]{40})(?:[#\\s]|$)"
 			],
 			"currentValueTemplate": "main",
 			"datasourceTemplate": "github-commits"
