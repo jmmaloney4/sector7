@@ -21,7 +21,7 @@ jobs:
     env:
       DIST: research/_site
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
       - uses: jmmaloney4/sector7/.github/actions/nix-setup@main
         with:
           runs-on: ${{ vars.ACTIONS_RUNS_ON }}
@@ -42,7 +42,7 @@ jobs:
           fi
       - name: Deploy to Cloudflare Pages
         id: pages
-        uses: andykenward/github-actions-cloudflare-pages@1f45924c4dd0c6d746a7edfaa4e1dea8958806a6 # v3.4.0
+        uses: andykenward/github-actions-cloudflare-pages@46d86e1caa6b86365a41d335db65a6936a1beb39 # v3.5.0
         with:
           cloudflare-api-token: ${{ secrets.CLOUDFLARE_PAGES_API_TOKEN }}
           cloudflare-account-id: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
