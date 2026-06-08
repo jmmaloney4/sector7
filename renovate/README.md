@@ -14,7 +14,7 @@ This directory contains composable Renovate presets that can be shared across pr
 
 ### Technology-Specific Presets
 
-- **`nix.json`** - Nix-specific configuration with safe regex managers for `fetchPypi` plus `mkHelmChartFromGitHub` version bumps (see ADR-038 in jackpkgs); Nix SRI hashes such as `sha256-XRJNwpeGjQSEPub34BLrPJn3Tj6Ie90/PB7LR2+tPmU=` are matched structurally but left for manual recomputation (see ADR-023). Also keeps `nix run github:owner/repo/<ref>#attr` flake pins in shell scripts current: version-tag pins (`/v1.2.3#`) bump via the `github-tags` datasource, and commit-SHA pins (`/<40-hex>#`) bump to the latest commit on `main` via the `git-refs` datasource (used for the `jmmaloney4/jackpkgs#skopeo-nix2container` pin in the nix-image push scripts)
+- **`nix.json`** - Nix-specific configuration with safe regex managers for `fetchPypi` plus `mkHelmChartFromGitHub` version bumps (see ADR-038 in jackpkgs); Nix SRI hashes such as `sha256-XRJNwpeGjQSEPub34BLrPJn3Tj6Ie90/PB7LR2+tPmU=` are matched structurally but left for manual recomputation (see ADR-023). Also keeps `nix run github:owner/repo/<ref>#attr` flake pins in shell scripts current: version-tag pins (`/v1.2.3#`) bump via the `github-tags` datasource, and commit-SHA pins (`/<40-hex>#`) bump to the latest commit on `main` via the `github-commits` datasource (used for the `jmmaloney4/jackpkgs#skopeo-nix2container` pin in the nix-image push scripts)
 - **`pulumi.json`** - Pulumi-specific configuration and version management
 - **`sector7-release-tarballs.json`** - Package.json dependency updates for `@jmmaloney4/sector7` GitHub release tarballs
 
