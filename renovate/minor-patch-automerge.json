@@ -4,6 +4,14 @@
 	"addLabels": ["renovate"],
 	"packageRules": [
 		{
+			"description": "Catch-all: combine loose npm minor/patch/pin updates (single libraries and monorepos) into one automerged PR. Placed first so the more-specific groups below (TypeScript, Node.js Core, Pulumi, etc.) override it for their packages.",
+			"groupName": "JS/TS Dependencies",
+			"matchManagers": ["npm"],
+			"matchUpdateTypes": ["minor", "patch", "pin"],
+			"automerge": true,
+			"addLabels": ["deps/npm"]
+		},
+		{
 			"groupName": "Rust Dependencies",
 			"matchManagers": ["cargo"],
 			"matchDatasources": ["crate"],
