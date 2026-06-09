@@ -73,6 +73,12 @@ on:
       project_url:
         default: 'https://github.com/orgs/ergodicsystems/projects/1'
         type: string
+      owner:
+        # Account that owns the app installation AND the project. Passed to
+        # create-github-app-token so the token is minted against this
+        # installation regardless of which repo triggers the workflow.
+        default: 'ergodicsystems'
+        type: string
       labeled:
         default: ''
         type: string
@@ -94,43 +100,45 @@ permissions:
 jobs:
   add-to-project:
     runs-on: ${{ inputs.runs-on }}
+    env:
+      # Mapped to job env so they can be referenced in step-level `if` (the
+      # secrets context is not available in conditionals).
+      APP_ID: ${{ secrets.app-id }}
+      GH_FALLBACK_TOKEN: ${{ secrets.github-token }}
     steps:
       - name: Generate GitHub App token
-        id: gen_token
-        if: inputs.app-id != '' && inputs.private-key != ''
-        uses: actions/create-github-app-token@v2
+        id: app-token
+        if: ${{ env.APP_ID != '' }}
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
         with:
-          app-id: ${{ inputs.app-id }}
-          private-key: ${{ inputs.private-key }}
+          app-id: ${{ secrets.app-id }}
+          private-key: ${{ secrets.private-key }}
+          owner: ${{ inputs.owner }}
 
-      - name: Set fallback token
-        id: fallback
-        if: inputs.app-id == '' || inputs.private-key == ''
-        run: echo "token=${{ secrets.github-token }}" >> "$GITHUB_OUTPUT"
+      - name: Verify auth provided
+        if: ${{ steps.app-token.outputs.token == '' && env.GH_FALLBACK_TOKEN == '' }}
         shell: bash
+        run: |
+          echo "::error::add-to-project: no credentials provided. Pass app-id + private-key (preferred) or a github-token fallback."
+          exit 1
 
-      - name: Use app token or fallback
-        id: token
-        if: inputs.app-id != '' && inputs.private-key != ''
-        run: echo "token=${{ steps.gen_token.outputs.token }}" >> "$GITHUB_OUTPUT"
-        shell: bash
-
-      - name: Add issue or PR to project (no label filter)
-        if: inputs.labeled == ''
-        uses: actions/add-to-project@244f685bbc3b7adfa8466e08b698b5577571133e
+      - name: Add issue or PR to project
+        uses: jmmaloney4/sector7/.github/actions/add-to-project@main
         with:
           project-url: ${{ inputs.project_url }}
-          github-token: ${{ steps.token.outputs.token }}
-
-      - name: Add issue or PR to project (label filter)
-        if: inputs.labeled != ''
-        uses: actions/add-to-project@244f685bbc3b7adfa8466e08b698b5577571133e
-        with:
-          project-url: ${{ inputs.project_url }}
-          github-token: ${{ steps.token.outputs.token }}
+          github-token: ${{ steps.app-token.outputs.token || secrets.github-token }}
           labeled: ${{ inputs.labeled }}
           label-operator: ${{ inputs.label-operator }}
 ```
+
+The `owner` input is the critical detail: `create-github-app-token` defaults
+to minting a token for the **caller repo's account**, which only has an
+installation if the caller lives in the same org as the app. Cross-org callers
+(`jmmaloney4/garden`, `cavinsresearch/zeus`, ...) would otherwise fail with
+"installation not found". Setting `owner` to the account that owns the app
+installation makes token minting work from any repo. The actual workflow uses
+the local `jmmaloney4/sector7/.github/actions/add-to-project` composite action
+(gh CLI based) rather than `actions/add-to-project` directly.
 
 ## GitHub App registration
 
@@ -138,14 +146,21 @@ The app should be registered in the target org with these settings:
 
 | Field                                 | Value                 |
 | ------------------------------------- | --------------------- |
-| Name                                  | `sector7-project-bot` |
-| Permissions → Organization → Projects | Read and write        |
-| Permissions → Repository → Metadata   | Read-only             |
-| Webhook                               | Active: unchecked     |
+| Name                                  | `sector7-project-bot`              |
+| Permissions → Organization → Projects | Read and write                     |
+| Permissions → Repository → Metadata   | Read-only                          |
+| Webhook                               | Active: unchecked                  |
+| Where can this app be installed?      | Only on this account (`ergodicsystems`) |
 
-The app only needs an org-level installation -- it does not need to be installed
-on individual consumer repos. Its permission to touch org projects comes from the
-org installation itself.
+Register it as **"Only on this account"** -- least privilege. The single
+`ergodicsystems` installation is the only one that grants write access to the
+org project; cross-org callers never need their own installation, they only need
+the `app-id`/`private-key` to mint a token that targets the `ergodicsystems`
+installation (via the `owner` input above).
+
+The app only needs that one org-level installation -- it does not need to be
+installed on individual consumer repos. Its permission to touch org projects
+comes from the org installation itself.
 
 ## Required secrets
 
