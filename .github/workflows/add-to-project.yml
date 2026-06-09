@@ -12,6 +12,11 @@ on:
         required: false
         default: 'https://github.com/orgs/ergodicsystems/projects/1'
         type: string
+      owner:
+        description: 'Account that owns the GitHub App installation and the project. Passed to create-github-app-token so the token is minted against this installation regardless of which repo triggers the workflow. Must match where the app is installed.'
+        required: false
+        default: 'ergodicsystems'
+        type: string
       labeled:
         description: 'Optional comma-separated labels; omit or leave empty to add all matching events. When set, items are filtered per label-operator.'
         required: false
@@ -23,19 +28,48 @@ on:
         default: OR
         type: string
     secrets:
+      app-id:
+        description: 'GitHub App ID with org Projects read/write (preferred auth). Pair with private-key.'
+        required: false
+      private-key:
+        description: 'GitHub App private key (PEM) matching app-id (preferred auth).'
+        required: false
       github-token:
-        description: 'GitHub personal access token with project write access'
-        required: true
+        description: 'Fallback PAT with project write access (legacy). Used only when app-id/private-key are not provided.'
+        required: false
 permissions:
   contents: read
 jobs:
   add-to-project:
     runs-on: ${{ inputs.runs-on }}
+    env:
+      # Mapped to job env so they can be referenced in step-level `if` (the
+      # secrets context is not available in conditionals). app-id is not
+      # sensitive; the private key is referenced directly in `with:` below and
+      # is intentionally not exposed as a job env var.
+      APP_ID: ${{ secrets.app-id }}
+      GH_FALLBACK_TOKEN: ${{ secrets.github-token }}
     steps:
+      - name: Generate GitHub App token
+        id: app-token
+        if: ${{ env.APP_ID != '' }}
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ secrets.app-id }}
+          private-key: ${{ secrets.private-key }}
+          owner: ${{ inputs.owner }}
+
+      - name: Verify auth provided
+        if: ${{ steps.app-token.outputs.token == '' && env.GH_FALLBACK_TOKEN == '' }}
+        shell: bash
+        run: |
+          echo "::error::add-to-project: no credentials provided. Pass app-id + private-key (preferred) or a github-token fallback to this reusable workflow. See docs/internal/designs/022-github-app-auth-add-to-project.md."
+          exit 1
+
       - name: Add issue or PR to project
         uses: jmmaloney4/sector7/.github/actions/add-to-project@main
         with:
           project-url: ${{ inputs.project_url }}
-          github-token: ${{ secrets.github-token }}
+          github-token: ${{ steps.app-token.outputs.token || secrets.github-token }}
           labeled: ${{ inputs.labeled }}
           label-operator: ${{ inputs.label-operator }}
