@@ -27,6 +27,14 @@ export interface ServiceHttpRouteArgs {
 	 * "private-gateway" for the private gateway.
 	 */
 	gatewayName?: string;
+	/**
+	 * Optional path-prefix match. When set, the route only forwards requests
+	 * whose path starts with this prefix (Gateway API `PathPrefix`), instead of
+	 * the whole host. Use this to expose a single endpoint publicly (e.g.
+	 * "/webhook") rather than every route the backend serves. Omit to match all
+	 * paths for the hostname (the default).
+	 */
+	pathPrefix?: string;
 	/** Kubernetes provider. */
 	provider: k8s.Provider;
 	/** Resources this HTTPRoute depends on. */
@@ -64,6 +72,13 @@ export function createServiceHttpRoute(
 				hostnames: args.hostnames,
 				rules: [
 					{
+						...(args.pathPrefix
+							? {
+									matches: [
+										{ path: { type: "PathPrefix", value: args.pathPrefix } },
+									],
+								}
+							: {}),
 						backendRefs: [
 							{
 								name: args.serviceName,
