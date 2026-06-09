@@ -52,6 +52,34 @@ describe("gateway module surface", () => {
 		expect(args.pathPrefix).toBe("/webhook");
 	});
 
+	it("rejects a pathPrefix without a leading slash", () => {
+		expect(() =>
+			createServiceHttpRoute({
+				name: "t",
+				namespace: "ns",
+				hostnames: ["h.example.com"],
+				serviceName: "svc",
+				port: 80,
+				pathPrefix: "webhook",
+				provider: {} as any,
+			}),
+		).toThrow(/absolute path/);
+	});
+
+	it("rejects an empty pathPrefix (would otherwise match all paths)", () => {
+		expect(() =>
+			createServiceHttpRoute({
+				name: "t",
+				namespace: "ns",
+				hostnames: ["h.example.com"],
+				serviceName: "svc",
+				port: 80,
+				pathPrefix: "",
+				provider: {} as any,
+			}),
+		).toThrow();
+	});
+
 	it("has correct defaults in SharedGatewayReferenceGrantArgs type", () => {
 		const args: SharedGatewayReferenceGrantArgs = {
 			name: "allow-test",

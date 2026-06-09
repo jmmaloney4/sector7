@@ -53,6 +53,15 @@ export function createServiceHttpRoute(
 	args: ServiceHttpRouteArgs,
 ): k8s.apiextensions.CustomResource {
 	const gatewayName = args.gatewayName ?? "public-gateway";
+	// Validate the prefix up front so misconfiguration fails fast (at preview)
+	// with a clear message rather than producing an invalid manifest at apply.
+	// Note: check `!== undefined`, NOT truthiness — an empty string is invalid,
+	// not "match everything" (which would silently expose the whole service).
+	if (args.pathPrefix !== undefined && !args.pathPrefix.startsWith("/")) {
+		throw new Error(
+			`createServiceHttpRoute: pathPrefix must be an absolute path starting with "/" (got ${JSON.stringify(args.pathPrefix)})`,
+		);
+	}
 	return new k8s.apiextensions.CustomResource(
 		`${args.name}-route`,
 		{
@@ -72,7 +81,7 @@ export function createServiceHttpRoute(
 				hostnames: args.hostnames,
 				rules: [
 					{
-						...(args.pathPrefix
+						...(args.pathPrefix !== undefined
 							? {
 									matches: [
 										{ path: { type: "PathPrefix", value: args.pathPrefix } },
