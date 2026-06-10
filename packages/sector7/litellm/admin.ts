@@ -349,6 +349,30 @@ function stableValue(value: unknown): unknown {
 	return value;
 }
 
+/**
+ * LiteLLM's `/team/update` and `/key/update` treat an *omitted* field as "leave
+ * unchanged", so the create/generate bodies that simply skip empty optionals
+ * cannot clear a value that was previously set. When a field transitions from
+ * set (olds) to empty (news), send an explicit reset (`null` / `[]`) so the
+ * change actually propagates instead of silently persisting remotely while
+ * Pulumi records the empty state. Shared by the team and key update paths.
+ */
+function applyClearedFields(
+	body: Record<string, unknown>,
+	olds: { maxBudget?: number | ""; budgetDuration?: string; tags?: string[] },
+	news: { maxBudget: number | ""; budgetDuration: string; tags: string[] },
+): void {
+	if (
+		olds.maxBudget !== "" &&
+		olds.maxBudget !== undefined &&
+		news.maxBudget === ""
+	) {
+		body.max_budget = null;
+	}
+	if (olds.budgetDuration && !news.budgetDuration) body.budget_duration = null;
+	if ((olds.tags?.length ?? 0) > 0 && news.tags.length === 0) body.tags = [];
+}
+
 // ---------------------------------------------------------------------------
 // Team — request bodies + provider
 // ---------------------------------------------------------------------------
@@ -368,6 +392,17 @@ function buildTeamBody(
 	if (teamId) body.team_id = teamId;
 	if (inputs.maxBudget !== "") body.max_budget = inputs.maxBudget;
 	if (inputs.budgetDuration) body.budget_duration = inputs.budgetDuration;
+	return body;
+}
+
+/** Team /team/update body that also clears fields removed since the last apply. */
+function buildTeamUpdateBody(
+	olds: TeamProviderState,
+	news: TeamProviderInputs,
+	teamId: string,
+): Record<string, unknown> {
+	const body = buildTeamBody(news, teamId);
+	applyClearedFields(body, olds, news);
 	return body;
 }
 
@@ -451,7 +486,7 @@ const teamProvider: dynamic.ResourceProvider = {
 
 	async update(
 		id: string,
-		_olds: TeamProviderState,
+		olds: TeamProviderState,
 		news: TeamProviderInputs,
 	): Promise<dynamic.UpdateResult> {
 		return withProxyBaseUrl(news, async (baseUrl) => {
@@ -460,7 +495,7 @@ const teamProvider: dynamic.ResourceProvider = {
 				news.masterKey,
 				"/team/update",
 				"POST",
-				buildTeamBody(news, id),
+				buildTeamUpdateBody(olds, news, id),
 			);
 			return { outs: { ...news, teamId: id } };
 		});
@@ -501,23 +536,27 @@ function buildKeyGenerateBody(
 }
 
 function buildKeyUpdateBody(
-	inputs: KeyProviderInputs,
+	olds: KeyProviderState,
+	news: KeyProviderInputs,
 ): Record<string, unknown> {
 	// /key/update is keyed on the token value (LiteLLM hashes it server-side).
 	// team_id / key value changes are handled by replacement, not update.
 	const body: Record<string, unknown> = {
-		key: inputs.keyValue,
-		key_alias: inputs.keyAlias,
-		models: inputs.models,
-		aliases: inputs.aliases,
-		metadata: inputs.metadata,
+		key: news.keyValue,
+		key_alias: news.keyAlias,
+		models: news.models,
+		aliases: news.aliases,
+		metadata: news.metadata,
 	};
-	if (inputs.tags.length > 0) body.tags = inputs.tags;
-	if (inputs.userId) body.user_id = inputs.userId;
-	if (inputs.budgetId) body.budget_id = inputs.budgetId;
-	if (inputs.maxBudget !== "") body.max_budget = inputs.maxBudget;
-	if (inputs.budgetDuration) body.budget_duration = inputs.budgetDuration;
-	if (inputs.duration) body.duration = inputs.duration;
+	if (news.tags.length > 0) body.tags = news.tags;
+	if (news.userId) body.user_id = news.userId;
+	if (news.budgetId) body.budget_id = news.budgetId;
+	if (news.maxBudget !== "") body.max_budget = news.maxBudget;
+	if (news.budgetDuration) body.budget_duration = news.budgetDuration;
+	if (news.duration) body.duration = news.duration;
+	// Clear fields removed since the last apply (omission would leave them set).
+	applyClearedFields(body, olds, news);
+	if (olds.duration && !news.duration) body.duration = null;
 	return body;
 }
 
@@ -614,7 +653,7 @@ const keyProvider: dynamic.ResourceProvider = {
 				news.masterKey,
 				"/key/update",
 				"POST",
-				buildKeyUpdateBody(news),
+				buildKeyUpdateBody(olds, news),
 			);
 			return { outs: { ...news, tokenId: olds.tokenId || id } };
 		});

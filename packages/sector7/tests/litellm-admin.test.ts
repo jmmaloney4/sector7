@@ -353,6 +353,31 @@ describe("LiteLLMTeam provider", () => {
 		expect((update?.body as { team_id: string }).team_id).toBe("personal");
 		vi.unstubAllGlobals();
 	});
+
+	it("clears a previously-set budget on update", async () => {
+		const olds = {
+			...target,
+			teamAlias: "prod-personal",
+			desiredTeamId: "personal",
+			models: ["coding"],
+			maxBudget: 250,
+			budgetDuration: "30d",
+			tags: [],
+			metadata: {},
+			teamId: "personal",
+		};
+		const news = { ...olds, maxBudget: "", budgetDuration: "" };
+		const calls = installFetch(() => ({}));
+		await teamProvider.update("personal", olds, news);
+		const body = calls.find((c) => c.path === "/team/update")?.body as Record<
+			string,
+			unknown
+		>;
+		// Omitting these would leave the old values set in LiteLLM — send nulls.
+		expect(body.max_budget).toBeNull();
+		expect(body.budget_duration).toBeNull();
+		vi.unstubAllGlobals();
+	});
 });
 
 describe("LiteLLMApiKey provider", () => {
@@ -448,6 +473,34 @@ describe("LiteLLMApiKey provider", () => {
 		const update = calls.find((c) => c.path === "/key/update");
 		expect((update?.body as { key: string }).key).toBe("sk-abc");
 		expect((update?.body as { models: string[] }).models).toContain("local");
+		vi.unstubAllGlobals();
+	});
+
+	it("clears previously-set budget/duration/tags on update", async () => {
+		const olds = {
+			...baseKey,
+			maxBudget: 100,
+			budgetDuration: "30d",
+			duration: "7d",
+			tags: ["legacy"],
+		};
+		const news = {
+			...baseKey,
+			maxBudget: "",
+			budgetDuration: "",
+			duration: "",
+			tags: [],
+		};
+		const calls = installFetch(() => ({}));
+		await keyProvider.update("hash-1", olds, news);
+		const body = calls.find((c) => c.path === "/key/update")?.body as Record<
+			string,
+			unknown
+		>;
+		expect(body.max_budget).toBeNull();
+		expect(body.budget_duration).toBeNull();
+		expect(body.duration).toBeNull();
+		expect(body.tags).toEqual([]);
 		vi.unstubAllGlobals();
 	});
 
