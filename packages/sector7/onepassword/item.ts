@@ -5,6 +5,10 @@ import {
 	type Output,
 	secret,
 } from "@pulumi/pulumi";
+import {
+	type PortForwardTarget,
+	withPortForward,
+} from "../k8s/port-forward.ts";
 
 /**
  * Resource options accepted by sector7 dynamic resources.
@@ -107,131 +111,12 @@ interface OnePasswordItemState {
 }
 
 // ---------------------------------------------------------------------------
-// Transport: in-process Kubernetes port-forward to the Connect server
-//
-// Every Node/k8s import is a lazy `await import()` *inside* these functions so
-// the provider closure that references them serializes — the same rule
-// `r2/r2object.ts` and the litellm admin providers document. The transport and
-// REST client are kept in this module (mirroring `litellm/admin.ts`) so the
-// serialized closure stays self-contained; factoring the port-forward into a
-// shared sector7 util (deduping with `litellm/admin.ts`) is follow-up once both
-// land (see ADR 031 / sector7#258).
-// ---------------------------------------------------------------------------
-
-interface ConnectTarget {
-	kubeconfig?: string;
-	namespace: string;
-	deploymentName: string;
-	port: number;
-}
-
-/**
- * Open a short-lived in-process port-forward to a ready Connect pod, invoke
- * `fn` with a `http://127.0.0.1:<port>` base URL, then tear the forward down.
- * Reaches Connect wherever kube credentials work (through the apiserver), so
- * Connect needs no tailnet/public ingress.
- */
-async function withConnectBaseUrl<T>(
-	target: ConnectTarget,
-	fn: (baseUrl: string) => Promise<T>,
-): Promise<T> {
-	const k8s = await import("@kubernetes/client-node");
-	const net = await import("node:net");
-
-	const kc = new k8s.KubeConfig();
-	if (target.kubeconfig) {
-		kc.loadFromString(target.kubeconfig);
-	} else {
-		kc.loadFromDefault();
-	}
-
-	const apps = kc.makeApiClient(k8s.AppsV1Api);
-	const core = kc.makeApiClient(k8s.CoreV1Api);
-
-	// Resolve the deployment's pod selector at runtime (no hardcoded labels),
-	// then pick a ready pod.
-	const depResp = await apps.readNamespacedDeployment({
-		name: target.deploymentName,
-		namespace: target.namespace,
-	});
-	// client-node 1.x returns the body directly; tolerate the 0.x {body} shape.
-	// biome-ignore lint/suspicious/noExplicitAny: k8s client response is loosely typed across majors
-	const dep: any = (depResp as any)?.body ?? depResp;
-	const matchLabels: Record<string, string> =
-		dep?.spec?.selector?.matchLabels ?? {};
-	const labelSelector = Object.entries(matchLabels)
-		.map(([k, v]) => `${k}=${v}`)
-		.join(",");
-	if (!labelSelector) {
-		throw new Error(
-			`deployment ${target.namespace}/${target.deploymentName} has no spec.selector.matchLabels`,
-		);
-	}
-
-	const podResp = await core.listNamespacedPod({
-		namespace: target.namespace,
-		labelSelector,
-	});
-	// biome-ignore lint/suspicious/noExplicitAny: k8s client response is loosely typed across majors
-	const pods: any[] = ((podResp as any)?.body ?? podResp)?.items ?? [];
-	// Require a genuinely Ready pod — do NOT fall back to an arbitrary pod.
-	// Forwarding to a terminating/unready Connect pod (during a rollout or
-	// crashloop) turns a clear readiness failure into opaque connection errors.
-	const ready = pods.find(
-		// biome-ignore lint/suspicious/noExplicitAny: pod object is loosely typed
-		(p: any) =>
-			p?.status?.phase === "Running" &&
-			(p?.status?.conditions ?? []).some(
-				// biome-ignore lint/suspicious/noExplicitAny: condition object is loosely typed
-				(c: any) => c?.type === "Ready" && c?.status === "True",
-			),
-	);
-	const podName: string | undefined = ready?.metadata?.name;
-	if (!podName) {
-		throw new Error(
-			`no ready pod found for deployment ${target.namespace}/${target.deploymentName} ` +
-				"(1Password Connect not ready?)",
-		);
-	}
-
-	const forward = new k8s.PortForward(kc);
-	const server = net.createServer((socket) => {
-		forward
-			.portForward(
-				target.namespace,
-				podName,
-				[target.port],
-				socket,
-				null,
-				socket,
-			)
-			.catch((err: unknown) =>
-				socket.destroy(err instanceof Error ? err : new Error(String(err))),
-			);
-	});
-
-	await new Promise<void>((resolve, reject) => {
-		server.once("error", reject);
-		server.listen(0, "127.0.0.1", () => resolve());
-	});
-
-	const address = server.address();
-	const localPort =
-		address && typeof address === "object" ? address.port : undefined;
-	if (!localPort) {
-		await new Promise<void>((resolve) => server.close(() => resolve()));
-		throw new Error("failed to bind a local port for the Connect port-forward");
-	}
-
-	try {
-		return await fn(`http://127.0.0.1:${localPort}`);
-	} finally {
-		await new Promise<void>((resolve) => server.close(() => resolve()));
-	}
-}
-
-// ---------------------------------------------------------------------------
 // 1Password Connect REST client
+//
+// The in-process port-forward transport lives in the shared `../k8s/port-forward`
+// module (`withPortForward`); see its serialization contract. Everything below
+// runs inside provider callbacks and uses only the global `fetch` plus lazy
+// `await import("node:crypto")`, so the provider closure serializes.
 // ---------------------------------------------------------------------------
 
 /** Issue an authenticated request against the Connect REST API. */
@@ -419,7 +304,7 @@ function resolveTarget(i: {
 	namespace: string;
 	deploymentName?: string;
 	connectPort?: number;
-}): ConnectTarget {
+}): PortForwardTarget {
 	return {
 		kubeconfig: i.kubeconfig,
 		namespace: i.namespace,
@@ -543,7 +428,7 @@ const onePasswordItemProvider: dynamic.ResourceProvider = {
 	): Promise<dynamic.CreateResult> {
 		const target = resolveTarget(inputs);
 		const category = inputs.category ?? DEFAULT_CATEGORY;
-		const uuid = await withConnectBaseUrl(target, async (baseUrl) => {
+		const uuid = await withPortForward(target, async (baseUrl) => {
 			// Find-or-create: adopt a pre-existing item by title and reconcile its
 			// fields in place, else create a fresh one. Adoption is what makes a
 			// safe cutover from a hand-created/unmanaged item possible.
@@ -602,7 +487,7 @@ const onePasswordItemProvider: dynamic.ResourceProvider = {
 	): Promise<dynamic.UpdateResult> {
 		const target = resolveTarget(news);
 		const category = news.category ?? DEFAULT_CATEGORY;
-		await withConnectBaseUrl(target, async (baseUrl) => {
+		await withPortForward(target, async (baseUrl) => {
 			// Merge into the live item so unmanaged fields/sections are preserved,
 			// while removing fields we previously managed but that were dropped.
 			const current = await getItem(baseUrl, news.connectToken, news.vault, id);
@@ -628,7 +513,7 @@ const onePasswordItemProvider: dynamic.ResourceProvider = {
 
 	async delete(id: string, props: OnePasswordItemState): Promise<void> {
 		const target = resolveTarget(props);
-		await withConnectBaseUrl(target, async (baseUrl) => {
+		await withPortForward(target, async (baseUrl) => {
 			try {
 				await connectRequest(
 					baseUrl,
