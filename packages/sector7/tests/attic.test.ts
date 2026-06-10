@@ -118,7 +118,11 @@ vi.mock("node:net", () => ({
 }));
 
 import { AtticCache, AtticToken } from "../attic/admin.ts";
-import { ATTIC_CLAIM_NAMESPACE, parseDurationSeconds } from "../attic/token.ts";
+import {
+	ATTIC_CLAIM_NAMESPACE,
+	mintAtticToken,
+	parseDurationSeconds,
+} from "../attic/token.ts";
 
 const SECRET_B64 = Buffer.from("attic-test-signing-secret").toString("base64");
 
@@ -491,6 +495,28 @@ describe("AtticToken provider", () => {
 			tokenProvider.delete("id", { ...tokenInputs, token: "x" }),
 		).resolves.toBeUndefined();
 	});
+
+	it("rejects a non-finite validity in check (would serialize exp as null)", async () => {
+		const res = await tokenProvider.check(
+			{},
+			{ ...tokenInputs, validitySeconds: Number.POSITIVE_INFINITY },
+		);
+		expect(res.failures.map((f) => f.property)).toContain("validitySeconds");
+	});
+});
+
+describe("mintAtticToken", () => {
+	it("fails closed on an empty/undecodable signing secret", async () => {
+		await expect(
+			mintAtticToken({
+				secretBase64: "",
+				sub: "x",
+				issuedAtSeconds: 0,
+				expiresAtSeconds: 1,
+				caches: {},
+			}),
+		).rejects.toThrow(/hs256 secret/);
+	});
 });
 
 describe("parseDurationSeconds", () => {
@@ -508,5 +534,6 @@ describe("parseDurationSeconds", () => {
 		expect(() => parseDurationSeconds(0)).toThrow();
 		expect(() => parseDurationSeconds("0")).toThrow();
 		expect(() => parseDurationSeconds("0s")).toThrow();
+		expect(() => parseDurationSeconds("9".repeat(400))).toThrow();
 	});
 });

@@ -108,6 +108,14 @@ export async function mintAtticToken(
 		Buffer.from(JSON.stringify(payload)),
 	)}`;
 	const key = Buffer.from(args.secretBase64, "base64");
+	// Fail closed on an empty/undecodable secret: Buffer.from(_, "base64") is
+	// permissive (garbage → empty/short buffer), which would otherwise mint a
+	// token signed with a bad key and hide that the root credential is invalid.
+	if (key.length === 0) {
+		throw new Error(
+			"invalid hs256 secret: decoded to empty bytes (expected a base64-encoded signing secret)",
+		);
+	}
 	const signature = crypto
 		.createHmac("sha256", key)
 		.update(signingInput)
@@ -143,12 +151,17 @@ export function parseDurationSeconds(input: string | number): number {
 		);
 	}
 	const n = Number.parseInt(match[1], 10);
-	// Reject non-positive string durations ("0", "0s") too — the numeric branch
-	// already does, and a zero/expired validity would mint an immediately-dead
-	// token anywhere this helper is used outside the provider's check().
-	if (n <= 0) {
+	// Reject non-positive / non-finite string durations ("0", "0s", or a digit
+	// string so long it overflows to Infinity) — the numeric branch already does.
+	// A zero/expired or non-finite validity mints an immediately-dead or invalid
+	// (exp → null) token anywhere this helper is used outside the provider check().
+	if (!Number.isFinite(n) || n <= 0) {
 		throw new Error(`invalid validity duration: "${input}" (must be positive)`);
 	}
 	const unit = match[2] ?? "s";
-	return n * UNIT_SECONDS[unit];
+	const seconds = n * UNIT_SECONDS[unit];
+	if (!Number.isFinite(seconds)) {
+		throw new Error(`validity duration too large: "${input}"`);
+	}
+	return seconds;
 }

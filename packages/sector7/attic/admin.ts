@@ -474,10 +474,17 @@ const tokenProvider: dynamic.ResourceProvider = {
 		if (!news.sub) {
 			failures.push({ property: "sub", reason: "sub is required" });
 		}
-		if (!news.validitySeconds || news.validitySeconds <= 0) {
+		if (
+			typeof news.validitySeconds !== "number" ||
+			!Number.isFinite(news.validitySeconds) ||
+			news.validitySeconds <= 0
+		) {
+			// Must be finite: a non-finite validity makes `exp = now + validity`
+			// non-finite, which JSON serializes to `null` — a token that looks minted
+			// but is invalid at runtime.
 			failures.push({
 				property: "validitySeconds",
-				reason: "validity must be a positive duration",
+				reason: "validity must be a finite positive duration",
 			});
 		}
 		return { inputs: news, failures };
