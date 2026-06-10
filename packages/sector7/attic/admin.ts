@@ -382,14 +382,21 @@ const cacheProvider: dynamic.ResourceProvider = {
 				// adopting a same-named cache that points at a different store dir would
 				// silently record the desired storeDir in state while the remote keeps
 				// its own. Fail loudly instead of misrepresenting drift.
+				//
+				// Fail *closed*: if the GET doesn't report a string store_dir we cannot
+				// confirm the immutable field, so refuse rather than adopt an unverified
+				// cache and record an assumed storeDir in state.
 				const existing = ensureOk(
 					await atticFetch(baseUrl, token, path, "GET"),
 					"GET",
 					path,
 				);
-				if (existing?.store_dir && existing.store_dir !== inputs.storeDir) {
+				if (
+					typeof existing?.store_dir !== "string" ||
+					existing.store_dir !== inputs.storeDir
+				) {
 					throw new Error(
-						`Attic cache "${inputs.cacheName}" already exists with store_dir "${existing.store_dir}", which differs from the requested "${inputs.storeDir}". store_dir is immutable — refusing to adopt; align storeDir or choose a different cacheName.`,
+						`Attic cache "${inputs.cacheName}" already exists but its store_dir (${JSON.stringify(existing?.store_dir)}) is absent or differs from the requested "${inputs.storeDir}". store_dir is immutable — refusing to adopt; align storeDir or choose a different cacheName.`,
 					);
 				}
 				ensureOk(

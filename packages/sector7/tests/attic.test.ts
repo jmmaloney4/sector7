@@ -295,6 +295,18 @@ describe("AtticCache provider — lifecycle", () => {
 		);
 	});
 
+	it("refuses to adopt when the existing store_dir is unverifiable", async () => {
+		installFetch((_path, method) => {
+			if (method === "POST")
+				return { status: 400, body: "Error: CacheAlreadyExists" };
+			if (method === "GET") return { body: { public_key: "pk" } }; // no store_dir
+			return {};
+		});
+		await expect(cacheProvider.create(cacheInputs())).rejects.toThrow(
+			/store_dir/,
+		);
+	});
+
 	it("PATCHes a fresh cache's retention when requested", async () => {
 		const calls = installFetch((_path, method) => {
 			if (method === "POST") return { status: 200, body: { public_key: "pk" } };
