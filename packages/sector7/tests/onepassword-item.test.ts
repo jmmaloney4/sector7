@@ -225,6 +225,22 @@ describe("OnePasswordItem provider", () => {
 		expect(props).toContain("fields");
 	});
 
+	it("check rejects duplicate field labels", async () => {
+		const result = await provider.check(
+			{},
+			{
+				...baseInputs(),
+				fields: [
+					{ label: "password", value: "a" },
+					{ label: "password", value: "b" },
+				],
+			},
+		);
+		expect(
+			result.failures.some((f) => /duplicate field label/.test(f.reason)),
+		).toBe(true);
+	});
+
 	it("create POSTs a new item when none exists", async () => {
 		listResult = [];
 		const res = await provider.create(baseInputs());
@@ -279,6 +295,31 @@ describe("OnePasswordItem provider", () => {
 		const pwd = put?.body.fields.find((f: any) => f.label === "password");
 		expect(pwd.value).toBe("sk-abc"); // managed value wins
 		expect(put?.body.sections).toEqual([{ id: "s1", label: "extra" }]); // preserved
+	});
+
+	it("update removes a previously-managed field dropped from input", async () => {
+		existingItem = {
+			id: "item-9",
+			title: "My Item",
+			category: "PASSWORD",
+			fields: [
+				{ label: "password", type: "CONCEALED", value: "v" },
+				{ label: "old", type: "CONCEALED", value: "gone" },
+				{ label: "unmanaged", type: "STRING", value: "keep" },
+			],
+		};
+		// Previously managed password + old; now input only declares password.
+		await provider.update(
+			"item-9",
+			{ managedLabels: ["password", "old"] },
+			baseInputs(),
+		);
+		const put = fetchCalls.find((c) => c.method === "PUT");
+		// biome-ignore lint/suspicious/noExplicitAny: test body is dynamic JSON
+		const labels = put?.body.fields.map((f: any) => f.label);
+		expect(labels).toContain("password"); // still declared
+		expect(labels).not.toContain("old"); // dropped managed field removed
+		expect(labels).toContain("unmanaged"); // never managed -> preserved
 	});
 
 	it("create refuses to adopt when multiple items share the title", async () => {

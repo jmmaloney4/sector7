@@ -101,6 +101,9 @@ interface OnePasswordItemState {
 	uuid: string;
 	itemPath: string;
 	contentHash: string;
+	/** Labels this resource manages, so a later update can remove ones that were
+	 * dropped from input without touching unmanaged fields. */
+	managedLabels: string[];
 }
 
 // ---------------------------------------------------------------------------
@@ -308,12 +311,21 @@ function buildMergedItemBody(
 	category: string,
 	fields: ResolvedField[],
 	id: string,
+	priorManagedLabels: string[],
 ): Record<string, unknown> {
 	// biome-ignore lint/suspicious/noExplicitAny: Connect field objects are loosely typed
 	const byLabel = new Map<string, any>();
 	for (const f of (existing?.fields ?? []) as Array<{ label?: string }>) {
 		if (f?.label) byLabel.set(f.label, f);
 	}
+	// Remove fields we previously managed but that are no longer declared, so the
+	// item reconciles to the declared state. Fields we never managed (and prior
+	// managed fields that are still declared) are left untouched here.
+	const declared = new Set(fields.map((f) => f.label));
+	for (const label of priorManagedLabels) {
+		if (!declared.has(label)) byLabel.delete(label);
+	}
+	// Upsert the declared managed fields.
 	for (const f of fields) {
 		byLabel.set(f.label, { ...byLabel.get(f.label), ...managedField(f) });
 	}
@@ -433,6 +445,7 @@ function stateOuts(
 		uuid,
 		itemPath: `vaults/${i.vault}/items/${uuid}`,
 		contentHash,
+		managedLabels: i.fields.map((f) => f.label),
 	};
 }
 
@@ -466,12 +479,22 @@ const onePasswordItemProvider: dynamic.ResourceProvider = {
 				reason: "at least one field is required",
 			});
 		} else {
+			const seen = new Set<string>();
 			news.fields.forEach((f, idx) => {
 				if (!f?.label)
 					failures.push({
 						property: `fields[${idx}].label`,
 						reason: "field label is required",
 					});
+				else if (seen.has(f.label))
+					// Fields are keyed by label when written to / merged into the item,
+					// so duplicate labels would silently collapse (last write wins) and
+					// corrupt drift detection. Reject them up front.
+					failures.push({
+						property: `fields[${idx}].label`,
+						reason: `duplicate field label: ${f.label}`,
+					});
+				else seen.add(f.label);
 			});
 		}
 		return { inputs: news, failures };
@@ -550,6 +573,9 @@ const onePasswordItemProvider: dynamic.ResourceProvider = {
 						category,
 						inputs.fields,
 						existing,
+						// First reconcile of an adopted item: we have no record of what
+						// we managed before, so remove nothing — only upsert.
+						[],
 					),
 				);
 				return existing;
@@ -571,13 +597,14 @@ const onePasswordItemProvider: dynamic.ResourceProvider = {
 
 	async update(
 		id: string,
-		_olds: OnePasswordItemState,
+		olds: OnePasswordItemState,
 		news: OnePasswordItemProviderInputs,
 	): Promise<dynamic.UpdateResult> {
 		const target = resolveTarget(news);
 		const category = news.category ?? DEFAULT_CATEGORY;
 		await withConnectBaseUrl(target, async (baseUrl) => {
-			// Merge into the live item so unmanaged fields/sections are preserved.
+			// Merge into the live item so unmanaged fields/sections are preserved,
+			// while removing fields we previously managed but that were dropped.
 			const current = await getItem(baseUrl, news.connectToken, news.vault, id);
 			await connectRequest(
 				baseUrl,
@@ -591,6 +618,7 @@ const onePasswordItemProvider: dynamic.ResourceProvider = {
 					category,
 					news.fields,
 					id,
+					olds.managedLabels ?? [],
 				),
 			);
 		});
