@@ -16,10 +16,7 @@ vi.mock("../d1/d1-query.ts", () => {
 	};
 });
 
-import {
-	DEFAULT_D1_SCHEMA,
-	UptimeMonitor,
-} from "../monitor/uptime-monitor.ts";
+import { DEFAULT_D1_SCHEMA, UptimeMonitor } from "../monitor/uptime-monitor.ts";
 
 type MockResource = {
 	type: string;
