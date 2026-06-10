@@ -18,6 +18,39 @@ pnpm add "git+https://github.com/jmmaloney4/sector7.git#path:/packages/sector7#v
 
 ## Components
 
+This package is organized into **subpath modules**, each exported under
+`@jmmaloney4/sector7/<name>` so a consumer only pulls in the dependency closure
+it needs. The root barrel (`@jmmaloney4/sector7`) re-exports the lighter modules
+as namespaces (`access`, `d1`, `iam`, `monitor`, `nixImage`, `nixOutput`,
+`workersite`); heavier modules — those carrying `@pulumi/kubernetes`,
+`@kubernetes/client-node`, or other large/optional type closures — are
+**subpath-only** and deliberately kept out of the root barrel (asserted by
+`barrel-guard.ts`).
+
+| Subpath                             | Key exports                                                                           | Purpose                                                                                   |
+| ----------------------------------- | ------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------- |
+| `@jmmaloney4/sector7/iam`           | `GitHubOidcResource`, `WorkloadIdentityPool`, `GitHubActionsIdentityProvider`         | GitHub Actions OIDC → GCP Workload Identity Federation ([details](#githuboidcresource))   |
+| `@jmmaloney4/sector7/access`        | `AccessGate`                                                                          | GitHub OAuth access-control gate for WorkerSite routes (ADR-016)                          |
+| `@jmmaloney4/sector7/workersite`    | `WorkerSite`, `generateWorkerScript`                                                  | Cloudflare Worker static-site deployment                                                  |
+| `@jmmaloney4/sector7/r2`            | `R2Object`, `uploadAssets`, `uploadStaticAssets`, `purgeZoneCache`                    | Cloudflare R2 object upload + zone cache purge (dynamic resources)                        |
+| `@jmmaloney4/sector7/d1`            | `D1Query`                                                                             | Cloudflare D1 query as a dynamic resource                                                 |
+| `@jmmaloney4/sector7/nix-image`     | `NixImage`, `NixImagePushGroup`                                                       | Build and push OCI images from Nix outputs (ADR-017/029)                                  |
+| `@jmmaloney4/sector7/nix-output`    | `NixOutput`                                                                           | Realize a Nix flake output as a resource (ADR-021)                                        |
+| `@jmmaloney4/sector7/monitor`       | `UptimeMonitor`                                                                       | Cloudflare Worker uptime monitor (ADR-020/028/030)                                        |
+| `@jmmaloney4/sector7/cloudsql`      | `CloudSqlAuthProxySidecar`, `rewriteDatabaseUrlForProxy`                              | Cloud SQL Auth Proxy sidecar for Kubernetes workloads (ADR-027)                           |
+| `@jmmaloney4/sector7/litellm`       | `LiteLLMProxy`, `LiteLLMTeam`, `LiteLLMApiKey`, `generateLiteLLMConfig`               | LiteLLM proxy deployment + team/virtual-key admin, dynamic (ADR-026; [details](#litellm)) |
+| `@jmmaloney4/sector7/onepassword`   | `OnePasswordItem`                                                                     | Write/update a 1Password item via Connect, dynamic (ADR-031; [details](#onepassword))     |
+| `@jmmaloney4/sector7/attic`         | `AtticCache`, `AtticToken`                                                            | Attic Nix binary cache + access-token admin, dynamic (ADR-032; [details](#attic))         |
+| `@jmmaloney4/sector7/gateway`       | `createServiceHttpRoute`, `createSharedGatewayReferenceGrant`, `createTailnetIngress` | Gateway API HTTPRoute / ReferenceGrant / Tailnet Ingress helpers (ADR-040/075)            |
+| `@jmmaloney4/sector7/pulumi-config` | `requireMixedConfig`                                                                  | Typed loader for mixed plain + secret Pulumi config                                       |
+| `@jmmaloney4/sector7/scripts`       | `getScriptPath`                                                                       | Resolve the path to a script bundled with the package                                     |
+
+> The dynamic-resource modules (`litellm`, `onepassword`, `attic`, `r2`, `d1`)
+> reach a `ClusterIP`-only service from an out-of-cluster `pulumi up` over a
+> short-lived **in-process Kubernetes port-forward** (`k8s/port-forward.ts`), so
+> the targets need no tailnet/public ingress. Their provider closures must keep
+> native imports lazy — see the serialization contract in `k8s/port-forward.ts`.
+
 ### GitHubOidcResource
 
 A component that sets up GitHub Actions OIDC authentication with Google Cloud Platform (GCP). This creates:
@@ -118,6 +151,101 @@ config:
         - your-dev-project
     limitToRef: refs/heads/main
 ```
+
+### LiteLLM
+
+`@jmmaloney4/sector7/litellm` deploys an OpenAI-compatible
+[LiteLLM](https://docs.litellm.ai) proxy and manages its teams and virtual keys.
+`LiteLLMProxy` owns the Kubernetes objects and generates `config.yaml` from a
+typed model; `LiteLLMTeam` and `LiteLLMApiKey` are **dynamic resources** that
+reconcile teams/keys through the proxy admin API over an in-process port-forward
+(idempotent adoption, in-place updates, secret-typed key outputs). See ADR-026.
+
+```typescript
+import * as pulumi from "@pulumi/pulumi";
+import { LiteLLMApiKey, LiteLLMTeam } from "@jmmaloney4/sector7/litellm";
+
+const team = new LiteLLMTeam("prod", {
+    proxyNamespace: "litellm",
+    masterKey: pulumi.secret(masterKey),
+    teamAlias: "prod-personal",
+    teamId: "personal", // explicit id → idempotent adoption
+    models: ["coding", "cheap"],
+});
+
+const key = new LiteLLMApiKey("openwebui", {
+    proxyNamespace: "litellm",
+    masterKey: pulumi.secret(masterKey),
+    teamId: team.teamId,
+    keyAlias: "prod-openwebui",
+});
+
+export const openWebuiKey = key.key; // secret Output<string>
+```
+
+### OnePassword
+
+`@jmmaloney4/sector7/onepassword` **writes** (creates/updates) a 1Password item
+via 1Password Connect, reached over an in-process Kubernetes port-forward — so
+Connect stays `ClusterIP`-only. Use it to publish a value Pulumi already holds so
+the 1Password operator (or `op read`) can distribute it. Field values are treated
+as secrets end to end. See ADR-031.
+
+```typescript
+import * as pulumi from "@pulumi/pulumi";
+import { OnePasswordItem } from "@jmmaloney4/sector7/onepassword";
+
+const item = new OnePasswordItem("hermes-key", {
+    namespace: "1password",
+    connectToken: pulumi.secret(connectToken), // write-scoped Connect token
+    vault: vaultId,
+    title: "hermes-agent-api-key",
+    category: "password",
+    fields: [
+        { label: "credential", value: pulumi.secret(apiKey), type: "concealed" },
+    ],
+});
+
+export const itemPath = item.itemPath; // vaults/<vault>/items/<uuid>
+```
+
+### Attic
+
+`@jmmaloney4/sector7/attic` manages an
+[Attic](https://github.com/zhaofengli/attic) Nix binary cache and its access
+tokens as **dynamic resources**. `AtticCache` find-or-creates and reconciles a
+cache through the cache-config HTTP API over an in-process port-forward, minting
+its own short-lived admin token from the server's signing secret; `AtticToken`
+mints a stateless HS256 access token in-process from that same secret (no server
+contact). The token is a secret output; the resource id never carries it. See
+ADR-032.
+
+```typescript
+import * as pulumi from "@pulumi/pulumi";
+import { AtticCache, AtticToken } from "@jmmaloney4/sector7/attic";
+
+const cache = new AtticCache("cache", {
+    namespace: "attic-prod",
+    hs256SecretBase64: pulumi.secret(signingSecret),
+    cacheName: "cache",
+    isPublic: true,
+});
+
+const ciToken = new AtticToken("ci", {
+    hs256SecretBase64: pulumi.secret(signingSecret),
+    sub: "github-actions-ci",
+    validity: "1y",
+    caches: { cache: { pull: true, push: true } },
+});
+
+export const cachePublicKey = cache.publicKey;
+export const atticCiToken = ciToken.token; // secret Output<string>
+```
+
+> **Token revocation caveat:** Attic tokens are stateless JWTs — `AtticToken`
+> deletion is a no-op. A token is invalidated only by its `validity` lapsing or by
+> rotating the shared signing secret (which invalidates *every* token). Prefer
+> short `validity` and least-privilege `caches` scopes.
 
 ## Development
 
