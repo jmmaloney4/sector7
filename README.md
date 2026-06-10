@@ -99,6 +99,23 @@ Avoid specs like `github:jmmaloney4/sector7#<commit>&path:/packages/sector7` in 
 
 Also avoid relying on GitHub codeload source archives for runtime monorepo subpackages. They avoid `git`, but can install the repository root instead of the subpackage root, which breaks subpath exports such as `@jmmaloney4/sector7/nix-image`. [ADR-018](docs/internal/designs/018-pnpm-release-tarball-artifacts.md) documents the release-tarball artifact decision.
 
+> **pnpm 11.4+ requires an `integrity` field for this tarball.** A `https://….tgz`
+> dependency resolves in `pnpm-lock.yaml` to `resolution: {tarball: URL}` with **no**
+> `integrity` (the hash is only known after download), and pnpm does not write one back —
+> not even with `--update-checksums`. pnpm **11.4.0** added a security change that **fails
+> closed** under `--frozen-lockfile` for such entries with
+> `ERR_PNPM_MISSING_TARBALL_INTEGRITY` (older pnpm minted one from unverified bytes). This
+> bites hermetic/Nix-backed installs, which use `--frozen-lockfile`.
+>
+> Fix: hand-add the integrity to each referenced tarball resolution block, and re-add it on
+> every version bump (pnpm 11.5.0+ preserves a manually-added one):
+>
+> ```bash
+> curl -sL <tarball-url> -o t.tgz
+> # paste into resolution: {integrity: <below>, tarball: <url>}
+> echo "sha512-$(openssl dgst -sha512 -binary t.tgz | openssl base64 -A)"
+> ```
+
 Use the GitHubOidcResource component:
 
 ```typescript
