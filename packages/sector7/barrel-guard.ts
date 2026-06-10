@@ -8,3 +8,6 @@ void root.cloudsql;
 
 // @ts-expect-error OnePassword write resource lives on the ./onepassword subpath, not the root barrel
 void root.onepassword;
+
+// @ts-expect-error Attic cache/token resources live on the ./attic subpath, not the root barrel
+void root.attic;
