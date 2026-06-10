@@ -242,7 +242,13 @@ async function findTeamId(
 		: (data?.teams ?? data?.data ?? []);
 	for (const team of teams) {
 		if (!team || typeof team !== "object") continue;
-		if (desiredTeamId && team.team_id === desiredTeamId) return team.team_id;
+		// An explicit team_id is authoritative: when one was requested, match on it
+		// alone and never fall back to alias, or a colliding alias on a different
+		// team would be adopted and have its settings overwritten.
+		if (desiredTeamId) {
+			if (team.team_id === desiredTeamId) return team.team_id;
+			continue;
+		}
 		if (alias && team.team_alias === alias) return team.team_id;
 	}
 	return undefined;
@@ -254,11 +260,18 @@ async function findTeamId(
  * LiteLLM `/key/info` never exposes the `sk-...` value, only the hash — so this
  * is used solely to detect a pre-existing key during adoption/recreation, not
  * to recover the secret.
+ *
+ * The match is scoped to BOTH `alias` and `teamId`: aliases are not globally
+ * unique in LiteLLM, so matching on alias alone would let `create()` delete a
+ * same-named key belonging to a different team (or a manually-managed key) on a
+ * shared admin plane. Requiring the team to match confines deletion to keys
+ * this resource actually owns.
  */
 async function findKeyHashByAlias(
 	baseUrl: string,
 	masterKey: string,
 	alias: string,
+	teamId: string,
 ): Promise<string | undefined> {
 	const data = await adminRequest(baseUrl, masterKey, "/key/list", "GET");
 	// biome-ignore lint/suspicious/noExplicitAny: key list shape varies by LiteLLM version
@@ -287,7 +300,12 @@ async function findKeyHashByAlias(
 		}),
 	);
 	for (const { hash, info } of infos) {
-		if (info && typeof info === "object" && info.key_alias === alias) {
+		if (
+			info &&
+			typeof info === "object" &&
+			info.key_alias === alias &&
+			(info.team_id ?? "") === (teamId ?? "")
+		) {
 			return hash;
 		}
 	}
@@ -557,6 +575,7 @@ const keyProvider: dynamic.ResourceProvider = {
 				baseUrl,
 				inputs.masterKey,
 				inputs.keyAlias,
+				inputs.teamId,
 			);
 			if (existingHash) {
 				await adminRequest(baseUrl, inputs.masterKey, "/key/delete", "POST", {

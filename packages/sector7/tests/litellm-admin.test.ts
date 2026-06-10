@@ -304,6 +304,35 @@ describe("LiteLLMTeam provider", () => {
 		vi.unstubAllGlobals();
 	});
 
+	it("does not adopt a different team that merely shares the alias", async () => {
+		const calls = installFetch((path) => {
+			// A different team_id happens to carry the same alias. With an explicit
+			// desiredTeamId that doesn't exist yet, we must create — not mutate the
+			// unrelated team.
+			if (path === "/team/list")
+				return {
+					teams: [{ team_id: "someone-else", team_alias: "prod-personal" }],
+				};
+			if (path === "/team/new") return { team_id: "personal" };
+			return {};
+		});
+		const result = await teamProvider.create({
+			...target,
+			teamAlias: "prod-personal",
+			desiredTeamId: "personal",
+			models: ["coding"],
+			maxBudget: "",
+			budgetDuration: "",
+			tags: [],
+			metadata: {},
+		});
+		expect(result.id).toBe("personal");
+		expect(calls.find((c) => c.path === "/team/new")).toBeDefined();
+		// Must not have mutated the unrelated same-alias team.
+		expect(calls.find((c) => c.path === "/team/update")).toBeUndefined();
+		vi.unstubAllGlobals();
+	});
+
 	it("update calls /team/update with the resolved team_id", async () => {
 		const calls = installFetch(() => ({}));
 		await teamProvider.update(
@@ -382,17 +411,31 @@ describe("LiteLLMApiKey provider", () => {
 		vi.unstubAllGlobals();
 	});
 
-	it("create deletes a pre-existing same-alias key before regenerating", async () => {
+	it("create deletes a pre-existing same-alias key in the same team before regenerating", async () => {
 		const calls = installFetch((path) => {
 			if (path === "/key/list") return { keys: ["hash-old"] };
 			if (path.startsWith("/key/info"))
-				return { info: { key_alias: "prod-openwebui" } };
+				return { info: { key_alias: "prod-openwebui", team_id: "personal" } };
 			if (path === "/key/generate") return { token: "hash-new" };
 			return {};
 		});
 		await keyProvider.create({ ...baseKey, tokenId: undefined });
 		const del = calls.find((c) => c.path === "/key/delete");
 		expect((del?.body as { keys: string[] }).keys).toEqual(["hash-old"]);
+		vi.unstubAllGlobals();
+	});
+
+	it("create does NOT delete a same-alias key owned by a different team", async () => {
+		const calls = installFetch((path) => {
+			if (path === "/key/list") return { keys: ["hash-other-team"] };
+			if (path.startsWith("/key/info"))
+				return { info: { key_alias: "prod-openwebui", team_id: "research" } };
+			if (path === "/key/generate") return { token: "hash-new" };
+			return {};
+		});
+		await keyProvider.create({ ...baseKey, tokenId: undefined });
+		// The colliding alias belongs to another team — must be left untouched.
+		expect(calls.find((c) => c.path === "/key/delete")).toBeUndefined();
 		vi.unstubAllGlobals();
 	});
 
