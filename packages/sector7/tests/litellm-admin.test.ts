@@ -232,6 +232,27 @@ describe("LiteLLMTeam provider", () => {
 		expect(result.replaces).toEqual(["desiredTeamId"]);
 	});
 
+	it("treats an admin-target change as an in-place update", async () => {
+		const olds = {
+			...target,
+			teamAlias: "prod-personal",
+			desiredTeamId: "personal",
+			models: ["coding"],
+			maxBudget: "",
+			budgetDuration: "",
+			tags: [],
+			metadata: {},
+			teamId: "personal",
+		};
+		const result = await teamProvider.diff("personal", olds, {
+			...olds,
+			masterKey: "sk-rotated-master",
+			proxyDeploymentName: "litellm-canary",
+		});
+		expect(result.changes).toBe(true);
+		expect(result.replaces ?? []).toEqual([]);
+	});
+
 	it("adopts an existing team via /team/update on create", async () => {
 		const calls = installFetch((path) => {
 			if (path === "/team/list")
@@ -392,6 +413,44 @@ describe("LiteLLMApiKey provider", () => {
 		await keyProvider.delete("hash-1", baseKey);
 		const del = calls.find((c) => c.path === "/key/delete");
 		expect((del?.body as { keys: string[] }).keys).toEqual(["hash-1"]);
+		vi.unstubAllGlobals();
+	});
+
+	it("treats an admin-target change as an in-place update", async () => {
+		const result = await keyProvider.diff("hash-1", baseKey, {
+			...baseKey,
+			masterKey: "sk-rotated-master",
+			proxyNamespace: "litellm-staging",
+		});
+		expect(result.changes).toBe(true);
+		expect(result.replaces ?? []).toEqual([]);
+	});
+
+	it("reconciles a renamed key alias via /key/update", async () => {
+		const renamed = { ...baseKey, keyAlias: "prod-openwebui-v2" };
+		const diff = await keyProvider.diff("hash-1", baseKey, renamed);
+		expect(diff.changes).toBe(true);
+		expect(diff.replaces ?? []).toEqual([]);
+
+		const calls = installFetch(() => ({}));
+		await keyProvider.update("hash-1", baseKey, renamed);
+		const update = calls.find((c) => c.path === "/key/update");
+		expect((update?.body as { key_alias: string }).key_alias).toBe(
+			"prod-openwebui-v2",
+		);
+		vi.unstubAllGlobals();
+	});
+
+	it("create throws rather than storing the secret as the resource id", async () => {
+		installFetch((path) => {
+			if (path === "/key/list") return { keys: [] };
+			// /key/generate returns no token — must fail, not leak sk- as the id.
+			if (path === "/key/generate") return {};
+			return {};
+		});
+		await expect(
+			keyProvider.create({ ...baseKey, tokenId: undefined }),
+		).rejects.toThrow(/no token id/);
 		vi.unstubAllGlobals();
 	});
 });

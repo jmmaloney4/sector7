@@ -294,6 +294,21 @@ async function findKeyHashByAlias(
 	return undefined;
 }
 
+/**
+ * True when any admin-connection field changed. Such a change does not alter
+ * the remote team/key, but it must still flow into stored state so a later
+ * update/delete targets the new deployment and uses the new master key rather
+ * than the stale ones — so diff() treats it as an in-place change.
+ */
+function adminTargetChanged(olds: AdminTarget, news: AdminTarget): boolean {
+	return (
+		olds.proxyNamespace !== news.proxyNamespace ||
+		olds.proxyDeploymentName !== news.proxyDeploymentName ||
+		olds.proxyPort !== news.proxyPort ||
+		olds.masterKey !== news.masterKey
+	);
+}
+
 /** Stable JSON for order-insensitive comparison in diff(). */
 function stableJson(value: unknown): string {
 	if (Array.isArray(value)) {
@@ -370,6 +385,7 @@ const teamProvider: dynamic.ResourceProvider = {
 		}
 		const changed =
 			replaces.length > 0 ||
+			adminTargetChanged(olds, news) ||
 			stableJson(olds.models) !== stableJson(news.models) ||
 			olds.teamAlias !== news.teamAlias ||
 			(olds.maxBudget ?? "") !== (news.maxBudget ?? "") ||
@@ -473,6 +489,7 @@ function buildKeyUpdateBody(
 	// team_id / key value changes are handled by replacement, not update.
 	const body: Record<string, unknown> = {
 		key: inputs.keyValue,
+		key_alias: inputs.keyAlias,
 		models: inputs.models,
 		aliases: inputs.aliases,
 		metadata: inputs.metadata,
@@ -517,6 +534,8 @@ const keyProvider: dynamic.ResourceProvider = {
 		if ((olds.teamId ?? "") !== (news.teamId ?? "")) replaces.push("teamId");
 		const changed =
 			replaces.length > 0 ||
+			adminTargetChanged(olds, news) ||
+			(olds.keyAlias ?? "") !== (news.keyAlias ?? "") ||
 			stableJson(olds.models) !== stableJson(news.models) ||
 			stableJson(olds.aliases ?? {}) !== stableJson(news.aliases ?? {}) ||
 			stableJson(olds.metadata ?? {}) !== stableJson(news.metadata ?? {}) ||
@@ -552,8 +571,14 @@ const keyProvider: dynamic.ResourceProvider = {
 				buildKeyGenerateBody(inputs),
 			);
 			const tokenId: string = resp?.token ?? resp?.token_id ?? "";
+			// Never fall back to the sk-... value: Pulumi resource IDs are stored
+			// in plaintext in state, so using the secret as the ID would leak the
+			// credential (and delete expects a LiteLLM token hash, not the secret).
+			if (!tokenId) {
+				throw new Error("LiteLLM /key/generate returned no token id");
+			}
 			return {
-				id: tokenId || inputs.keyValue,
+				id: tokenId,
 				outs: { ...inputs, tokenId },
 			};
 		});
@@ -577,7 +602,7 @@ const keyProvider: dynamic.ResourceProvider = {
 	},
 
 	async delete(id: string, props: KeyProviderState): Promise<void> {
-		const token = id || props.tokenId || props.keyValue;
+		const token = id || props.tokenId;
 		if (!token) return;
 		await withProxyBaseUrl(props, async (baseUrl) => {
 			await adminRequest(baseUrl, props.masterKey, "/key/delete", "POST", {
