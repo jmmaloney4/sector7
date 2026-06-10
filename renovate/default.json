@@ -14,7 +14,6 @@
 	"prHourlyLimit": 10,
 	"prConcurrentLimit": 5,
 	"rebaseWhen": "conflicted",
-	"ignorePaths": ["**/docs/**"],
 	"automergeType": "pr",
 	"automergeStrategy": "merge",
 	"platformAutomerge": false,
@@ -45,8 +44,13 @@
 			"pinDigests": false
 		},
 		{
-			"description": "Disable requires-python updates \u2014 managed manually per project as a capped minor range (e.g. >=3.13,<3.14)",
+			"description": "Disable requires-python updates — managed manually per project as a capped minor range (e.g. >=3.13,<3.14)",
 			"matchDepTypes": ["requires-python"],
+			"enabled": false
+		},
+		{
+			"description": "Skip dependency updates under docs/ directories — archived reference material not actively maintained",
+			"matchFileNames": ["**/docs/**"],
 			"enabled": false
 		}
 	]
