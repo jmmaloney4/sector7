@@ -1,0 +1,305 @@
+import { beforeEach, describe, expect, it, vi } from "vitest";
+
+// ---------------------------------------------------------------------------
+// Mocks
+//
+// OnePasswordItem is a dynamic.Resource. We mock @pulumi/pulumi to capture the
+// ResourceProvider passed to super() (the same capture pattern as the r2 / d1 /
+// litellm-admin provider tests), then exercise the provider directly.
+//
+// withConnectBaseUrl() loads kube credentials and opens a port-forward; we stub
+// @kubernetes/client-node and node:net so it yields a local base URL without a
+// real cluster, and stub global fetch to capture the Connect REST calls.
+// node:crypto is NOT mocked — the content hash is computed for real.
+// ---------------------------------------------------------------------------
+
+type Provider = {
+	check: (
+		olds: Record<string, unknown>,
+		news: Record<string, unknown>,
+	) => Promise<{
+		inputs: Record<string, unknown>;
+		failures: Array<{ property: string; reason: string }>;
+	}>;
+	diff: (
+		id: string,
+		olds: Record<string, unknown>,
+		news: Record<string, unknown>,
+	) => Promise<{
+		changes: boolean;
+		replaces?: string[];
+		deleteBeforeReplace?: boolean;
+	}>;
+	create: (
+		inputs: Record<string, unknown>,
+	) => Promise<{ id: string; outs: Record<string, unknown> }>;
+	update: (
+		id: string,
+		olds: Record<string, unknown>,
+		news: Record<string, unknown>,
+	) => Promise<{ outs: Record<string, unknown> }>;
+	delete: (id: string, props: Record<string, unknown>) => Promise<void>;
+};
+
+const capturedProviders: Provider[] = [];
+
+vi.mock("@pulumi/pulumi", () => ({
+	dynamic: {
+		Resource: class {
+			constructor(provider: Provider) {
+				capturedProviders.push(provider);
+			}
+		},
+	},
+}));
+
+const apiStubs = {
+	readNamespacedDeployment: vi.fn().mockResolvedValue({
+		spec: { selector: { matchLabels: { app: "onepassword-connect" } } },
+	}),
+	listNamespacedPod: vi.fn().mockResolvedValue({
+		items: [
+			{
+				metadata: { name: "connect-pod-1" },
+				status: {
+					phase: "Running",
+					conditions: [{ type: "Ready", status: "True" }],
+				},
+			},
+		],
+	}),
+};
+
+vi.mock("@kubernetes/client-node", () => ({
+	KubeConfig: class {
+		loadFromDefault() {}
+		loadFromString(_s: string) {}
+		makeApiClient() {
+			return apiStubs;
+		}
+	},
+	AppsV1Api: class AppsV1Api {},
+	CoreV1Api: class CoreV1Api {},
+	PortForward: class {
+		portForward() {
+			return Promise.resolve();
+		}
+	},
+}));
+
+vi.mock("node:net", () => ({
+	createServer: () => {
+		const server = {
+			once: (_event: string, _cb: unknown) => server,
+			listen: (_port: number, _host: string, cb: () => void) => {
+				cb();
+				return server;
+			},
+			address: () => ({ port: 41000 }),
+			close: (cb?: () => void) => {
+				cb?.();
+				return server;
+			},
+		};
+		return server;
+	},
+}));
+
+// Trigger provider capture by constructing the resource once.
+import { OnePasswordItem } from "../onepassword/item.ts";
+
+new OnePasswordItem("capture", {
+	connectToken: "tok",
+	namespace: "1password",
+	vault: "vault-1",
+	title: "My Item",
+	fields: [{ label: "password", value: "sk-abc" }],
+});
+const provider = capturedProviders[0] as Provider;
+
+// ---------------------------------------------------------------------------
+// fetch harness
+// ---------------------------------------------------------------------------
+
+interface FetchCall {
+	method: string;
+	url: string;
+	// biome-ignore lint/suspicious/noExplicitAny: request bodies are dynamic JSON
+	body?: any;
+}
+
+let fetchCalls: FetchCall[] = [];
+// biome-ignore lint/suspicious/noExplicitAny: Connect item overviews are dynamic JSON
+let listResult: any[] = [];
+
+function makeResponse(bodyObj: unknown, ok = true, status = 200) {
+	const text =
+		bodyObj === undefined
+			? ""
+			: typeof bodyObj === "string"
+				? bodyObj
+				: JSON.stringify(bodyObj);
+	return {
+		ok,
+		status,
+		statusText: ok ? "OK" : "Error",
+		text: async () => text,
+	};
+}
+
+function baseInputs(): Record<string, unknown> {
+	return {
+		connectToken: "tok",
+		namespace: "1password",
+		deploymentName: "onepassword-connect",
+		connectPort: 8080,
+		vault: "vault-1",
+		title: "My Item",
+		category: "PASSWORD",
+		fields: [
+			{
+				label: "password",
+				value: "sk-abc",
+				type: "CONCEALED",
+				purpose: "PASSWORD",
+			},
+		],
+	};
+}
+
+beforeEach(() => {
+	fetchCalls = [];
+	listResult = [];
+	apiStubs.readNamespacedDeployment.mockClear();
+	apiStubs.listNamespacedPod.mockClear();
+	// biome-ignore lint/suspicious/noExplicitAny: test fetch stub
+	global.fetch = vi.fn(async (url: any, init: any) => {
+		const method: string = init?.method ?? "GET";
+		const u = String(url);
+		const body = init?.body ? JSON.parse(init.body) : undefined;
+		fetchCalls.push({ method, url: u, body });
+		if (method === "GET" && u.includes("/items?filter=")) {
+			return makeResponse(listResult);
+		}
+		if (method === "POST" && /\/items$/.test(u)) {
+			return makeResponse({ id: "new-item-id" });
+		}
+		if (method === "PUT") {
+			return makeResponse({ id: u.split("/items/")[1] });
+		}
+		if (method === "DELETE") {
+			return makeResponse("");
+		}
+		return makeResponse({});
+		// biome-ignore lint/suspicious/noExplicitAny: assigning the global fetch stub
+	}) as any;
+});
+
+describe("OnePasswordItem provider", () => {
+	it("check passes for valid inputs", async () => {
+		const result = await provider.check({}, baseInputs());
+		expect(result.failures).toHaveLength(0);
+	});
+
+	it("check flags missing required fields", async () => {
+		const result = await provider.check(
+			{},
+			{ connectToken: "", namespace: "", vault: "", title: "", fields: [] },
+		);
+		const props = result.failures.map((f) => f.property);
+		expect(props).toContain("connectToken");
+		expect(props).toContain("namespace");
+		expect(props).toContain("vault");
+		expect(props).toContain("title");
+		expect(props).toContain("fields");
+	});
+
+	it("create POSTs a new item when none exists", async () => {
+		listResult = [];
+		const res = await provider.create(baseInputs());
+		expect(res.id).toBe("new-item-id");
+		expect(res.outs.itemPath).toBe("vaults/vault-1/items/new-item-id");
+
+		const post = fetchCalls.find((c) => c.method === "POST");
+		expect(post).toBeDefined();
+		expect(post?.url).toMatch(/\/v1\/vaults\/vault-1\/items$/);
+		expect(post?.body.title).toBe("My Item");
+		expect(post?.body.category).toBe("PASSWORD");
+		expect(post?.body.fields[0]).toMatchObject({
+			label: "password",
+			type: "CONCEALED",
+			value: "sk-abc",
+			purpose: "PASSWORD",
+		});
+		// No PUT when creating fresh.
+		expect(fetchCalls.find((c) => c.method === "PUT")).toBeUndefined();
+	});
+
+	it("create adopts an existing item by title (PUT, no POST)", async () => {
+		listResult = [{ id: "existing-1", title: "My Item" }];
+		const res = await provider.create(baseInputs());
+		expect(res.id).toBe("existing-1");
+
+		expect(fetchCalls.find((c) => c.method === "POST")).toBeUndefined();
+		const put = fetchCalls.find((c) => c.method === "PUT");
+		expect(put?.url).toMatch(/\/v1\/vaults\/vault-1\/items\/existing-1$/);
+		expect(put?.body.id).toBe("existing-1");
+	});
+
+	it("diff reports no change when content is identical", async () => {
+		const inputs = baseInputs();
+		const created = await provider.create(inputs);
+		const res = await provider.diff(created.id, created.outs, inputs);
+		expect(res.changes).toBe(false);
+		expect(res.replaces ?? []).toHaveLength(0);
+	});
+
+	it("diff reports an in-place change when a field value changes", async () => {
+		const inputs = baseInputs();
+		const created = await provider.create(inputs);
+		const changed = {
+			...inputs,
+			fields: [{ label: "password", value: "sk-rotated", type: "CONCEALED" }],
+		};
+		const res = await provider.diff(created.id, created.outs, changed);
+		expect(res.changes).toBe(true);
+		expect(res.replaces ?? []).toHaveLength(0);
+		expect(res.deleteBeforeReplace).toBe(false);
+	});
+
+	it("diff forces replacement when the vault changes", async () => {
+		const inputs = baseInputs();
+		const created = await provider.create(inputs);
+		const moved = { ...inputs, vault: "vault-2" };
+		const res = await provider.diff(created.id, created.outs, moved);
+		expect(res.replaces).toContain("vault");
+	});
+
+	it("diff forces replacement when the title changes", async () => {
+		const inputs = baseInputs();
+		const created = await provider.create(inputs);
+		const renamed = { ...inputs, title: "Renamed Item" };
+		const res = await provider.diff(created.id, created.outs, renamed);
+		expect(res.replaces).toContain("title");
+	});
+
+	it("update PUTs the existing item id in place", async () => {
+		const res = await provider.update("item-9", {}, baseInputs());
+		expect(res.outs.uuid).toBe("item-9");
+		expect(res.outs.itemPath).toBe("vaults/vault-1/items/item-9");
+		const put = fetchCalls.find((c) => c.method === "PUT");
+		expect(put?.url).toMatch(/\/v1\/vaults\/vault-1\/items\/item-9$/);
+	});
+
+	it("delete DELETEs the item", async () => {
+		await provider.delete("item-9", {
+			connectToken: "tok",
+			namespace: "1password",
+			deploymentName: "onepassword-connect",
+			connectPort: 8080,
+			vault: "vault-1",
+		});
+		const del = fetchCalls.find((c) => c.method === "DELETE");
+		expect(del?.url).toMatch(/\/v1\/vaults\/vault-1\/items\/item-9$/);
+	});
+});
