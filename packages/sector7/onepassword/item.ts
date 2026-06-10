@@ -3,6 +3,7 @@ import {
 	dynamic,
 	type Input,
 	type Output,
+	secret,
 } from "@pulumi/pulumi";
 
 /**
@@ -297,12 +298,22 @@ async function findItemIdByTitle(
 		"GET",
 	);
 	if (!Array.isArray(items) || items.length === 0) return undefined;
-	// Connect's filter is server-side, but re-check title exactly to avoid
-	// adopting a near-match if a backend ever loosens the filter semantics.
+	// Re-check the title exactly (don't trust the server filter to be strict).
+	// Titles are NOT unique within a vault, so adopting an arbitrary match could
+	// overwrite or later delete an unrelated, manually-created secret in a shared
+	// vault. Refuse to adopt ambiguously: exactly one match adopts, zero creates,
+	// more than one is a hard error the operator must resolve. (Same authorization
+	// reasoning sector7#258 applies to LiteLLM team aliases.)
 	// biome-ignore lint/suspicious/noExplicitAny: item overview is loosely typed
-	const match = items.find((it: any) => it?.title === title);
+	const matches = items.filter((it: any) => it?.title === title);
+	if (matches.length > 1) {
+		throw new Error(
+			`1Password vault ${vault} contains ${matches.length} items titled "${title}"; ` +
+				"refusing to adopt ambiguously. Remove the duplicate(s) or give this item a unique title.",
+		);
+	}
 	// biome-ignore lint/suspicious/noExplicitAny: item overview is loosely typed
-	return (match as any)?.id;
+	return (matches[0] as any)?.id;
 }
 
 async function computeContentHash(
@@ -395,7 +406,7 @@ const onePasswordItemProvider: dynamic.ResourceProvider = {
 			});
 		} else {
 			news.fields.forEach((f, idx) => {
-				if (!f || !f.label)
+				if (!f?.label)
 					failures.push({
 						property: `fields[${idx}].label`,
 						reason: "field label is required",
@@ -411,9 +422,7 @@ const onePasswordItemProvider: dynamic.ResourceProvider = {
 		news: OnePasswordItemProviderInputs,
 	): Promise<dynamic.DiffResult> {
 		// Identity = vault + title (the adoption key). A change there is a
-		// different item, so it forces replacement; everything else is an
-		// in-place update. Transport inputs (kubeconfig, token, namespace,
-		// deployment, port) never force replacement — they don't change the item.
+		// different item, so it forces replacement.
 		const replaces: string[] = [];
 		if (olds.vault !== news.vault) replaces.push("vault");
 		if (olds.title !== news.title) replaces.push("title");
@@ -422,7 +431,23 @@ const onePasswordItemProvider: dynamic.ResourceProvider = {
 			news.category ?? DEFAULT_CATEGORY,
 			news.fields,
 		);
-		const changed = replaces.length > 0 || contentHash !== olds.contentHash;
+
+		// Transport inputs (token, kubeconfig, namespace, deployment, port) don't
+		// change the item, so they never force replacement — but they MUST still
+		// trigger an in-place update, otherwise a token rotation or cluster move is
+		// dropped and the stale value persists in state, breaking a later
+		// update()/delete(). Compare against the resolved values stored in state.
+		const transportChanged =
+			olds.connectToken !== news.connectToken ||
+			(olds.kubeconfig ?? undefined) !== (news.kubeconfig ?? undefined) ||
+			olds.namespace !== news.namespace ||
+			olds.deploymentName !== (news.deploymentName ?? DEFAULT_DEPLOYMENT) ||
+			olds.connectPort !== (news.connectPort ?? DEFAULT_PORT);
+
+		const changed =
+			replaces.length > 0 ||
+			contentHash !== olds.contentHash ||
+			transportChanged;
 
 		// Never delete-before-replace: a value/identity change must not drop the
 		// item out from under consumers that reference it by path mid-update.
@@ -542,9 +567,11 @@ const rejectCloudProviderOptions = (
  * (find-or-create by title); a field-value change is an in-place `PUT`; only a
  * vault/title change forces replacement.
  *
- * `connectToken` and `kubeconfig` are stored as secret outputs so they are
- * encrypted in Pulumi state. Field values are not echoed into state; drift is
- * tracked via a `contentHash`.
+ * Sensitive inputs (`connectToken`, `kubeconfig`, and every field `value`) are
+ * wrapped in `pulumi.secret()` so they are encrypted in state even if the caller
+ * forgets to — and the same names are marked `additionalSecretOutputs`. Field
+ * values are never echoed back into the output state; drift is tracked via a
+ * `contentHash`.
  */
 export class OnePasswordItem extends dynamic.Resource {
 	/** The created/adopted 1Password item id. */
@@ -568,10 +595,25 @@ export class OnePasswordItem extends dynamic.Resource {
 				...(opts?.additionalSecretOutputs ?? []),
 			],
 		};
+		// Force every sensitive input to a secret so values are encrypted in state
+		// even when the caller passes plain strings.
+		const securedArgs = {
+			...args,
+			connectToken: secret(args.connectToken),
+			...(args.kubeconfig !== undefined
+				? { kubeconfig: secret(args.kubeconfig) }
+				: {}),
+			fields: args.fields.map((f) => ({ ...f, value: secret(f.value) })),
+		};
 		super(
 			onePasswordItemProvider,
 			name,
-			{ uuid: undefined, itemPath: undefined, contentHash: undefined, ...args },
+			{
+				uuid: undefined,
+				itemPath: undefined,
+				contentHash: undefined,
+				...securedArgs,
+			},
 			mergedOpts,
 		);
 	}

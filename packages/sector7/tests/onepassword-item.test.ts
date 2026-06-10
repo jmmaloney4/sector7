@@ -44,6 +44,8 @@ type Provider = {
 const capturedProviders: Provider[] = [];
 
 vi.mock("@pulumi/pulumi", () => ({
+	// biome-ignore lint/suspicious/noExplicitAny: identity secret() stand-in for tests
+	secret: (v: any) => v,
 	dynamic: {
 		Resource: class {
 			constructor(provider: Provider) {
@@ -244,6 +246,25 @@ describe("OnePasswordItem provider", () => {
 		const put = fetchCalls.find((c) => c.method === "PUT");
 		expect(put?.url).toMatch(/\/v1\/vaults\/vault-1\/items\/existing-1$/);
 		expect(put?.body.id).toBe("existing-1");
+	});
+
+	it("create refuses to adopt when multiple items share the title", async () => {
+		listResult = [
+			{ id: "dup-1", title: "My Item" },
+			{ id: "dup-2", title: "My Item" },
+		];
+		await expect(provider.create(baseInputs())).rejects.toThrow(/ambiguously/);
+		expect(fetchCalls.find((c) => c.method === "POST")).toBeUndefined();
+		expect(fetchCalls.find((c) => c.method === "PUT")).toBeUndefined();
+	});
+
+	it("diff reports an in-place change when a transport input changes", async () => {
+		const inputs = baseInputs();
+		const created = await provider.create(inputs);
+		const rotated = { ...inputs, connectToken: "rotated-token" };
+		const res = await provider.diff(created.id, created.outs, rotated);
+		expect(res.changes).toBe(true);
+		expect(res.replaces ?? []).toHaveLength(0);
 	});
 
 	it("diff reports no change when content is identical", async () => {
