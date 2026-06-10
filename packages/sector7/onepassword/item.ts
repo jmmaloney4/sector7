@@ -268,26 +268,79 @@ async function connectRequest(
 	}
 }
 
-/** Build the Connect item body for create/update. */
-function buildItemBody(
+// biome-ignore lint/suspicious/noExplicitAny: Connect field objects are loosely typed
+function managedField(f: ResolvedField): Record<string, any> {
+	return {
+		label: f.label,
+		type: f.type ?? DEFAULT_FIELD_TYPE,
+		value: f.value,
+		...(f.purpose ? { purpose: f.purpose } : {}),
+	};
+}
+
+/** Build the Connect item body for a fresh create (no pre-existing item). */
+function buildNewItemBody(
 	vault: string,
 	title: string,
 	category: string,
 	fields: ResolvedField[],
-	id?: string,
 ): Record<string, unknown> {
 	return {
-		...(id ? { id } : {}),
 		vault: { id: vault },
 		title,
 		category,
-		fields: fields.map((f) => ({
-			label: f.label,
-			type: f.type ?? DEFAULT_FIELD_TYPE,
-			value: f.value,
-			...(f.purpose ? { purpose: f.purpose } : {}),
-		})),
+		fields: fields.map(managedField),
 	};
+}
+
+/**
+ * Build the update body for an existing item by merging the managed fields into
+ * whatever the item already has. Managed fields are upserted by label; any
+ * unmanaged fields, sections, urls, tags, and other metadata on the existing
+ * item are preserved (a blind rebuild would silently drop them — important when
+ * adopting a pre-existing item).
+ */
+function buildMergedItemBody(
+	// biome-ignore lint/suspicious/noExplicitAny: existing item is loosely typed
+	existing: any,
+	vault: string,
+	title: string,
+	category: string,
+	fields: ResolvedField[],
+	id: string,
+): Record<string, unknown> {
+	// biome-ignore lint/suspicious/noExplicitAny: Connect field objects are loosely typed
+	const byLabel = new Map<string, any>();
+	for (const f of (existing?.fields ?? []) as Array<{ label?: string }>) {
+		if (f?.label) byLabel.set(f.label, f);
+	}
+	for (const f of fields) {
+		byLabel.set(f.label, { ...byLabel.get(f.label), ...managedField(f) });
+	}
+	return {
+		...existing,
+		id,
+		vault: { id: vault },
+		title,
+		category,
+		fields: [...byLabel.values()],
+	};
+}
+
+/** Fetch a full item (fields + sections + metadata) for a merge-preserving update. */
+async function getItem(
+	baseUrl: string,
+	token: string,
+	vault: string,
+	id: string,
+	// biome-ignore lint/suspicious/noExplicitAny: Connect item is loosely typed
+): Promise<any> {
+	return connectRequest(
+		baseUrl,
+		token,
+		`/v1/vaults/${vault}/items/${id}`,
+		"GET",
+	);
 }
 
 /** Find an existing item id in a vault by exact title, for idempotent adoption. */
@@ -478,12 +531,20 @@ const onePasswordItemProvider: dynamic.ResourceProvider = {
 				inputs.title,
 			);
 			if (existing) {
+				// Fetch the full item and merge so unmanaged fields/sections survive.
+				const current = await getItem(
+					baseUrl,
+					inputs.connectToken,
+					inputs.vault,
+					existing,
+				);
 				await connectRequest(
 					baseUrl,
 					inputs.connectToken,
 					`/v1/vaults/${inputs.vault}/items/${existing}`,
 					"PUT",
-					buildItemBody(
+					buildMergedItemBody(
+						current,
 						inputs.vault,
 						inputs.title,
 						category,
@@ -498,7 +559,7 @@ const onePasswordItemProvider: dynamic.ResourceProvider = {
 				inputs.connectToken,
 				`/v1/vaults/${inputs.vault}/items`,
 				"POST",
-				buildItemBody(inputs.vault, inputs.title, category, inputs.fields),
+				buildNewItemBody(inputs.vault, inputs.title, category, inputs.fields),
 			);
 			const id: string | undefined = created?.id;
 			if (!id) throw new Error("1Password Connect create returned no item id");
@@ -516,12 +577,21 @@ const onePasswordItemProvider: dynamic.ResourceProvider = {
 		const target = resolveTarget(news);
 		const category = news.category ?? DEFAULT_CATEGORY;
 		await withConnectBaseUrl(target, async (baseUrl) => {
+			// Merge into the live item so unmanaged fields/sections are preserved.
+			const current = await getItem(baseUrl, news.connectToken, news.vault, id);
 			await connectRequest(
 				baseUrl,
 				news.connectToken,
 				`/v1/vaults/${news.vault}/items/${id}`,
 				"PUT",
-				buildItemBody(news.vault, news.title, category, news.fields, id),
+				buildMergedItemBody(
+					current,
+					news.vault,
+					news.title,
+					category,
+					news.fields,
+					id,
+				),
 			);
 		});
 		const contentHash = await computeContentHash(category, news.fields);
@@ -607,6 +677,10 @@ export class OnePasswordItem extends dynamic.Resource {
 			additionalSecretOutputs: [
 				"connectToken",
 				"kubeconfig",
+				// contentHash is a sha256 of the secret field values; encrypt it so
+				// stack state can't be used as an offline oracle for low-entropy
+				// secrets or to detect secret reuse across items.
+				"contentHash",
 				...(opts?.additionalSecretOutputs ?? []),
 			],
 		};

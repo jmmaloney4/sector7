@@ -133,6 +133,8 @@ interface FetchCall {
 let fetchCalls: FetchCall[] = [];
 // biome-ignore lint/suspicious/noExplicitAny: Connect item overviews are dynamic JSON
 let listResult: any[] = [];
+// biome-ignore lint/suspicious/noExplicitAny: full Connect item is dynamic JSON
+let existingItem: any = {};
 let deleteStatus = 200;
 
 function makeResponse(bodyObj: unknown, ok = true, status = 200) {
@@ -173,6 +175,7 @@ function baseInputs(): Record<string, unknown> {
 beforeEach(() => {
 	fetchCalls = [];
 	listResult = [];
+	existingItem = {};
 	deleteStatus = 200;
 	apiStubs.readNamespacedDeployment.mockClear();
 	apiStubs.listNamespacedPod.mockClear();
@@ -184,6 +187,9 @@ beforeEach(() => {
 		fetchCalls.push({ method, url: u, body });
 		if (method === "GET" && u.includes("/items?filter=")) {
 			return makeResponse(listResult);
+		}
+		if (method === "GET" && /\/items\/[^/?]+$/.test(u)) {
+			return makeResponse(existingItem);
 		}
 		if (method === "POST" && /\/items$/.test(u)) {
 			return makeResponse({ id: "new-item-id" });
@@ -249,6 +255,30 @@ describe("OnePasswordItem provider", () => {
 		const put = fetchCalls.find((c) => c.method === "PUT");
 		expect(put?.url).toMatch(/\/v1\/vaults\/vault-1\/items\/existing-1$/);
 		expect(put?.body.id).toBe("existing-1");
+	});
+
+	it("preserves unmanaged fields/sections when adopting an item", async () => {
+		listResult = [{ id: "existing-1", title: "My Item" }];
+		existingItem = {
+			id: "existing-1",
+			title: "My Item",
+			category: "PASSWORD",
+			fields: [
+				{ label: "notes", type: "STRING", value: "keep me" },
+				{ label: "password", type: "CONCEALED", value: "old-value" },
+			],
+			sections: [{ id: "s1", label: "extra" }],
+		};
+		await provider.create(baseInputs());
+		const put = fetchCalls.find((c) => c.method === "PUT");
+		// biome-ignore lint/suspicious/noExplicitAny: test body is dynamic JSON
+		const labels = put?.body.fields.map((f: any) => f.label);
+		expect(labels).toContain("notes"); // unmanaged field preserved
+		expect(labels).toContain("password"); // managed field upserted
+		// biome-ignore lint/suspicious/noExplicitAny: test body is dynamic JSON
+		const pwd = put?.body.fields.find((f: any) => f.label === "password");
+		expect(pwd.value).toBe("sk-abc"); // managed value wins
+		expect(put?.body.sections).toEqual([{ id: "s1", label: "extra" }]); // preserved
 	});
 
 	it("create refuses to adopt when multiple items share the title", async () => {
