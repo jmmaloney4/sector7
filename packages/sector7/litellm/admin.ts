@@ -5,6 +5,7 @@ import {
 	type Output,
 } from "@pulumi/pulumi";
 import * as random from "@pulumi/random";
+import { withPortForward } from "../k8s/port-forward.ts";
 import type { LiteLLMApiKeyArgs, LiteLLMTeamArgs } from "./config-types.ts";
 
 /**
@@ -76,115 +77,39 @@ interface KeyProviderState extends KeyProviderInputs {
 }
 
 // ---------------------------------------------------------------------------
-// Runtime helpers (port-forward transport + admin API client)
+// Runtime helpers (admin API client)
 //
-// Every Node/k8s import is performed via dynamic `import()` *inside* these
-// functions. Pulumi serializes the provider object via V8 source capture; a
-// top-level ES import of a native/third-party module captures native-code
-// functions that cannot be serialized ("Function code: function () { [native
-// code] }"). Dynamic import() is emitted verbatim and evaluated at runtime
-// after deserialization. Same constraint the R2 dynamic provider documents.
+// The in-process port-forward transport now lives in the shared
+// `../k8s/port-forward` module (`withPortForward`), which keeps the lazy
+// `await import()` of @kubernetes/client-node / node:net required for the
+// provider closure to serialize (see its serialization contract, and the R2
+// dynamic provider). The helpers below reach the proxy through that transport
+// and otherwise use only the global `fetch`, so they hold no top-level native
+// imports either.
 // https://www.pulumi.com/docs/concepts/resources/dynamic-providers/#how-dynamic-providers-are-serialized
 // ---------------------------------------------------------------------------
 
 /**
  * Open a short-lived port-forward to a ready pod of the LiteLLM proxy
  * deployment, invoke `fn` with a `http://127.0.0.1:<port>` base URL, then tear
- * the forward down. This mirrors the reachability model of the previous
- * `kubectl exec` approach (works wherever kube credentials work, no tailnet
- * dependency) while running entirely in-process.
+ * the forward down. Delegates to the shared in-process port-forward transport
+ * (`../k8s/port-forward`) — no kubeconfig is passed, so it keeps using the
+ * ambient default config exactly as before. Adopting the shared helper also
+ * picks up its hardenings: forwarded-socket teardown, set-based
+ * `matchExpressions` selectors, and skipping terminating pods.
  */
 async function withProxyBaseUrl<T>(
 	target: AdminTarget,
 	fn: (baseUrl: string) => Promise<T>,
 ): Promise<T> {
-	const k8s = await import("@kubernetes/client-node");
-	const net = await import("node:net");
-
-	const kc = new k8s.KubeConfig();
-	kc.loadFromDefault();
-
-	const apps = kc.makeApiClient(k8s.AppsV1Api);
-	const core = kc.makeApiClient(k8s.CoreV1Api);
-
-	// Resolve the deployment's pod selector, then pick a ready pod. Reading the
-	// selector at runtime avoids hardcoding the proxy's label scheme and works
-	// for any deployment name the caller passes.
-	const depResp = await apps.readNamespacedDeployment({
-		name: target.proxyDeploymentName,
-		namespace: target.proxyNamespace,
-	});
-	// client-node 1.x returns the body directly; tolerate the 0.x {body} shape.
-	// biome-ignore lint/suspicious/noExplicitAny: k8s client response is loosely typed across majors
-	const dep: any = (depResp as any)?.body ?? depResp;
-	const matchLabels: Record<string, string> =
-		dep?.spec?.selector?.matchLabels ?? {};
-	const labelSelector = Object.entries(matchLabels)
-		.map(([k, v]) => `${k}=${v}`)
-		.join(",");
-	if (!labelSelector) {
-		throw new Error(
-			`deployment ${target.proxyNamespace}/${target.proxyDeploymentName} has no spec.selector.matchLabels`,
-		);
-	}
-
-	const podResp = await core.listNamespacedPod({
-		namespace: target.proxyNamespace,
-		labelSelector,
-	});
-	// biome-ignore lint/suspicious/noExplicitAny: k8s client response is loosely typed across majors
-	const pods: any[] = ((podResp as any)?.body ?? podResp)?.items ?? [];
-	const ready =
-		pods.find(
-			// biome-ignore lint/suspicious/noExplicitAny: pod object is loosely typed
-			(p: any) =>
-				p?.status?.phase === "Running" &&
-				(p?.status?.conditions ?? []).some(
-					// biome-ignore lint/suspicious/noExplicitAny: condition object is loosely typed
-					(c: any) => c?.type === "Ready" && c?.status === "True",
-				),
-		) ?? pods[0];
-	const podName: string | undefined = ready?.metadata?.name;
-	if (!podName) {
-		throw new Error(
-			`no running pod found for deployment ${target.proxyNamespace}/${target.proxyDeploymentName}`,
-		);
-	}
-
-	const forward = new k8s.PortForward(kc);
-	const server = net.createServer((socket) => {
-		forward
-			.portForward(
-				target.proxyNamespace,
-				podName,
-				[target.proxyPort],
-				socket,
-				null,
-				socket,
-			)
-			.catch((err: unknown) =>
-				socket.destroy(err instanceof Error ? err : new Error(String(err))),
-			);
-	});
-
-	await new Promise<void>((resolve, reject) => {
-		server.once("error", reject);
-		server.listen(0, "127.0.0.1", () => resolve());
-	});
-
-	const address = server.address();
-	const localPort =
-		address && typeof address === "object" ? address.port : undefined;
-	if (!localPort) {
-		await new Promise<void>((resolve) => server.close(() => resolve()));
-		throw new Error("failed to bind a local port for the LiteLLM port-forward");
-	}
-
-	try {
-		return await fn(`http://127.0.0.1:${localPort}`);
-	} finally {
-		await new Promise<void>((resolve) => server.close(() => resolve()));
-	}
+	return withPortForward(
+		{
+			namespace: target.proxyNamespace,
+			deploymentName: target.proxyDeploymentName,
+			port: target.proxyPort,
+		},
+		fn,
+	);
 }
 
 /** Issue an authenticated request against the LiteLLM admin API. */
