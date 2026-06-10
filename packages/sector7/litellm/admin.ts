@@ -228,13 +228,22 @@ async function adminRequest(
 	return parsed;
 }
 
-/** Find an existing team by explicit id or alias. Returns its team_id. */
+/**
+ * Find an existing team to adopt, matched by explicit `team_id` only.
+ *
+ * Adoption is deliberately NOT done by `team_alias`: aliases are not unique on a
+ * LiteLLM admin plane, so matching one would let a new resource adopt and
+ * overwrite an unrelated team's models/budgets/metadata — an authorization
+ * boundary problem on a shared control plane. A team created without an explicit
+ * `team_id` has no stable identity to re-find, so it is always created fresh
+ * (callers that need idempotent adoption must pass a stable `team_id`).
+ */
 async function findTeamId(
 	baseUrl: string,
 	masterKey: string,
 	desiredTeamId: string,
-	alias: string,
 ): Promise<string | undefined> {
+	if (!desiredTeamId) return undefined;
 	const data = await adminRequest(baseUrl, masterKey, "/team/list", "GET");
 	// biome-ignore lint/suspicious/noExplicitAny: team list shape varies by LiteLLM version
 	const teams: any[] = Array.isArray(data)
@@ -242,14 +251,7 @@ async function findTeamId(
 		: (data?.teams ?? data?.data ?? []);
 	for (const team of teams) {
 		if (!team || typeof team !== "object") continue;
-		// An explicit team_id is authoritative: when one was requested, match on it
-		// alone and never fall back to alias, or a colliding alias on a different
-		// team would be adopted and have its settings overwritten.
-		if (desiredTeamId) {
-			if (team.team_id === desiredTeamId) return team.team_id;
-			continue;
-		}
-		if (alias && team.team_alias === alias) return team.team_id;
+		if (team.team_id === desiredTeamId) return team.team_id;
 	}
 	return undefined;
 }
@@ -454,7 +456,6 @@ const teamProvider: dynamic.ResourceProvider = {
 				baseUrl,
 				inputs.masterKey,
 				inputs.desiredTeamId,
-				inputs.teamAlias,
 			);
 			let teamId = existing;
 			if (teamId) {

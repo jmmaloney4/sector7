@@ -333,6 +333,32 @@ describe("LiteLLMTeam provider", () => {
 		vi.unstubAllGlobals();
 	});
 
+	it("never adopts by alias when no explicit team_id is given", async () => {
+		const calls = installFetch((path) => {
+			if (path === "/team/list")
+				return {
+					teams: [{ team_id: "auto-xyz", team_alias: "prod-personal" }],
+				};
+			if (path === "/team/new") return { team_id: "auto-new" };
+			return {};
+		});
+		const result = await teamProvider.create({
+			...target,
+			teamAlias: "prod-personal",
+			desiredTeamId: "",
+			models: ["coding"],
+			maxBudget: "",
+			budgetDuration: "",
+			tags: [],
+			metadata: {},
+		});
+		// No stable id to adopt → create fresh, never touch the same-alias team.
+		expect(calls.find((c) => c.path === "/team/new")).toBeDefined();
+		expect(calls.find((c) => c.path === "/team/update")).toBeUndefined();
+		expect(result.id).toBe("auto-new");
+		vi.unstubAllGlobals();
+	});
+
 	it("update calls /team/update with the resolved team_id", async () => {
 		const calls = installFetch(() => ({}));
 		await teamProvider.update(
