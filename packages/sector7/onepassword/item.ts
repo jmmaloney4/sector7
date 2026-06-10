@@ -171,20 +171,23 @@ async function withConnectBaseUrl<T>(
 	});
 	// biome-ignore lint/suspicious/noExplicitAny: k8s client response is loosely typed across majors
 	const pods: any[] = ((podResp as any)?.body ?? podResp)?.items ?? [];
-	const ready =
-		pods.find(
-			// biome-ignore lint/suspicious/noExplicitAny: pod object is loosely typed
-			(p: any) =>
-				p?.status?.phase === "Running" &&
-				(p?.status?.conditions ?? []).some(
-					// biome-ignore lint/suspicious/noExplicitAny: condition object is loosely typed
-					(c: any) => c?.type === "Ready" && c?.status === "True",
-				),
-		) ?? pods[0];
+	// Require a genuinely Ready pod — do NOT fall back to an arbitrary pod.
+	// Forwarding to a terminating/unready Connect pod (during a rollout or
+	// crashloop) turns a clear readiness failure into opaque connection errors.
+	const ready = pods.find(
+		// biome-ignore lint/suspicious/noExplicitAny: pod object is loosely typed
+		(p: any) =>
+			p?.status?.phase === "Running" &&
+			(p?.status?.conditions ?? []).some(
+				// biome-ignore lint/suspicious/noExplicitAny: condition object is loosely typed
+				(c: any) => c?.type === "Ready" && c?.status === "True",
+			),
+	);
 	const podName: string | undefined = ready?.metadata?.name;
 	if (!podName) {
 		throw new Error(
-			`no running pod found for deployment ${target.namespace}/${target.deploymentName}`,
+			`no ready pod found for deployment ${target.namespace}/${target.deploymentName} ` +
+				"(1Password Connect not ready?)",
 		);
 	}
 
@@ -248,9 +251,14 @@ async function connectRequest(
 
 	const text = await response.text();
 	if (!response.ok) {
-		throw new Error(
-			`1Password Connect ${method} ${path} failed: ${response.status} ${response.statusText}\n${text}`,
+		// Deliberately omit the response body: Connect can echo item content /
+		// validation details on failure, which would leak secret field values
+		// into Pulumi logs. The status + method + path are enough to diagnose.
+		const err = new Error(
+			`1Password Connect ${method} ${path} failed: ${response.status} ${response.statusText}`,
 		);
+		(err as { status?: number }).status = response.status;
+		throw err;
 	}
 	if (!text) return {};
 	try {
@@ -523,12 +531,19 @@ const onePasswordItemProvider: dynamic.ResourceProvider = {
 	async delete(id: string, props: OnePasswordItemState): Promise<void> {
 		const target = resolveTarget(props);
 		await withConnectBaseUrl(target, async (baseUrl) => {
-			await connectRequest(
-				baseUrl,
-				props.connectToken,
-				`/v1/vaults/${props.vault}/items/${id}`,
-				"DELETE",
-			);
+			try {
+				await connectRequest(
+					baseUrl,
+					props.connectToken,
+					`/v1/vaults/${props.vault}/items/${id}`,
+					"DELETE",
+				);
+			} catch (error) {
+				// A 404 means the item is already gone (manually removed, or an
+				// adopted pre-existing item that was deleted externally). Treat that
+				// as a successful delete so `pulumi destroy` is idempotent.
+				if ((error as { status?: number })?.status !== 404) throw error;
+			}
 		});
 	},
 };

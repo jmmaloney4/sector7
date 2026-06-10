@@ -133,6 +133,7 @@ interface FetchCall {
 let fetchCalls: FetchCall[] = [];
 // biome-ignore lint/suspicious/noExplicitAny: Connect item overviews are dynamic JSON
 let listResult: any[] = [];
+let deleteStatus = 200;
 
 function makeResponse(bodyObj: unknown, ok = true, status = 200) {
 	const text =
@@ -172,6 +173,7 @@ function baseInputs(): Record<string, unknown> {
 beforeEach(() => {
 	fetchCalls = [];
 	listResult = [];
+	deleteStatus = 200;
 	apiStubs.readNamespacedDeployment.mockClear();
 	apiStubs.listNamespacedPod.mockClear();
 	// biome-ignore lint/suspicious/noExplicitAny: test fetch stub
@@ -190,7 +192,8 @@ beforeEach(() => {
 			return makeResponse({ id: u.split("/items/")[1] });
 		}
 		if (method === "DELETE") {
-			return makeResponse("");
+			if (deleteStatus === 200) return makeResponse("");
+			return makeResponse("error body", false, deleteStatus);
 		}
 		return makeResponse({});
 		// biome-ignore lint/suspicious/noExplicitAny: assigning the global fetch stub
@@ -322,5 +325,56 @@ describe("OnePasswordItem provider", () => {
 		});
 		const del = fetchCalls.find((c) => c.method === "DELETE");
 		expect(del?.url).toMatch(/\/v1\/vaults\/vault-1\/items\/item-9$/);
+	});
+
+	const deleteProps = {
+		connectToken: "tok",
+		namespace: "1password",
+		deploymentName: "onepassword-connect",
+		connectPort: 8080,
+		vault: "vault-1",
+	};
+
+	it("delete treats a 404 as success (idempotent destroy)", async () => {
+		deleteStatus = 404;
+		await expect(
+			provider.delete("item-9", deleteProps),
+		).resolves.toBeUndefined();
+	});
+
+	it("delete rethrows non-404 errors", async () => {
+		deleteStatus = 500;
+		await expect(provider.delete("item-9", deleteProps)).rejects.toThrow();
+	});
+
+	it("create throws a clear error when no Connect pod is ready", async () => {
+		apiStubs.listNamespacedPod.mockResolvedValueOnce({
+			items: [
+				{
+					metadata: { name: "p" },
+					status: { phase: "Pending", conditions: [] },
+				},
+			],
+		});
+		await expect(provider.create(baseInputs())).rejects.toThrow(/no ready pod/);
+	});
+
+	it("does not leak the Connect response body into thrown errors", async () => {
+		// biome-ignore lint/suspicious/noExplicitAny: test fetch stub
+		global.fetch = vi.fn(async (_url: any, init: any) => {
+			const method: string = init?.method ?? "GET";
+			if (method === "GET") return makeResponse([]); // empty list -> create path
+			return makeResponse("super-secret-value-leak", false, 422);
+			// biome-ignore lint/suspicious/noExplicitAny: assigning the global fetch stub
+		}) as any;
+		await provider.create(baseInputs()).then(
+			() => {
+				throw new Error("expected create to reject");
+			},
+			(e: Error) => {
+				expect(e.message).toContain("422");
+				expect(e.message).not.toContain("super-secret-value-leak");
+			},
+		);
 	});
 });
