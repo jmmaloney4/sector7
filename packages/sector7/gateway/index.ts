@@ -243,6 +243,7 @@ export function createTailnetIngress(
 				annotations: {
 					"tailscale.com/proxy-group": "ingress-proxies",
 					"tailscale.com/proxy-group-namespace": "tailscale",
+					"tailscale.com/http-redirect": "true",
 				},
 			},
 			spec: {
