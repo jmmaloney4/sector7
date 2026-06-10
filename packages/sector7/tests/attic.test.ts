@@ -342,6 +342,49 @@ describe("AtticCache provider — lifecycle", () => {
 		).resolves.toBeUndefined();
 		expect(calls[0].method).toBe("DELETE");
 	});
+
+	it("fails fast when the cache config has no public_key", async () => {
+		installFetch((_path, method) => {
+			if (method === "POST") return { status: 200, body: {} };
+			if (method === "GET") return { body: {} }; // missing public_key
+			return {};
+		});
+		await expect(cacheProvider.create(cacheInputs())).rejects.toThrow(
+			/public_key/,
+		);
+	});
+});
+
+describe("AtticCache provider — check", () => {
+	it("rejects a non-positive retention period", async () => {
+		const res = await cacheProvider.check(
+			{},
+			{ ...cacheInputs(), retentionPeriodSeconds: 0 },
+		);
+		expect(res.failures.map((f) => f.property)).toContain(
+			"retentionPeriodSeconds",
+		);
+	});
+
+	it("accepts an unset or positive retention period", async () => {
+		const unset = await cacheProvider.check({}, cacheInputs());
+		expect(unset.failures).toEqual([]);
+		const positive = await cacheProvider.check(
+			{},
+			{ ...cacheInputs(), retentionPeriodSeconds: 86400 },
+		);
+		expect(positive.failures).toEqual([]);
+	});
+
+	it("flags missing required fields", async () => {
+		const res = await cacheProvider.check(
+			{},
+			{ ...cacheInputs(), namespace: "", cacheName: "" },
+		);
+		const props = res.failures.map((f) => f.property);
+		expect(props).toContain("namespace");
+		expect(props).toContain("cacheName");
+	});
 });
 
 describe("AtticToken provider", () => {

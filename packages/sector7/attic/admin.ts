@@ -237,7 +237,15 @@ async function readPublicKey(
 		"GET",
 		path,
 	);
-	return config?.public_key ?? "";
+	// Fail fast on a missing key: silently returning "" would persist an unusable
+	// signing key in state and hide a broken/incompatible Attic API response.
+	const publicKey = config?.public_key;
+	if (typeof publicKey !== "string" || publicKey.length === 0) {
+		throw new Error(
+			`Attic GET ${path} returned no public_key — cannot resolve the cache signing key`,
+		);
+	}
+	return publicKey;
 }
 
 /**
@@ -296,6 +304,19 @@ const cacheProvider: dynamic.ResourceProvider = {
 			if (!news[property]) {
 				failures.push({ property, reason: `${property} is required` });
 			}
+		}
+		// "" means "unset" (server default / Global); any provided retention must be
+		// a positive number of seconds. Catch it at preview rather than on apply.
+		if (
+			news.retentionPeriodSeconds !== "" &&
+			(typeof news.retentionPeriodSeconds !== "number" ||
+				!Number.isFinite(news.retentionPeriodSeconds) ||
+				news.retentionPeriodSeconds <= 0)
+		) {
+			failures.push({
+				property: "retentionPeriodSeconds",
+				reason: "retentionPeriodSeconds must be a positive number of seconds",
+			});
 		}
 		return { inputs: news, failures };
 	},
