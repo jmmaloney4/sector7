@@ -1,6 +1,5 @@
 import * as pulumi from "@pulumi/pulumi";
 import { beforeAll, beforeEach, describe, expect, it } from "vitest";
-import { LiteLLMApiKey, LiteLLMTeam } from "../litellm/admin.ts";
 import {
 	LiteLLMProxy,
 	validateExtraEnvNameCollisions,
@@ -432,60 +431,13 @@ describe("LiteLLMProxy", () => {
 		).toBeUndefined();
 	});
 
-	it("creates admin command resources for teams and api keys", async () => {
-		const team = new LiteLLMTeam("personal-team", {
-			proxyNamespace: "litellm-prod",
-			masterKey: pulumi.secret("master-key"),
-			teamAlias: "Personal",
-			teamId: "team-personal",
-			models: ["coding", "cheap"],
-			maxBudget: 250,
-			budgetDuration: "30d",
-			tags: ["personal"],
-			metadata: { owner: "jack" },
-		});
-		const apiKey = new LiteLLMApiKey("personal-coding-key", {
-			proxyNamespace: "litellm-prod",
-			masterKey: pulumi.secret("master-key"),
-			keyAlias: "personal-coding",
-			teamId: "team-personal",
-			models: ["coding"],
-			aliases: { default: "coding" },
-			metadata: { owner: "jack" },
-			tags: ["personal"],
-		});
-
-		expect(await resolveOutput(team.teamId)).toBe("team-personal");
-		expect(await resolveOutput(apiKey.key)).toBe("sk-generated-api-key");
-		expect(await resolveOutput(apiKey.tokenId)).toBe(
-			"personal-coding-key-key-stdout",
-		);
-
-		const teamCommand = findResource("personal-team-team");
-		expect(teamCommand?.type).toBe("command:local:Command");
-		const teamEnvironment = await resolveRecord(
-			teamCommand?.inputs.environment as Record<string, unknown> | undefined,
-		);
-		expect(teamEnvironment).toMatchObject({
-			LITELLM_PROXY_NAMESPACE: "litellm-prod",
-			LITELLM_PROXY_PORT: "4000",
-			LITELLM_TEAM_ALIAS: "Personal",
-			LITELLM_TEAM_ID: "team-personal",
-			LITELLM_TEAM_MODELS_JSON: '["coding","cheap"]',
-			LITELLM_TEAM_MAX_BUDGET: "250",
-		});
-
-		const keyCommand = findResource("personal-coding-key-key");
-		expect(keyCommand?.type).toBe("command:local:Command");
-		const keyEnvironment = await resolveRecord(
-			keyCommand?.inputs.environment as Record<string, unknown> | undefined,
-		);
-		expect(keyEnvironment).toMatchObject({
-			LITELLM_KEY_ALIAS: "personal-coding",
-			LITELLM_PROXY_PORT: "4000",
-			LITELLM_KEY_TEAM_ID: "team-personal",
-			LITELLM_KEY_MODELS_JSON: '["coding"]',
-			LITELLM_KEY_ALIASES_JSON: '{"default":"coding"}',
-		});
-	});
+	// NOTE: LiteLLMTeam / LiteLLMApiKey are now Pulumi dynamic resources (they
+	// were `command:local:Command` shell-outs). Their create/diff/update/delete
+	// behaviour is covered by tests/litellm-admin.test.ts, which exercises the
+	// providers directly. They are intentionally NOT constructed here: building a
+	// dynamic resource under the Pulumi mock runtime forces closure serialization,
+	// and vitest/vite rewrites the providers' `await import()` calls into a module
+	// runner that captures `this`, which the serializer rejects. That rewriting is
+	// a test-environment artifact — under a real `pulumi up` the `await import()`
+	// calls serialize verbatim, the same pattern the R2 dynamic provider relies on.
 });
