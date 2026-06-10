@@ -268,16 +268,31 @@ describe("AtticCache provider — lifecycle", () => {
 			if (method === "POST")
 				return { status: 400, body: "Error: CacheAlreadyExists" };
 			if (method === "PATCH") return { body: {} };
-			if (method === "GET") return { body: { public_key: "pk:existing" } };
+			if (method === "GET")
+				return { body: { public_key: "pk:existing", store_dir: "/nix/store" } };
 			return {};
 		});
 		const result = await cacheProvider.create(cacheInputs());
 		expect(result.outs.publicKey).toBe("pk:existing");
 		const methods = calls.map((c) => c.method);
-		expect(methods).toEqual(["POST", "PATCH", "GET"]);
-		// Adoption must reconcile via PATCH, never re-POST (which would regenerate
-		// the keypair).
-		expect(calls[1].body).toMatchObject({ is_public: true, priority: 0 });
+		// Adoption GETs to verify the immutable store_dir, then reconciles via PATCH
+		// (never re-POST, which would regenerate the keypair), then re-reads the key.
+		expect(methods).toEqual(["POST", "GET", "PATCH", "GET"]);
+		const patch = calls.find((c) => c.method === "PATCH");
+		expect(patch?.body).toMatchObject({ is_public: true, priority: 0 });
+	});
+
+	it("refuses to adopt a cache whose immutable store_dir differs", async () => {
+		installFetch((_path, method) => {
+			if (method === "POST")
+				return { status: 400, body: "Error: CacheAlreadyExists" };
+			if (method === "GET")
+				return { body: { public_key: "pk", store_dir: "/alt/store" } };
+			return {};
+		});
+		await expect(cacheProvider.create(cacheInputs())).rejects.toThrow(
+			/store_dir/,
+		);
 	});
 
 	it("PATCHes a fresh cache's retention when requested", async () => {
@@ -318,6 +333,14 @@ describe("AtticCache provider — lifecycle", () => {
 		expect(calls).toHaveLength(1);
 		expect(calls[0].method).toBe("DELETE");
 		expect(calls[0].path).toBe("/_api/v1/cache-config/mycache");
+	});
+
+	it("treats a 404 on delete as success (idempotent under drift)", async () => {
+		const calls = installFetch(() => ({ status: 404, body: "NoSuchCache" }));
+		await expect(
+			cacheProvider.delete("mycache", { ...cacheInputs(), publicKey: "pk:1" }),
+		).resolves.toBeUndefined();
+		expect(calls[0].method).toBe("DELETE");
 	});
 });
 
@@ -425,8 +448,10 @@ describe("parseDurationSeconds", () => {
 		expect(parseDurationSeconds(300)).toBe(300);
 	});
 
-	it("rejects malformed durations", () => {
+	it("rejects malformed and non-positive durations", () => {
 		expect(() => parseDurationSeconds("soon")).toThrow();
 		expect(() => parseDurationSeconds(0)).toThrow();
+		expect(() => parseDurationSeconds("0")).toThrow();
+		expect(() => parseDurationSeconds("0s")).toThrow();
 	});
 });

@@ -143,6 +143,12 @@ export function parseDurationSeconds(input: string | number): number {
 		);
 	}
 	const n = Number.parseInt(match[1], 10);
+	// Reject non-positive string durations ("0", "0s") too — the numeric branch
+	// already does, and a zero/expired validity would mint an immediately-dead
+	// token anywhere this helper is used outside the provider's check().
+	if (n <= 0) {
+		throw new Error(`invalid validity duration: "${input}" (must be positive)`);
+	}
 	const unit = match[2] ?? "s";
 	return n * UNIT_SECONDS[unit];
 }

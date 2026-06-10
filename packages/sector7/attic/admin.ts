@@ -355,6 +355,22 @@ const cacheProvider: dynamic.ResourceProvider = {
 				// Idempotent adoption: reconcile the existing cache's config in place.
 				// POST is create-only, so going through PATCH preserves the keypair —
 				// and thus every client's trusted-public-keys.
+				//
+				// First verify the immutable store_dir matches: buildPatchBody omits
+				// store_dir (a change is modeled as a replacement, not an update), so
+				// adopting a same-named cache that points at a different store dir would
+				// silently record the desired storeDir in state while the remote keeps
+				// its own. Fail loudly instead of misrepresenting drift.
+				const existing = ensureOk(
+					await atticFetch(baseUrl, token, path, "GET"),
+					"GET",
+					path,
+				);
+				if (existing?.store_dir && existing.store_dir !== inputs.storeDir) {
+					throw new Error(
+						`Attic cache "${inputs.cacheName}" already exists with store_dir "${existing.store_dir}", which differs from the requested "${inputs.storeDir}". store_dir is immutable — refusing to adopt; align storeDir or choose a different cacheName.`,
+					);
+				}
 				ensureOk(
 					await atticFetch(
 						baseUrl,
@@ -402,11 +418,11 @@ const cacheProvider: dynamic.ResourceProvider = {
 		const token = await mintAdminToken(props, cacheName, ADMIN_DELETE_FLAGS);
 		await withCacheBaseUrl(props, async (baseUrl) => {
 			const path = `/_api/v1/cache-config/${cacheName}`;
-			ensureOk(
-				await atticFetch(baseUrl, token, path, "DELETE"),
-				"DELETE",
-				path,
-			);
+			const res = await atticFetch(baseUrl, token, path, "DELETE");
+			// Idempotent delete: a cache already removed out of band (404) means the
+			// desired end state is reached, so don't fail `pulumi destroy`/replacement.
+			if (res.status === 404) return;
+			ensureOk(res, "DELETE", path);
 		});
 	},
 };

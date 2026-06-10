@@ -153,8 +153,11 @@ lifecycle, reached over the shared `withPortForward` transport.
   `keypair` is always `Generate` (server generates and stores the signing keypair;
   we surface the public key).
 - **`create()`** is **find-or-create**: `POST /_api/v1/cache-config/{name}`; on
-  `400 CacheAlreadyExists`, **adopt** by `PATCH`-reconciling config and `GET`-ing
-  the current state — the same idempotency the bootstrap shell relies on. Since
+  `400 CacheAlreadyExists`, **adopt** by `GET`-ing the existing config, **verifying
+  the immutable `store_dir` matches** the declared one (refusing to adopt with a
+  clear error if it differs — otherwise state would claim a `storeDir` the remote
+  doesn't have, since `PATCH` can't change it), then `PATCH`-reconciling the mutable
+  config — the same idempotency the bootstrap shell relies on. Since
   `CreateCacheRequest` has no `retention_period` field, a requested retention is
   applied by a follow-up `PATCH`. Output: `publicKey` (non-secret signing key),
   echoed config.
@@ -167,8 +170,9 @@ lifecycle, reached over the shared `withPortForward` transport.
   pattern from #258).
 - **`update()`** `PATCH`es changed fields and re-reads `publicKey`.
 - **`delete()`** `DELETE`s the cache (soft/hard per the server's
-  `soft_delete_caches`). Callers wanting the cache to outlive the stack use
-  `pulumi.RetainOnDelete`.
+  `soft_delete_caches`). A `404` is treated as success so a cache removed out of
+  band doesn't fail `pulumi destroy`/replacement (idempotent under drift). Callers
+  wanting the cache to outlive the stack use `pulumi.RetainOnDelete`.
 - All `@kubernetes/client-node` / `node:net` / `node:crypto` imports are lazy inside
   the callbacks (the serialization rule documented in `k8s/port-forward.ts`).
 
