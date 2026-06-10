@@ -64,6 +64,7 @@ port-forward**.
 ## Type token & package surface
 
 - Type token: `sector7:onepassword:Item`.
+
 - Subpath export (not the root barrel — it pulls in `@kubernetes/client-node`):
 
   ```ts
