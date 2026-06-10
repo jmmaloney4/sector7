@@ -232,6 +232,27 @@ describe("LiteLLMTeam provider", () => {
 		expect(result.replaces).toEqual(["desiredTeamId"]);
 	});
 
+	it("does not replace when an auto-assigned team is pinned to its matching id", async () => {
+		// Was created id-less (LiteLLM assigned "auto-xyz"); config now pins that
+		// same id explicitly. Same object — must not replace.
+		const olds = {
+			...target,
+			teamAlias: "prod-personal",
+			desiredTeamId: "",
+			models: ["coding"],
+			maxBudget: "",
+			budgetDuration: "",
+			tags: [],
+			metadata: {},
+			teamId: "auto-xyz",
+		};
+		const result = await teamProvider.diff("auto-xyz", olds, {
+			...olds,
+			desiredTeamId: "auto-xyz",
+		});
+		expect(result.replaces ?? []).toEqual([]);
+	});
+
 	it("treats an admin-target change as an in-place update", async () => {
 		const olds = {
 			...target,
@@ -487,6 +508,24 @@ describe("LiteLLMApiKey provider", () => {
 		await keyProvider.create({ ...baseKey, tokenId: undefined });
 		// The colliding alias belongs to another team — must be left untouched.
 		expect(calls.find((c) => c.path === "/key/delete")).toBeUndefined();
+		vi.unstubAllGlobals();
+	});
+
+	it("create deletes ALL duplicate same-alias keys in the team", async () => {
+		const calls = installFetch((path) => {
+			if (path === "/key/list") return { keys: ["hash-a", "hash-b"] };
+			// Drift left two keys with the same alias in the same team.
+			if (path.startsWith("/key/info"))
+				return { info: { key_alias: "prod-openwebui", team_id: "personal" } };
+			if (path === "/key/generate") return { token: "hash-new" };
+			return {};
+		});
+		await keyProvider.create({ ...baseKey, tokenId: undefined });
+		const del = calls.find((c) => c.path === "/key/delete");
+		expect((del?.body as { keys: string[] }).keys).toEqual([
+			"hash-a",
+			"hash-b",
+		]);
 		vi.unstubAllGlobals();
 	});
 

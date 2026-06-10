@@ -257,24 +257,28 @@ async function findTeamId(
 }
 
 /**
- * Find an existing key by alias, returning its token hash.
+ * Find existing keys by alias, returning ALL matching token hashes.
  *
  * LiteLLM `/key/info` never exposes the `sk-...` value, only the hash — so this
- * is used solely to detect a pre-existing key during adoption/recreation, not
- * to recover the secret.
+ * is used solely to detect pre-existing keys during adoption/recreation, not to
+ * recover the secret.
  *
  * The match is scoped to BOTH `alias` and `teamId`: aliases are not globally
  * unique in LiteLLM, so matching on alias alone would let `create()` delete a
  * same-named key belonging to a different team (or a manually-managed key) on a
  * shared admin plane. Requiring the team to match confines deletion to keys
  * this resource actually owns.
+ *
+ * Returns every match (not just the first): if drift left multiple same-alias
+ * keys in the team, `create()` must clear all of them so adoption is idempotent
+ * and no stale credential survives.
  */
-async function findKeyHashByAlias(
+async function findKeyHashesByAlias(
 	baseUrl: string,
 	masterKey: string,
 	alias: string,
 	teamId: string,
-): Promise<string | undefined> {
+): Promise<string[]> {
 	const data = await adminRequest(baseUrl, masterKey, "/key/list", "GET");
 	// biome-ignore lint/suspicious/noExplicitAny: key list shape varies by LiteLLM version
 	const rawKeys: any[] = Array.isArray(data)
@@ -284,7 +288,7 @@ async function findKeyHashByAlias(
 		// biome-ignore lint/suspicious/noExplicitAny: key entry may be a string or object
 		.map((k: any) => (typeof k === "string" ? k : (k?.token ?? k?.key_name)))
 		.filter((h: unknown): h is string => typeof h === "string" && h.length > 0);
-	if (hashes.length === 0) return undefined;
+	if (hashes.length === 0) return [];
 
 	const infos = await Promise.all(
 		hashes.map(async (hash) => {
@@ -301,6 +305,7 @@ async function findKeyHashByAlias(
 			}
 		}),
 	);
+	const matches: string[] = [];
 	for (const { hash, info } of infos) {
 		if (
 			info &&
@@ -308,10 +313,10 @@ async function findKeyHashByAlias(
 			info.key_alias === alias &&
 			(info.team_id ?? "") === (teamId ?? "")
 		) {
-			return hash;
+			matches.push(hash);
 		}
 	}
-	return undefined;
+	return matches;
 }
 
 /**
@@ -433,9 +438,12 @@ const teamProvider: dynamic.ResourceProvider = {
 		news: TeamProviderInputs,
 	): Promise<dynamic.DiffResult> {
 		const replaces: string[] = [];
-		// A different explicit team_id is a different team — replace. (Empty desired
-		// id means "let LiteLLM keep the assigned one"; not a replacement trigger.)
-		if (news.desiredTeamId && olds.desiredTeamId !== news.desiredTeamId) {
+		// Replace only when the requested id differs from the team we actually
+		// manage (olds.teamId). Promoting an auto-assigned team to an explicit id
+		// that already equals the managed team is the same object, not a new one.
+		// (Empty desired id means "keep the assigned one"; not a replacement.)
+		const managedTeamId = olds.teamId || olds.desiredTeamId;
+		if (news.desiredTeamId && news.desiredTeamId !== managedTeamId) {
 			replaces.push("desiredTeamId");
 		}
 		const changed =
@@ -610,16 +618,17 @@ const keyProvider: dynamic.ResourceProvider = {
 		return withProxyBaseUrl(inputs, async (baseUrl) => {
 			// Idempotency: LiteLLM /key/info can't return the original sk-... value,
 			// so a pre-existing key with this alias can't be adopted in place. Delete
-			// it and recreate with our known (RandomPassword-derived) key value.
-			const existingHash = await findKeyHashByAlias(
+			// every same-alias key in this team (drift may have left more than one)
+			// and recreate with our known (RandomPassword-derived) key value.
+			const existingHashes = await findKeyHashesByAlias(
 				baseUrl,
 				inputs.masterKey,
 				inputs.keyAlias,
 				inputs.teamId,
 			);
-			if (existingHash) {
+			if (existingHashes.length > 0) {
 				await adminRequest(baseUrl, inputs.masterKey, "/key/delete", "POST", {
-					keys: [existingHash],
+					keys: existingHashes,
 				});
 			}
 			const resp = await adminRequest(
