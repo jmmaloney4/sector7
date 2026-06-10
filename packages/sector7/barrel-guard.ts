@@ -5,3 +5,6 @@ void root.litellm;
 
 // @ts-expect-error Cloud SQL helpers live on the ./cloudsql subpath, not the root barrel
 void root.cloudsql;
+
+// @ts-expect-error OnePassword write resource lives on the ./onepassword subpath, not the root barrel
+void root.onepassword;

@@ -59,6 +59,10 @@
 			"types": "./dist/litellm/index.d.ts",
 			"default": "./dist/litellm/index.js"
 		},
+		"./onepassword": {
+			"types": "./dist/onepassword/index.d.ts",
+			"default": "./dist/onepassword/index.js"
+		},
 		"./pulumi-config": {
 			"types": "./dist/pulumi-config/index.d.ts",
 			"default": "./dist/pulumi-config/index.js"
