@@ -27,7 +27,7 @@ runs:
         sccache: s3
     - uses: DeterminateSystems/nix-installer-action@1d87d45818068401a10cf16bdc5f00b24994a83f # main
     - if: ${{ inputs.cache == 'true' }}
-      uses: DeterminateSystems/flakehub-cache-action@c857f9456f55f840f3b87a96fcf98e795e9d7462 # main
+      uses: DeterminateSystems/flakehub-cache-action@f9c8d8aaf92e6dbde896d6f84350f33d62392bd5 # main
       # TODO: Fix this
       # with:
       # use-gha-cache: enabled
