@@ -9,7 +9,9 @@
 			"matchManagers": ["npm"],
 			"matchUpdateTypes": ["minor", "patch", "pin"],
 			"automerge": true,
-			"addLabels": ["deps/npm"]
+			"addLabels": ["deps/npm"],
+			"schedule": ["at any time"],
+			"minimumReleaseAge": null
 		},
 		{
 			"groupName": "Rust Dependencies",
@@ -29,13 +31,17 @@
 			"groupName": "Node.js Core",
 			"matchPackageNames": ["@types/node", "node", "ts-node"],
 			"matchUpdateTypes": ["minor", "patch"],
-			"automerge": true
+			"automerge": true,
+			"schedule": ["at any time"],
+			"minimumReleaseAge": null
 		},
 		{
 			"groupName": "TypeScript Dependencies",
 			"matchPackageNames": ["typescript", "@types/*"],
 			"matchUpdateTypes": ["minor", "patch"],
-			"automerge": true
+			"automerge": true,
+			"schedule": ["at any time"],
+			"minimumReleaseAge": null
 		},
 		{
 			"groupName": "Testing Dependencies",
@@ -70,7 +76,8 @@
 			"matchUpdateTypes": ["minor", "patch"],
 			"automerge": true,
 			"addLabels": ["deps/pulumi"],
-			"schedule": ["before 4:00 am"]
+			"schedule": ["at any time"],
+			"minimumReleaseAge": null
 		},
 		{
 			"description": "Deduplicate pnpm installs when updating Pulumi npm packages",
@@ -79,7 +86,9 @@
 			"matchPackageNames": ["/@pulumi/*/", "/pulumi*/"],
 			"matchUpdateTypes": ["minor", "patch"],
 			"addLabels": ["deps/pulumi"],
-			"postUpdateOptions": ["pnpmDedupe"]
+			"postUpdateOptions": ["pnpmDedupe"],
+			"schedule": ["at any time"],
+			"minimumReleaseAge": null
 		},
 		{
 			"groupName": "Nix Dependencies",
