@@ -1,4 +1,5 @@
 import * as crypto from "node:crypto";
+import { EventEmitter } from "node:events";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 // ---------------------------------------------------------------------------
@@ -9,9 +10,11 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 // constructors inert and (b) capture the ResourceProvider passed to
 // dynamic.Resource's super(), then exercise the provider directly.
 //
-// The cache provider opens a port-forward and `fetch`es the cache-config API; we
-// stub @kubernetes/client-node and node:net so it yields a local base URL without
-// a real cluster, and stub global fetch to capture the calls. The token provider
+// The cache provider opens a port-forward and calls the cache-config API over
+// `node:http`; we stub @kubernetes/client-node and node:net so it yields a local
+// base URL without a real cluster, and mock `node:http` to capture the requests
+// (the provider uses node:http rather than fetch because Attic validates the Host
+// header and undici drops a caller-supplied Host override). The token provider
 // needs neither — it mints a JWT in-process via the real node:crypto.
 // ---------------------------------------------------------------------------
 
@@ -117,6 +120,60 @@ vi.mock("node:net", () => ({
 	},
 }));
 
+// `node:http` mock. `atticFetch` reaches the cache-config API through
+// `await import("node:http")`; this intercepts it and routes every request to the
+// responder installed by `installFetch`, recording each call (including the Host
+// header the provider sets, so a test can assert it matches Attic's allowed-hosts).
+type HttpCall = {
+	path: string;
+	method: string;
+	body: unknown;
+	host: string | undefined;
+};
+const httpState: {
+	responder: (
+		path: string,
+		method: string,
+		body: unknown,
+	) => { status?: number; body?: unknown } | undefined;
+	calls: HttpCall[];
+} = { responder: () => ({}), calls: [] };
+
+// biome-ignore lint/suspicious/noExplicitAny: minimal http.request stand-in
+function mockHttpRequest(url: any, options: any, cb: any): any {
+	const req: any = new EventEmitter();
+	let bodyStr = "";
+	req.write = (chunk: string) => {
+		bodyStr += chunk;
+		return true;
+	};
+	req.end = () => {
+		const path = String(url).replace(/^http:\/\/127\.0\.0\.1:\d+/, "");
+		const method = options?.method ?? "GET";
+		const body = bodyStr ? JSON.parse(bodyStr) : undefined;
+		const host = options?.headers?.Host;
+		httpState.calls.push({ path, method, body, host });
+		const r = httpState.responder(path, method, body) ?? {};
+		const status = r.status ?? 200;
+		const payload = r.body ?? {};
+		const text =
+			typeof payload === "string" ? payload : JSON.stringify(payload);
+		const res: any = new EventEmitter();
+		res.statusCode = status;
+		queueMicrotask(() => {
+			cb(res);
+			res.emit("data", Buffer.from(text, "utf8"));
+			res.emit("end");
+		});
+	};
+	return req;
+}
+
+vi.mock("node:http", () => ({
+	default: { request: mockHttpRequest },
+	request: mockHttpRequest,
+}));
+
 import { AtticCache, AtticToken } from "../attic/admin.ts";
 import {
 	ATTIC_CLAIM_NAMESPACE,
@@ -146,8 +203,9 @@ function cacheInputs(overrides: Record<string, unknown> = {}) {
 	};
 }
 
-// A mock fetch returning canned cache-config responses; responder may set a
-// status (defaults 200) and a body (object → JSON, string → raw text).
+// Install a responder for the mocked `node:http` transport, returning canned
+// cache-config responses; responder may set a status (defaults 200) and a body
+// (object → JSON, string → raw text). Returns the recorded call log.
 function installFetch(
 	responder: (
 		path: string,
@@ -155,25 +213,9 @@ function installFetch(
 		body: unknown,
 	) => { status?: number; body?: unknown } | undefined,
 ) {
-	const calls: Array<{ path: string; method: string; body: unknown }> = [];
-	const mock = vi.fn(async (url: string, init?: RequestInit) => {
-		const path = url.replace(/^http:\/\/127\.0\.0\.1:\d+/, "");
-		const method = init?.method ?? "GET";
-		const body = init?.body ? JSON.parse(init.body as string) : undefined;
-		calls.push({ path, method, body });
-		const r = responder(path, method, body) ?? {};
-		const status = r.status ?? 200;
-		const payload = r.body ?? {};
-		return {
-			ok: status >= 200 && status < 300,
-			status,
-			statusText: "",
-			text: async () =>
-				typeof payload === "string" ? payload : JSON.stringify(payload),
-		} as Response;
-	});
-	vi.stubGlobal("fetch", mock);
-	return calls;
+	httpState.responder = responder;
+	httpState.calls = [];
+	return httpState.calls;
 }
 
 let cacheProvider: Provider;
@@ -265,6 +307,24 @@ describe("AtticCache provider — lifecycle", () => {
 			keypair: "Generate",
 			is_public: true,
 		});
+	});
+
+	it("sends the in-cluster Service FQDN as the Host header (allowed-hosts match)", async () => {
+		// Regression guard: the provider port-forwards to 127.0.0.1, but Attic
+		// validates Host against allowed-hosts. Every request must carry the
+		// <deployment>.<namespace>.svc.cluster.local Host so it is accepted — never
+		// the 127.0.0.1 the transport actually connects to.
+		const calls = installFetch((_path, method) => {
+			if (method === "POST")
+				return { status: 200, body: { public_key: "pk:new" } };
+			if (method === "GET") return { body: { public_key: "pk:new" } };
+			return {};
+		});
+		await cacheProvider.create(cacheInputs());
+		expect(calls.length).toBeGreaterThan(0);
+		for (const c of calls) {
+			expect(c.host).toBe("attic.attic-prod.svc.cluster.local");
+		}
 	});
 
 	it("adopts an existing cache via PATCH on CacheAlreadyExists", async () => {
