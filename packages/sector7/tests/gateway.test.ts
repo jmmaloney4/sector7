@@ -134,6 +134,38 @@ describe("gateway module surface", () => {
 		).toThrow(/Gateway API duration/);
 	});
 
+	it("rejects backendRequest longer than request", () => {
+		expect(() =>
+			createServiceHttpRoute({
+				name: "t",
+				namespace: "ns",
+				hostnames: ["h.example.com"],
+				serviceName: "svc",
+				port: 80,
+				timeouts: { request: "30s", backendRequest: "1m" },
+				provider: {} as any,
+			}),
+		).toThrow(/must not exceed/);
+	});
+
+	it("allows any backendRequest when request is '0s' (disabled)", () => {
+		// request "0s" disables the route timeout, lifting the ordering bound.
+		// The validation must not throw; resource construction itself is not
+		// exercisable outside a Pulumi runtime, so expect that specific failure
+		// instead of a validation error.
+		expect(() =>
+			createServiceHttpRoute({
+				name: "t",
+				namespace: "ns",
+				hostnames: ["h.example.com"],
+				serviceName: "svc",
+				port: 80,
+				timeouts: { request: "0s", backendRequest: "1h" },
+				provider: {} as any,
+			}),
+		).not.toThrow(/must not exceed/);
+	});
+
 	it("has correct defaults in SharedGatewayReferenceGrantArgs type", () => {
 		const args: SharedGatewayReferenceGrantArgs = {
 			name: "allow-test",
