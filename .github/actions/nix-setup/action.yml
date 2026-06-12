@@ -17,6 +17,18 @@ inputs:
     description: Optional newline-delimited extra trusted public keys to append to the runner Nix config
     required: false
     default: ''
+  attic-endpoint:
+    description: Optional Attic server endpoint (root URL). When set together with attic-cache-name and attic-token, starts `attic watch-store` to push built store paths to the cache incrementally for the rest of the job.
+    required: false
+    default: ''
+  attic-cache-name:
+    description: Optional Attic cache name to push into via watch-store.
+    required: false
+    default: ''
+  attic-token:
+    description: Optional Attic token with push permission, used by watch-store.
+    required: false
+    default: ''
 runs:
   using: composite
   steps:
@@ -37,3 +49,14 @@ runs:
         INPUT_EXTRA_SUBSTITUTERS: ${{ inputs.extra-substituters }}
         INPUT_EXTRA_TRUSTED_PUBLIC_KEYS: ${{ inputs.extra-trusted-public-keys }}
       run: bash "${{ github.action_path }}/configure-binary-cache.sh"
+    # Best-effort incremental cache push: when Attic push creds are provided,
+    # start `attic watch-store` in the background so every store path built in
+    # this job is uploaded as it appears (survives concurrency cancellation and
+    # seeds the detect job's nix-eval-jobs closure). Never fails the job.
+    - if: ${{ inputs.attic-endpoint != '' && inputs.attic-cache-name != '' && inputs.attic-token != '' }}
+      shell: bash
+      env:
+        INPUT_ATTIC_ENDPOINT: ${{ inputs.attic-endpoint }}
+        INPUT_ATTIC_CACHE: ${{ inputs.attic-cache-name }}
+        INPUT_ATTIC_TOKEN: ${{ inputs.attic-token }}
+      run: bash "${{ github.action_path }}/start-attic-watch-store.sh"
