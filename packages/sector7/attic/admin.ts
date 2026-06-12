@@ -80,9 +80,9 @@ interface TokenProviderState extends TokenProviderInputs {
 // Like the LiteLLM admin providers, the in-process port-forward lives in the
 // shared `../k8s/port-forward` module (`withPortForward`), whose lazy
 // `await import()` of @kubernetes/client-node / node:net keeps the provider
-// closures serializable. The helpers below otherwise use only the global `fetch`
-// and `mintAtticToken` (whose own node:crypto import is lazy), so they hold no
-// top-level native imports either.
+// closures serializable. The helpers below similarly reach `node:http` through a
+// lazy `await import()` inside `atticFetch` (and `mintAtticToken` lazily imports
+// node:crypto), so they hold no top-level native imports either.
 // https://www.pulumi.com/docs/concepts/resources/dynamic-providers/#how-dynamic-providers-are-serialized
 // ---------------------------------------------------------------------------
 
@@ -149,31 +149,63 @@ interface AtticResponse {
 	json: any;
 }
 
-/** Low-level cache-config request that surfaces the status so callers can branch. */
+/**
+ * Low-level cache-config request that surfaces the status so callers can branch.
+ *
+ * Uses `node:http` (lazily imported) rather than the global `fetch`. Attic
+ * validates the HTTP `Host` header against its `allowed-hosts` list, but the
+ * transport reaches the pod through a `127.0.0.1:<ephemeral-port>` port-forward,
+ * so the wire `Host` must be overridden to the in-cluster Service FQDN that
+ * `allowed-hosts` actually permits. undici (the global `fetch`) treats `Host` as
+ * a forbidden header and silently drops a caller override — so a `fetch()` here
+ * sends `Host: 127.0.0.1:<port>` and Attic rejects it with 400 "Bad Host".
+ * `node:http` honors a caller-supplied `Host`, so it is the correct transport.
+ */
 async function atticFetch(
 	baseUrl: string,
 	token: string,
+	target: AdminTarget,
 	path: string,
 	method: "GET" | "POST" | "PATCH" | "DELETE",
 	body?: unknown,
 ): Promise<AtticResponse> {
-	const response = await fetch(`${baseUrl}${path}`, {
-		method,
-		headers: {
-			Authorization: `Bearer ${token}`,
-			...(body !== undefined ? { "Content-Type": "application/json" } : {}),
-		},
-		body: body !== undefined ? JSON.stringify(body) : undefined,
-	});
-	const text = await response.text();
-	// biome-ignore lint/suspicious/noExplicitAny: cache-config responses are dynamic JSON
-	let json: any;
-	try {
-		json = text ? JSON.parse(text) : {};
-	} catch {
-		json = undefined;
+	const http = await import("node:http");
+	const payload = body !== undefined ? JSON.stringify(body) : undefined;
+	const host = `${target.deploymentName}.${target.namespace}.svc.cluster.local`;
+	const headers: Record<string, string> = {
+		Authorization: `Bearer ${token}`,
+		Host: host,
+	};
+	if (payload !== undefined) {
+		headers["Content-Type"] = "application/json";
+		headers["Content-Length"] = String(Buffer.byteLength(payload));
 	}
-	return { status: response.status, ok: response.ok, text, json };
+	return await new Promise<AtticResponse>((resolve, reject) => {
+		const req = http.request(
+			`${baseUrl}${path}`,
+			{ method, headers },
+			(res) => {
+				const chunks: Buffer[] = [];
+				res.on("data", (chunk: Buffer) => chunks.push(chunk));
+				res.on("end", () => {
+					const text = Buffer.concat(chunks).toString("utf8");
+					const status = res.statusCode ?? 0;
+					const ok = status >= 200 && status < 300;
+					// biome-ignore lint/suspicious/noExplicitAny: cache-config responses are dynamic JSON
+					let json: any;
+					try {
+						json = text ? JSON.parse(text) : {};
+					} catch {
+						json = undefined;
+					}
+					resolve({ status, ok, text, json });
+				});
+			},
+		);
+		req.on("error", reject);
+		if (payload !== undefined) req.write(payload);
+		req.end();
+	});
 }
 
 /** Throw on a non-2xx cache-config response; otherwise return the parsed body. */
@@ -229,11 +261,12 @@ function buildPatchBody(inputs: CacheProviderInputs): Record<string, unknown> {
 async function readPublicKey(
 	baseUrl: string,
 	token: string,
+	target: AdminTarget,
 	cacheName: string,
 ): Promise<string> {
 	const path = `/_api/v1/cache-config/${cacheName}`;
 	const config = ensureOk(
-		await atticFetch(baseUrl, token, path, "GET"),
+		await atticFetch(baseUrl, token, target, path, "GET"),
 		"GET",
 		path,
 	);
@@ -353,6 +386,7 @@ const cacheProvider: dynamic.ResourceProvider = {
 			const res = await atticFetch(
 				baseUrl,
 				token,
+				inputs,
 				path,
 				"POST",
 				buildCreateBody(inputs),
@@ -362,7 +396,7 @@ const cacheProvider: dynamic.ResourceProvider = {
 				// requested retention with a follow-up PATCH.
 				if (inputs.retentionPeriodSeconds !== "") {
 					ensureOk(
-						await atticFetch(baseUrl, token, path, "PATCH", {
+						await atticFetch(baseUrl, token, inputs, path, "PATCH", {
 							retention_period: retentionPeriod(inputs.retentionPeriodSeconds),
 						}),
 						"PATCH",
@@ -387,7 +421,7 @@ const cacheProvider: dynamic.ResourceProvider = {
 				// confirm the immutable field, so refuse rather than adopt an unverified
 				// cache and record an assumed storeDir in state.
 				const existing = ensureOk(
-					await atticFetch(baseUrl, token, path, "GET"),
+					await atticFetch(baseUrl, token, inputs, path, "GET"),
 					"GET",
 					path,
 				);
@@ -403,6 +437,7 @@ const cacheProvider: dynamic.ResourceProvider = {
 					await atticFetch(
 						baseUrl,
 						token,
+						inputs,
 						path,
 						"PATCH",
 						buildPatchBody(inputs),
@@ -413,7 +448,12 @@ const cacheProvider: dynamic.ResourceProvider = {
 			} else {
 				ensureOk(res, "POST", path);
 			}
-			const publicKey = await readPublicKey(baseUrl, token, inputs.cacheName);
+			const publicKey = await readPublicKey(
+				baseUrl,
+				token,
+				inputs,
+				inputs.cacheName,
+			);
 			return { id: inputs.cacheName, outs: { ...inputs, publicKey } };
 		});
 	},
@@ -431,11 +471,23 @@ const cacheProvider: dynamic.ResourceProvider = {
 		return withCacheBaseUrl(news, async (baseUrl) => {
 			const path = `/_api/v1/cache-config/${news.cacheName}`;
 			ensureOk(
-				await atticFetch(baseUrl, token, path, "PATCH", buildPatchBody(news)),
+				await atticFetch(
+					baseUrl,
+					token,
+					news,
+					path,
+					"PATCH",
+					buildPatchBody(news),
+				),
 				"PATCH",
 				path,
 			);
-			const publicKey = await readPublicKey(baseUrl, token, news.cacheName);
+			const publicKey = await readPublicKey(
+				baseUrl,
+				token,
+				news,
+				news.cacheName,
+			);
 			return { outs: { ...news, publicKey } };
 		});
 	},
@@ -446,7 +498,7 @@ const cacheProvider: dynamic.ResourceProvider = {
 		const token = await mintAdminToken(props, cacheName, ADMIN_DELETE_FLAGS);
 		await withCacheBaseUrl(props, async (baseUrl) => {
 			const path = `/_api/v1/cache-config/${cacheName}`;
-			const res = await atticFetch(baseUrl, token, path, "DELETE");
+			const res = await atticFetch(baseUrl, token, props, path, "DELETE");
 			// Idempotent delete: a cache already removed out of band (404) means the
 			// desired end state is reached, so don't fail `pulumi destroy`/replacement.
 			if (res.status === 404) return;
