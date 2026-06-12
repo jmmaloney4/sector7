@@ -38,6 +38,12 @@ if ! command -v attic >/dev/null 2>&1; then
   fi
 fi
 
+# Isolate the attic client state to a per-job config dir so the token is not
+# written into the runner's shared $HOME config (defence-in-depth; our runners
+# are ephemeral one-job pods, but this keeps state job-scoped regardless).
+XDG_CONFIG_HOME="$(mktemp -d -t attic-watch-XXXXXX)"
+export XDG_CONFIG_HOME
+
 if ! attic login "$server" "$endpoint" "$token"; then
   echo "::warning::attic login failed; skipping watch-store (incremental cache push disabled for this job)"
   exit 0
@@ -45,9 +51,12 @@ fi
 
 log=/tmp/attic-watch-store.log
 echo "Starting 'attic watch-store $server:$cache' in the background (log: $log)"
-# Detach fully so the watcher survives this step and keeps pushing for the
-# rest of the job. Redirect stdio to a file so the step does not hang on an
-# open pipe. Failures land in the log and never affect the job.
-nohup attic watch-store "$server:$cache" >"$log" 2>&1 &
+# Fully detach so the watcher survives this step (and step-boundary process
+# cleanup) and keeps pushing for the rest of the job: `setsid` puts it in its
+# own session/process group, stdin is closed (</dev/null) and stdout/stderr go
+# to a file so the step never hangs on an open pipe. It is still reaped at job
+# end. Failures land in the log and never affect the job. XDG_CONFIG_HOME is
+# inherited so the watcher reads the isolated login config.
+setsid attic watch-store "$server:$cache" </dev/null >"$log" 2>&1 &
 disown || true
 echo "attic watch-store started (pid $!)"
