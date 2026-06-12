@@ -49,6 +49,7 @@
           ".github/renovate.json5"
           "renovate/all.json"
           "renovate/default.json"
+          "renovate/docker-images.json"
           "renovate/lock-maintenance.json"
           "renovate/major-updates.json"
           "renovate/minor-patch-automerge.json"

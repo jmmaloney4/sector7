@@ -1,0 +1,17 @@
+{
+	"$schema": "https://docs.renovatebot.com/renovate-schema.json",
+	"description": "Track annotated container image references embedded in TypeScript sources (e.g. Pulumi service definitions, where the image is a string literal Renovate's built-in managers don't parse). Each managed image is gated by an inline `// renovate: datasource=docker depName=<image>` comment on the line above, so only explicitly-annotated literals are touched — no heuristic scanning. Combined with `pinDigests`, the digest is pinned and refreshed; a semver tag also gets version updates.",
+	"customManagers": [
+		{
+			"customType": "regex",
+			"description": "Annotated container image string literals in .ts files",
+			"managerFilePatterns": ["/\\.ts$/"],
+			"matchStrings": [
+				"//\\s*renovate:\\s*datasource=(?<datasource>\\S+)\\s+depName=(?<depName>\\S+)(?:\\s+versioning=(?<versioning>\\S+))?[^\\n]*\\r?\\n[^\\n]*?[\"'`][^\"'`:]+:(?<currentValue>[^\"'`@\\s]+)(?:@(?<currentDigest>sha256:[a-f0-9]{64}))?[\"'`]"
+			],
+			"datasourceTemplate": "{{{datasource}}}",
+			"depNameTemplate": "{{{depName}}}",
+			"versioningTemplate": "{{#if versioning}}{{{versioning}}}{{else}}docker{{/if}}"
+		}
+	]
+}
