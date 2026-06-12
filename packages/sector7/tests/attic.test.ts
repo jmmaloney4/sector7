@@ -501,21 +501,31 @@ describe("AtticToken provider", () => {
 		expect(result.outs.expiresAt).toBe(
 			(result.outs.notBefore as number) + 3600,
 		);
-		// Permission short-keys under the Attic namespace claim.
+		// Permission short-keys under the Attic namespace claim. Values MUST be the
+		// integer 1, not boolean true — Attic deserializes them as integers and 401s
+		// on a JSON boolean (matches `atticadm make-token --dump-claims`).
 		expect(payload[ATTIC_CLAIM_NAMESPACE]).toEqual({
-			caches: { mycache: { r: true, w: true } },
+			caches: { mycache: { r: 1, w: 1 } },
 		});
 	});
 
-	it("emits only the granted permission flags", async () => {
+	it("emits granted permission flags as the integer 1, never booleans", async () => {
 		const result = await tokenProvider.create({
 			...tokenInputs,
 			caches: { "team-*": { pull: true, createCache: true } },
 		});
 		const payload = decodeSegment((result.outs.token as string).split(".")[1]);
-		expect(payload[ATTIC_CLAIM_NAMESPACE]).toEqual({
-			caches: { "team-*": { r: true, cc: true } },
-		});
+		const grants = (
+			payload[ATTIC_CLAIM_NAMESPACE] as {
+				caches: Record<string, Record<string, unknown>>;
+			}
+		).caches["team-*"];
+		// Only granted flags present, each strictly the integer 1 (not `true`).
+		expect(grants).toEqual({ r: 1, cc: 1 });
+		for (const v of Object.values(grants)) {
+			expect(v).toBe(1);
+			expect(typeof v).toBe("number");
+		}
 	});
 
 	it("replaces on any claim-affecting input change", async () => {

@@ -61,20 +61,26 @@ function base64url(buf: Buffer): string {
 }
 
 /**
- * Render permission flags into Attic's short-key form, emitting only the flags
- * that are `true` (matching `atticadm`'s minimal output; absent = deny).
+ * Render permission flags into Attic's short-key form, emitting only the granted
+ * flags (absent = deny) with the integer value `1`.
+ *
+ * Attic deserializes each permission value as an integer, NOT a JSON boolean —
+ * `atticadm make-token --dump-claims` emits `{"r":1,"cc":1,...}`. Emitting `true`
+ * instead makes Attic reject the whole token with 401 (the permission claim fails
+ * to deserialize), which silently breaks every minted token. Match `atticadm`'s
+ * `1`/absent encoding exactly.
  */
 function permissionClaim(
 	flags: AtticCachePermissionFlags,
-): Record<string, boolean> {
-	const out: Record<string, boolean> = {};
-	if (flags.pull) out.r = true;
-	if (flags.push) out.w = true;
-	if (flags.delete) out.d = true;
-	if (flags.createCache) out.cc = true;
-	if (flags.configureCache) out.cr = true;
-	if (flags.configureCacheRetention) out.cq = true;
-	if (flags.destroyCache) out.cd = true;
+): Record<string, number> {
+	const out: Record<string, number> = {};
+	if (flags.pull) out.r = 1;
+	if (flags.push) out.w = 1;
+	if (flags.delete) out.d = 1;
+	if (flags.createCache) out.cc = 1;
+	if (flags.configureCache) out.cr = 1;
+	if (flags.configureCacheRetention) out.cq = 1;
+	if (flags.destroyCache) out.cd = 1;
 	return out;
 }
 
@@ -93,7 +99,7 @@ export async function mintAtticToken(
 	const crypto = await import("node:crypto");
 
 	const header = { alg: "HS256", typ: "JWT" };
-	const caches: Record<string, Record<string, boolean>> = {};
+	const caches: Record<string, Record<string, number>> = {};
 	for (const [pattern, flags] of Object.entries(args.caches)) {
 		caches[pattern] = permissionClaim(flags);
 	}
