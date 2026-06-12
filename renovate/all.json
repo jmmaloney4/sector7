@@ -7,6 +7,7 @@
 		"github>jmmaloney4/sector7//renovate/minor-patch-automerge.json",
 		"github>jmmaloney4/sector7//renovate/security.json",
 		"github>jmmaloney4/sector7//renovate/pulumi.json",
+		"github>jmmaloney4/sector7//renovate/docker-images.json",
 		"github>jmmaloney4/sector7//renovate/nix.json",
 		"github>jmmaloney4/sector7//renovate/lock-maintenance.json",
 		"github>jmmaloney4/sector7//renovate/sector7-release-tarballs.json"
