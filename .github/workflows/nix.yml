@@ -62,6 +62,10 @@ jobs:
       build_matrix_include: ${{ steps.split.outputs.build_matrix_include }}
       build_has_work: ${{ steps.split.outputs.build_has_work }}
       images_to_push: ${{ steps.split.outputs.image_matrix }}
+    env:
+      # Provided so nix-setup can start `attic watch-store`, which seeds the
+      # nix-eval-jobs closure built below into the cache for future runs.
+      BINARY_CACHE_TOKEN: ${{ secrets.BINARY_CACHE_TOKEN }}
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
         with:
@@ -73,6 +77,9 @@ jobs:
           cache: ${{ !contains(inputs.runs-on, 'self-hosted') && inputs.binary-cache-url == '' }}
           extra-substituters: ${{ inputs.binary-cache-url }}
           extra-trusted-public-keys: ${{ inputs.binary-cache-public-key }}
+          attic-endpoint: ${{ inputs.binary-cache-endpoint }}
+          attic-cache-name: ${{ inputs.binary-cache-name }}
+          attic-token: ${{ secrets.BINARY_CACHE_TOKEN }}
       - name: compute build-needed matrix via nix-eval-jobs
         id: compute
         uses: jmmaloney4/sector7/.github/actions/compute-flake-build-matrix@main
@@ -117,6 +124,9 @@ jobs:
           cache: ${{ !contains(inputs.runs-on, 'self-hosted') && inputs.binary-cache-url == '' }}
           extra-substituters: ${{ inputs.binary-cache-url }}
           extra-trusted-public-keys: ${{ inputs.binary-cache-public-key }}
+          attic-endpoint: ${{ inputs.binary-cache-endpoint }}
+          attic-cache-name: ${{ inputs.binary-cache-name }}
+          attic-token: ${{ secrets.BINARY_CACHE_TOKEN }}
       - name: "🚀 build with nix-fast-build"
         shell: 'nix -L shell nixpkgs#nix-fast-build -c bash {0}'
         run: |-
