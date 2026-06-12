@@ -80,6 +80,60 @@ describe("gateway module surface", () => {
 		).toThrow();
 	});
 
+	it("ServiceHttpRouteArgs accepts optional timeouts", () => {
+		const args: ServiceHttpRouteArgs = {
+			name: "test",
+			namespace: "test-ns",
+			hostnames: ["test.example.com"],
+			serviceName: "test-svc",
+			port: 80,
+			timeouts: { request: "600s", backendRequest: "600s" },
+			provider: {} as any,
+		};
+		expect(args.timeouts?.request).toBe("600s");
+	});
+
+	it("accepts '0s' to disable a timeout", () => {
+		const args: ServiceHttpRouteArgs = {
+			name: "test",
+			namespace: "test-ns",
+			hostnames: ["test.example.com"],
+			serviceName: "test-svc",
+			port: 80,
+			timeouts: { request: "0s" },
+			provider: {} as any,
+		};
+		expect(args.timeouts?.request).toBe("0s");
+	});
+
+	it("rejects a timeouts.request that is not a Gateway API duration", () => {
+		expect(() =>
+			createServiceHttpRoute({
+				name: "t",
+				namespace: "ns",
+				hostnames: ["h.example.com"],
+				serviceName: "svc",
+				port: 80,
+				timeouts: { request: "600" },
+				provider: {} as any,
+			}),
+		).toThrow(/Gateway API duration/);
+	});
+
+	it("rejects a timeouts.backendRequest that is not a Gateway API duration", () => {
+		expect(() =>
+			createServiceHttpRoute({
+				name: "t",
+				namespace: "ns",
+				hostnames: ["h.example.com"],
+				serviceName: "svc",
+				port: 80,
+				timeouts: { backendRequest: "ten seconds" },
+				provider: {} as any,
+			}),
+		).toThrow(/Gateway API duration/);
+	});
+
 	it("has correct defaults in SharedGatewayReferenceGrantArgs type", () => {
 		const args: SharedGatewayReferenceGrantArgs = {
 			name: "allow-test",

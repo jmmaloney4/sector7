@@ -5,6 +5,30 @@ import * as pulumi from "@pulumi/pulumi";
 // HTTPRoute — Gateway API route for a service (ADR 040, updated by ADR 075)
 // ---------------------------------------------------------------------------
 
+/**
+ * Gateway API HTTPRoute rule timeouts (GEP-1742).
+ *
+ * Values are Gateway API Duration strings (GEP-2257), e.g. "600s", "30m",
+ * "1h". "0s" disables the timeout entirely.
+ */
+export interface HttpRouteTimeouts {
+	/**
+	 * Maximum time for the gateway to complete the entire request/response
+	 * exchange, including streaming the full response body. Envoy's built-in
+	 * default is 15s, which silently kills long-running requests (e.g. LLM
+	 * completions and SSE streams) — set this explicitly for slow backends.
+	 */
+	request?: string;
+	/**
+	 * Timeout for a single gateway-to-backend attempt. Must be <= request.
+	 */
+	backendRequest?: string;
+}
+
+// Gateway API Duration format (GEP-2257): 1-4 groups of <up to 5 digits> +
+// unit (h, m, s, ms), e.g. "600s", "1h30m", "0s".
+const GATEWAY_API_DURATION = /^([0-9]{1,5}(h|m|s|ms)){1,4}$/;
+
 export interface ServiceHttpRouteArgs {
 	/**
 	 * Logical/resource name for the HTTPRoute (e.g. "periscope").
@@ -35,6 +59,13 @@ export interface ServiceHttpRouteArgs {
 	 * paths for the hostname (the default).
 	 */
 	pathPrefix?: string;
+	/**
+	 * Optional rule timeouts (GEP-1742). Without this, Envoy applies its
+	 * built-in 15s route timeout — any request slower than that is killed with
+	 * a 504 ("upstream request timeout") even while actively streaming. Set
+	 * `request` generously (e.g. "600s") for LLM/streaming backends.
+	 */
+	timeouts?: HttpRouteTimeouts;
 	/** Kubernetes provider. */
 	provider: k8s.Provider;
 	/** Resources this HTTPRoute depends on. */
@@ -62,6 +93,13 @@ export function createServiceHttpRoute(
 			`createServiceHttpRoute: pathPrefix must be an absolute path starting with "/" (got ${JSON.stringify(args.pathPrefix)})`,
 		);
 	}
+	for (const [field, value] of Object.entries(args.timeouts ?? {})) {
+		if (value !== undefined && !GATEWAY_API_DURATION.test(value)) {
+			throw new Error(
+				`createServiceHttpRoute: timeouts.${field} must be a Gateway API duration like "600s", "30m", or "0s" (got ${JSON.stringify(value)})`,
+			);
+		}
+	}
 	return new k8s.apiextensions.CustomResource(
 		`${args.name}-route`,
 		{
@@ -88,6 +126,7 @@ export function createServiceHttpRoute(
 									],
 								}
 							: {}),
+						...(args.timeouts !== undefined ? { timeouts: args.timeouts } : {}),
 						backendRefs: [
 							{
 								name: args.serviceName,
