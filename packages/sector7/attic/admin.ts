@@ -153,7 +153,6 @@ interface AtticResponse {
 async function atticFetch(
 	baseUrl: string,
 	token: string,
-	target: AdminTarget,
 	path: string,
 	method: "GET" | "POST" | "PATCH" | "DELETE",
 	body?: unknown,
@@ -162,7 +161,6 @@ async function atticFetch(
 		method,
 		headers: {
 			Authorization: `Bearer ${token}`,
-			Host: `${target.deploymentName}.${target.namespace}.svc.cluster.local`,
 			...(body !== undefined ? { "Content-Type": "application/json" } : {}),
 		},
 		body: body !== undefined ? JSON.stringify(body) : undefined,
@@ -231,12 +229,11 @@ function buildPatchBody(inputs: CacheProviderInputs): Record<string, unknown> {
 async function readPublicKey(
 	baseUrl: string,
 	token: string,
-	target: AdminTarget,
 	cacheName: string,
 ): Promise<string> {
 	const path = `/_api/v1/cache-config/${cacheName}`;
 	const config = ensureOk(
-		await atticFetch(baseUrl, token, target, path, "GET"),
+		await atticFetch(baseUrl, token, path, "GET"),
 		"GET",
 		path,
 	);
@@ -356,7 +353,6 @@ const cacheProvider: dynamic.ResourceProvider = {
 			const res = await atticFetch(
 				baseUrl,
 				token,
-				inputs,
 				path,
 				"POST",
 				buildCreateBody(inputs),
@@ -366,7 +362,7 @@ const cacheProvider: dynamic.ResourceProvider = {
 				// requested retention with a follow-up PATCH.
 				if (inputs.retentionPeriodSeconds !== "") {
 					ensureOk(
-						await atticFetch(baseUrl, token, inputs, path, "PATCH", {
+						await atticFetch(baseUrl, token, path, "PATCH", {
 							retention_period: retentionPeriod(inputs.retentionPeriodSeconds),
 						}),
 						"PATCH",
@@ -391,7 +387,7 @@ const cacheProvider: dynamic.ResourceProvider = {
 				// confirm the immutable field, so refuse rather than adopt an unverified
 				// cache and record an assumed storeDir in state.
 				const existing = ensureOk(
-					await atticFetch(baseUrl, token, inputs, path, "GET"),
+					await atticFetch(baseUrl, token, path, "GET"),
 					"GET",
 					path,
 				);
@@ -407,7 +403,6 @@ const cacheProvider: dynamic.ResourceProvider = {
 					await atticFetch(
 						baseUrl,
 						token,
-						inputs,
 						path,
 						"PATCH",
 						buildPatchBody(inputs),
@@ -418,12 +413,7 @@ const cacheProvider: dynamic.ResourceProvider = {
 			} else {
 				ensureOk(res, "POST", path);
 			}
-			const publicKey = await readPublicKey(
-				baseUrl,
-				token,
-				inputs,
-				inputs.cacheName,
-			);
+			const publicKey = await readPublicKey(baseUrl, token, inputs.cacheName);
 			return { id: inputs.cacheName, outs: { ...inputs, publicKey } };
 		});
 	},
@@ -441,23 +431,11 @@ const cacheProvider: dynamic.ResourceProvider = {
 		return withCacheBaseUrl(news, async (baseUrl) => {
 			const path = `/_api/v1/cache-config/${news.cacheName}`;
 			ensureOk(
-				await atticFetch(
-					baseUrl,
-					token,
-					news,
-					path,
-					"PATCH",
-					buildPatchBody(news),
-				),
+				await atticFetch(baseUrl, token, path, "PATCH", buildPatchBody(news)),
 				"PATCH",
 				path,
 			);
-			const publicKey = await readPublicKey(
-				baseUrl,
-				token,
-				news,
-				news.cacheName,
-			);
+			const publicKey = await readPublicKey(baseUrl, token, news.cacheName);
 			return { outs: { ...news, publicKey } };
 		});
 	},
@@ -468,7 +446,7 @@ const cacheProvider: dynamic.ResourceProvider = {
 		const token = await mintAdminToken(props, cacheName, ADMIN_DELETE_FLAGS);
 		await withCacheBaseUrl(props, async (baseUrl) => {
 			const path = `/_api/v1/cache-config/${cacheName}`;
-			const res = await atticFetch(baseUrl, token, props, path, "DELETE");
+			const res = await atticFetch(baseUrl, token, path, "DELETE");
 			// Idempotent delete: a cache already removed out of band (404) means the
 			// desired end state is reached, so don't fail `pulumi destroy`/replacement.
 			if (res.status === 404) return;
