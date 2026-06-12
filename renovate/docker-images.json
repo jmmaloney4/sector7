@@ -7,9 +7,9 @@
 			"description": "Annotated container image string literals in .ts files",
 			"managerFilePatterns": ["/\\.ts$/"],
 			"matchStrings": [
-				"//\\s*renovate:\\s*datasource=(?<datasource>\\S+)(?:\\s+versioning=(?<versioning>\\S+))?[^\\n]*\\r?\\n[^\\n]*?[\"'`](?<depName>(?:[^\"'`@\\s]+/)*[^\"'`@\\s/]+):(?<currentValue>[^\"'`@\\s:]+)(?:@(?<currentDigest>sha256:[a-f0-9]{64}))?[\"'`]"
+				"//\\s*renovate:\\s*datasource=docker(?:\\s+versioning=(?<versioning>\\S+))?[^\\n]*\\r?\\n[^\\n]*?(?:=|\\?\\?|:)\\s*[\"'`](?<depName>(?:[^\"'`@\\s]+/)*[^\"'`@\\s/]+):(?<currentValue>[^\"'`@\\s:]+)(?:@(?<currentDigest>sha256:[a-f0-9]{64}))?[\"'`]"
 			],
-			"datasourceTemplate": "{{{datasource}}}",
+			"datasourceTemplate": "docker",
 			"depNameTemplate": "{{{depName}}}",
 			"versioningTemplate": "{{#if versioning}}{{{versioning}}}{{else}}docker{{/if}}"
 		}
