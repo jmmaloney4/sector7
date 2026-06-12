@@ -585,7 +585,7 @@ function cacheProviderInputs(args: AtticCacheArgs) {
 }
 
 class AtticCacheRecord extends dynamic.Resource {
-	public readonly publicKey!: Output<string>;
+	public declare readonly publicKey: Output<string>;
 
 	constructor(
 		name: string,
@@ -611,8 +611,8 @@ class AtticCacheRecord extends dynamic.Resource {
  * model as the old `kubectl exec`/`port-forward` script, with no tailnet dependency.
  */
 export class AtticCache extends pulumi.ComponentResource {
-	public readonly cacheName: pulumi.Output<string>;
-	public readonly publicKey: pulumi.Output<string>;
+	public declare readonly cacheName: pulumi.Output<string>;
+	public declare readonly publicKey: pulumi.Output<string>;
 
 	constructor(
 		name: string,
@@ -647,9 +647,9 @@ function tokenProviderInputs(args: AtticTokenArgs) {
 }
 
 class AtticTokenRecord extends dynamic.Resource {
-	public readonly token!: Output<string>;
-	public readonly expiresAt!: Output<number>;
-	public readonly notBefore!: Output<number>;
+	public declare readonly token: Output<string>;
+	public declare readonly expiresAt: Output<number>;
+	public declare readonly notBefore: Output<number>;
 
 	constructor(
 		name: string,
@@ -678,9 +678,9 @@ class AtticTokenRecord extends dynamic.Resource {
  * every token). Prefer short `validity` and least-privilege `caches` scopes.
  */
 export class AtticToken extends pulumi.ComponentResource {
-	public readonly token: pulumi.Output<string>;
-	public readonly expiresAt: pulumi.Output<number>;
-	public readonly notBefore: pulumi.Output<number>;
+	public declare readonly token: pulumi.Output<string>;
+	public declare readonly expiresAt: pulumi.Output<number>;
+	public declare readonly notBefore: pulumi.Output<number>;
 
 	constructor(
 		name: string,

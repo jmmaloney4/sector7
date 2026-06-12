@@ -629,7 +629,7 @@ function teamProviderInputs(args: LiteLLMTeamArgs) {
 }
 
 class LiteLLMTeamRecord extends dynamic.Resource {
-	public readonly teamId!: Output<string>;
+	public declare readonly teamId: Output<string>;
 
 	constructor(
 		name: string,
@@ -702,7 +702,7 @@ function keyProviderInputs(
 }
 
 class LiteLLMApiKeyRecord extends dynamic.Resource {
-	public readonly tokenId!: Output<string>;
+	public declare readonly tokenId: Output<string>;
 
 	constructor(
 		name: string,

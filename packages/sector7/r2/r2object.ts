@@ -580,7 +580,7 @@ const r2ObjectProvider: dynamic.ResourceProvider = {
  */
 export class R2Object extends dynamic.Resource {
 	/** ETag of the uploaded object as returned by R2 (MD5 hex, no quotes). */
-	public readonly etag!: Output<string>;
+	public declare readonly etag: Output<string>;
 
 	constructor(
 		name: string,

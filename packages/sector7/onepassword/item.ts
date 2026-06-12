@@ -573,11 +573,11 @@ const rejectCloudProviderOptions = (
  */
 export class OnePasswordItem extends dynamic.Resource {
 	/** The created/adopted 1Password item id. */
-	public readonly uuid!: Output<string>;
+	public declare readonly uuid: Output<string>;
 	/** `vaults/<vault>/items/<uuid>` — the form `OnePasswordItem` CRs / `op read` consume. */
-	public readonly itemPath!: Output<string>;
+	public declare readonly itemPath: Output<string>;
 	/** Hash of the written content; used to detect drift without storing values. */
-	public readonly contentHash!: Output<string>;
+	public declare readonly contentHash: Output<string>;
 
 	constructor(
 		name: string,

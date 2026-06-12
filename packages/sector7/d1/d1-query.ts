@@ -318,7 +318,7 @@ export class D1Query extends dynamic.Resource {
 	/**
 	 * SHA-256 hex digest of the last-executed SQL.
 	 */
-	public readonly sqlHash!: Output<string>;
+	public declare readonly sqlHash: Output<string>;
 
 	constructor(name: string, args: D1QueryArgs, opts?: DynamicResourceOptions) {
 		rejectCloudProviderOptions("D1Query", opts);
