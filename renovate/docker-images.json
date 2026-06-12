@@ -7,7 +7,7 @@
 			"description": "Annotated container image string literals in .ts files",
 			"managerFilePatterns": ["/\\.ts$/"],
 			"matchStrings": [
-				"//\\s*renovate:\\s*datasource=(?<datasource>\\S+)\\s+depName=(?<depName>\\S+)(?:\\s+versioning=(?<versioning>\\S+))?[^\\n]*\\r?\\n[^\\n]*?[\"'`][^\"'`:]+:(?<currentValue>[^\"'`@\\s]+)(?:@(?<currentDigest>sha256:[a-f0-9]{64}))?[\"'`]"
+				"//\\s*renovate:\\s*datasource=(?<datasource>\\S+)\\s+depName=(?<depName>\\S+)(?:\\s+versioning=(?<versioning>\\S+))?[^\\n]*\\r?\\n[^\\n]*?[\"'`](?:[^\"'`@\\s]+/)*[^\"'`@\\s/]+:(?<currentValue>[^\"'`@\\s:]+)(?:@(?<currentDigest>sha256:[a-f0-9]{64}))?[\"'`]"
 			],
 			"datasourceTemplate": "{{{datasource}}}",
 			"depNameTemplate": "{{{depName}}}",
