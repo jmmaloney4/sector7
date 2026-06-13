@@ -38,6 +38,17 @@ runs:
         show_costs: true
         sccache: s3
     - uses: DeterminateSystems/nix-installer-action@1d87d45818068401a10cf16bdc5f00b24994a83f # main
+      with:
+        # Disable build fsync on CI runners. The nix-store workload is
+        # fsync-bound (sqlite path-registration + small-file writes); on a
+        # contended disk this serializes everything (~80% iowait observed on
+        # voldemort). Runners are ephemeral, so trading crash-durability for
+        # throughput is safe — a crashed job just re-runs. `fsync-store-paths`
+        # already defaults to false; pinned here so a future default change
+        # can't silently reintroduce the stall.
+        extra-conf: |
+          fsync-metadata = false
+          fsync-store-paths = false
     - if: ${{ inputs.cache == 'true' }}
       uses: DeterminateSystems/flakehub-cache-action@f9c8d8aaf92e6dbde896d6f84350f33d62392bd5 # main
       # TODO: Fix this
