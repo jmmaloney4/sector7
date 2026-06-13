@@ -117,14 +117,66 @@ function buildFallbackMap(
 	groups: LiteLLMModelGroup[],
 	key: "fallbacks" | "contextWindowFallbacks",
 ): Array<Record<string, string[]>> {
-	return groups.flatMap((group) => {
-		const targets =
+	// LiteLLM resolves fallbacks by the *public* model name the client requested
+	// (the `team_public_model_name` alias), not the resolved internal model_group
+	// name — a known, won't-fix upstream limitation (BerriAI/litellm#10317). So
+	// the fallback map must be keyed (and valued) by public names, or it never
+	// matches and the chain silently never fires. Map every internal model_group
+	// name to its public alias, then emit public→public entries.
+	const publicNameOf = new Map<string, string>();
+	for (const group of groups) {
+		publicNameOf.set(group.name, group.teamPublicModelName ?? group.name);
+	}
+
+	// Track the chain for every public model name, INCLUDING groups that declare
+	// none (recorded as null). The fallback map is global and keyed by the public
+	// name, so a name that one team gives a chain and another leaves empty is
+	// still a conflict: the global entry would silently apply that chain to the
+	// team that opted out. Every team exposing a shared public name must agree —
+	// matching chains dedupe, any divergence (including present-vs-absent) throws.
+	const chainByPublicName = new Map<string, string[] | null>();
+	for (const group of groups) {
+		const publicKey = group.teamPublicModelName ?? group.name;
+		const raw =
 			key === "fallbacks" ? group.fallbacks : group.contextWindowFallbacks;
-		if (!targets || targets.length === 0) {
-			return [];
+		const chain =
+			raw && raw.length > 0
+				? raw.map((t) => {
+						// Resolve internal->public; fail fast rather than keep a raw,
+						// unmapped name. validateLiteLLMConfig already rejects unknown
+						// targets, so this is defense-in-depth: a silently-kept name
+						// would reintroduce the exact "fallback never matches" bug.
+						const publicTarget = publicNameOf.get(t);
+						if (publicTarget === undefined) {
+							throw new Error(
+								`${key} target '${t}' for public model '${publicKey}' ` +
+									"does not resolve to a known model group.",
+							);
+						}
+						return publicTarget;
+					})
+				: null;
+
+		if (!chainByPublicName.has(publicKey)) {
+			chainByPublicName.set(publicKey, chain);
+			continue;
 		}
-		return [{ [group.name]: targets }];
-	});
+		const existing = chainByPublicName.get(publicKey) ?? null;
+		if (JSON.stringify(existing) !== JSON.stringify(chain)) {
+			const fmt = (c: string[] | null) => (c ? `[${c.join(", ")}]` : "(none)");
+			throw new Error(
+				`Conflicting ${key} for public model '${publicKey}': ` +
+					`${fmt(existing)} vs ${fmt(chain)}. LiteLLM's global fallback map ` +
+					"cannot express per-team fallback chains for a shared " +
+					"team_public_model_name (litellm#10317); give the capabilities " +
+					"distinct public names or matching chains.",
+			);
+		}
+	}
+
+	return [...chainByPublicName]
+		.filter((entry): entry is [string, string[]] => entry[1] !== null)
+		.map(([name, targets]) => ({ [name]: targets }));
 }
 
 export function validateLiteLLMConfig(args: {
