@@ -117,14 +117,49 @@ function buildFallbackMap(
 	groups: LiteLLMModelGroup[],
 	key: "fallbacks" | "contextWindowFallbacks",
 ): Array<Record<string, string[]>> {
-	return groups.flatMap((group) => {
+	// LiteLLM resolves fallbacks by the *public* model name the client requested
+	// (the `team_public_model_name` alias), not the resolved internal model_group
+	// name — a known, won't-fix upstream limitation (BerriAI/litellm#10317). So
+	// the fallback map must be keyed (and valued) by public names, or it never
+	// matches and the chain silently never fires. Map every internal model_group
+	// name to its public alias, then emit public→public entries.
+	const publicNameOf = new Map<string, string>();
+	for (const group of groups) {
+		publicNameOf.set(group.name, group.teamPublicModelName ?? group.name);
+	}
+
+	const byPublicName = new Map<string, string[]>();
+	for (const group of groups) {
 		const targets =
 			key === "fallbacks" ? group.fallbacks : group.contextWindowFallbacks;
 		if (!targets || targets.length === 0) {
-			return [];
+			continue;
 		}
-		return [{ [group.name]: targets }];
-	});
+		const publicKey = group.teamPublicModelName ?? group.name;
+		const publicTargets = targets.map((t) => publicNameOf.get(t) ?? t);
+
+		const existing = byPublicName.get(publicKey);
+		if (existing) {
+			// Two teams share this public model name. LiteLLM's fallback map is
+			// global and keyed by the public name, so it can only hold one chain
+			// per name — the same client-facing `cheap` can't fall back to
+			// `local` for one team and something else for another. Identical
+			// chains dedupe cleanly; differing chains are unrepresentable.
+			if (JSON.stringify(existing) !== JSON.stringify(publicTargets)) {
+				throw new Error(
+					`Conflicting ${key} for public model '${publicKey}': ` +
+						`[${existing.join(", ")}] vs [${publicTargets.join(", ")}]. ` +
+						"LiteLLM's global fallback map cannot express per-team fallback " +
+						"chains for a shared team_public_model_name (litellm#10317); " +
+						"give the capabilities distinct public names or identical chains.",
+				);
+			}
+			continue;
+		}
+		byPublicName.set(publicKey, publicTargets);
+	}
+
+	return [...byPublicName].map(([name, targets]) => ({ [name]: targets }));
 }
 
 export function validateLiteLLMConfig(args: {
