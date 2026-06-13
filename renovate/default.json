@@ -22,6 +22,7 @@
 	"dependencyDashboardLabels": ["chore/deps"],
 	"rangeStrategy": "pin",
 	"minimumReleaseAge": "4 days",
+	"internalChecksFilter": "strict",
 	"pinDigests": true,
 	"labels": ["chore/deps", "renovate"],
 	"commitMessagePrefix": "deps: ",
