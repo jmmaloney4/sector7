@@ -140,7 +140,22 @@ function buildFallbackMap(
 		const raw =
 			key === "fallbacks" ? group.fallbacks : group.contextWindowFallbacks;
 		const chain =
-			raw && raw.length > 0 ? raw.map((t) => publicNameOf.get(t) ?? t) : null;
+			raw && raw.length > 0
+				? raw.map((t) => {
+						// Resolve internal->public; fail fast rather than keep a raw,
+						// unmapped name. validateLiteLLMConfig already rejects unknown
+						// targets, so this is defense-in-depth: a silently-kept name
+						// would reintroduce the exact "fallback never matches" bug.
+						const publicTarget = publicNameOf.get(t);
+						if (publicTarget === undefined) {
+							throw new Error(
+								`${key} target '${t}' for public model '${publicKey}' ` +
+									"does not resolve to a known model group.",
+							);
+						}
+						return publicTarget;
+					})
+				: null;
 
 		if (!chainByPublicName.has(publicKey)) {
 			chainByPublicName.set(publicKey, chain);
