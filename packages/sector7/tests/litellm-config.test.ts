@@ -285,6 +285,47 @@ describe("generateLiteLLMConfig", () => {
 		).toThrow(/Conflicting fallbacks for public model 'cheap'/);
 	});
 
+	it("throws when one team gives a shared public model a fallback and another leaves it empty", () => {
+		const modelGroups = buildLiteLLMTeamScopedModelGroups({
+			teams: [
+				{
+					id: "personal",
+					alias: "personal",
+					capabilities: [
+						{
+							name: "cheap",
+							deploymentIds: ["cheap-personal"],
+							fallbacks: ["local"],
+						},
+						{ name: "local", deploymentIds: ["local-personal"] },
+					],
+				},
+				{
+					id: "research",
+					alias: "research",
+					// research::cheap intentionally has NO fallback — the global
+					// `cheap -> local` entry would otherwise leak onto it.
+					capabilities: [
+						{ name: "cheap", deploymentIds: ["cheap-research"] },
+						{ name: "local", deploymentIds: ["local-research"] },
+					],
+				},
+			],
+		});
+		expect(() =>
+			generateLiteLLMConfig({
+				providers: { openai: { hasApiKey: true } },
+				deployments: [
+					"cheap-personal",
+					"local-personal",
+					"cheap-research",
+					"local-research",
+				].map((id) => ({ id, provider: "openai", providerModel: "openai/m" })),
+				modelGroups,
+			}),
+		).toThrow(/Conflicting fallbacks for public model 'cheap'.*\(none\)/s);
+	});
+
 	it("rejects missing deployment references and multi-replica without redis", () => {
 		expect(() =>
 			generateLiteLLMConfig({

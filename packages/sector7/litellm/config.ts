@@ -128,38 +128,40 @@ function buildFallbackMap(
 		publicNameOf.set(group.name, group.teamPublicModelName ?? group.name);
 	}
 
-	const byPublicName = new Map<string, string[]>();
+	// Track the chain for every public model name, INCLUDING groups that declare
+	// none (recorded as null). The fallback map is global and keyed by the public
+	// name, so a name that one team gives a chain and another leaves empty is
+	// still a conflict: the global entry would silently apply that chain to the
+	// team that opted out. Every team exposing a shared public name must agree —
+	// matching chains dedupe, any divergence (including present-vs-absent) throws.
+	const chainByPublicName = new Map<string, string[] | null>();
 	for (const group of groups) {
-		const targets =
-			key === "fallbacks" ? group.fallbacks : group.contextWindowFallbacks;
-		if (!targets || targets.length === 0) {
-			continue;
-		}
 		const publicKey = group.teamPublicModelName ?? group.name;
-		const publicTargets = targets.map((t) => publicNameOf.get(t) ?? t);
+		const raw =
+			key === "fallbacks" ? group.fallbacks : group.contextWindowFallbacks;
+		const chain =
+			raw && raw.length > 0 ? raw.map((t) => publicNameOf.get(t) ?? t) : null;
 
-		const existing = byPublicName.get(publicKey);
-		if (existing) {
-			// Two teams share this public model name. LiteLLM's fallback map is
-			// global and keyed by the public name, so it can only hold one chain
-			// per name — the same client-facing `cheap` can't fall back to
-			// `local` for one team and something else for another. Identical
-			// chains dedupe cleanly; differing chains are unrepresentable.
-			if (JSON.stringify(existing) !== JSON.stringify(publicTargets)) {
-				throw new Error(
-					`Conflicting ${key} for public model '${publicKey}': ` +
-						`[${existing.join(", ")}] vs [${publicTargets.join(", ")}]. ` +
-						"LiteLLM's global fallback map cannot express per-team fallback " +
-						"chains for a shared team_public_model_name (litellm#10317); " +
-						"give the capabilities distinct public names or identical chains.",
-				);
-			}
+		if (!chainByPublicName.has(publicKey)) {
+			chainByPublicName.set(publicKey, chain);
 			continue;
 		}
-		byPublicName.set(publicKey, publicTargets);
+		const existing = chainByPublicName.get(publicKey) ?? null;
+		if (JSON.stringify(existing) !== JSON.stringify(chain)) {
+			const fmt = (c: string[] | null) => (c ? `[${c.join(", ")}]` : "(none)");
+			throw new Error(
+				`Conflicting ${key} for public model '${publicKey}': ` +
+					`${fmt(existing)} vs ${fmt(chain)}. LiteLLM's global fallback map ` +
+					"cannot express per-team fallback chains for a shared " +
+					"team_public_model_name (litellm#10317); give the capabilities " +
+					"distinct public names or matching chains.",
+			);
+		}
 	}
 
-	return [...byPublicName].map(([name, targets]) => ({ [name]: targets }));
+	return [...chainByPublicName]
+		.filter((entry): entry is [string, string[]] => entry[1] !== null)
+		.map(([name, targets]) => ({ [name]: targets }));
 }
 
 export function validateLiteLLMConfig(args: {
