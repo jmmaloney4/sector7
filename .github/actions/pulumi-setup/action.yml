@@ -10,10 +10,41 @@ inputs:
   nodejs_package_manager:
     description: 'Node.js package manager: "pnpm", "npm", or "none"'
     required: true
+  runs-on:
+    description: Runner label, forwarded to nix-setup for cache selection
+    required: false
+    default: ''
+  extra-substituters:
+    description: Optional newline-delimited extra substituter URLs, forwarded to nix-setup
+    required: false
+    default: ''
+  extra-trusted-public-keys:
+    description: Optional newline-delimited extra trusted public keys, forwarded to nix-setup
+    required: false
+    default: ''
+  attic-endpoint:
+    description: Optional Attic server endpoint, forwarded to nix-setup for watch-store push
+    required: false
+    default: ''
+  attic-cache-name:
+    description: Optional Attic cache name, forwarded to nix-setup
+    required: false
+    default: ''
+  attic-token:
+    description: Optional Attic push token, forwarded to nix-setup
+    required: false
+    default: ''
 runs:
   using: composite
   steps:
     - uses: jmmaloney4/sector7/.github/actions/nix-setup@main
+      with:
+        runs-on: ${{ inputs.runs-on }}
+        extra-substituters: ${{ inputs.extra-substituters }}
+        extra-trusted-public-keys: ${{ inputs.extra-trusted-public-keys }}
+        attic-endpoint: ${{ inputs.attic-endpoint }}
+        attic-cache-name: ${{ inputs.attic-cache-name }}
+        attic-token: ${{ inputs.attic-token }}
     - uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3.0.0
       with:
         workload_identity_provider: ${{ inputs.google_workload_identity_provider }}

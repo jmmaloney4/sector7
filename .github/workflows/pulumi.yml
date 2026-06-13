@@ -43,6 +43,30 @@ on:
         description: 'Node.js package manager: "pnpm", "npm", or "none"'
         required: true
         type: string
+      binary-cache-url:
+        description: 'Optional full binary cache URL to add as a substituter (e.g. https://cache.example.com/cache)'
+        required: false
+        default: ''
+        type: string
+      binary-cache-public-key:
+        description: 'Optional trusted public key for the binary cache'
+        required: false
+        default: ''
+        type: string
+      binary-cache-endpoint:
+        description: 'Optional Attic server endpoint (root URL) used for cache pushes'
+        required: false
+        default: ''
+        type: string
+      binary-cache-name:
+        description: 'Optional Attic cache name used for cache pushes'
+        required: false
+        default: ''
+        type: string
+    secrets:
+      BINARY_CACHE_TOKEN:
+        description: 'Optional Attic token used to push built store paths into the binary cache'
+        required: false
 jobs:
   detect-pulumi-stacks:
     name: "🧩 detect pulumi stacks"
@@ -62,7 +86,12 @@ jobs:
       - uses: jmmaloney4/sector7/.github/actions/nix-setup@main
         with:
           runs-on: ${{ inputs.runs-on }}
-          cache: ${{ !contains(inputs.runs-on, 'self-hosted') }}
+          cache: ${{ !contains(inputs.runs-on, 'self-hosted') && inputs.binary-cache-url == '' }}
+          extra-substituters: ${{ inputs.binary-cache-url }}
+          extra-trusted-public-keys: ${{ inputs.binary-cache-public-key }}
+          attic-endpoint: ${{ inputs.binary-cache-endpoint }}
+          attic-cache-name: ${{ inputs.binary-cache-name }}
+          attic-token: ${{ secrets.BINARY_CACHE_TOKEN }}
       - name: Detect all (project, stack) pairs
         id: set-matrix
         uses: jmmaloney4/sector7/.github/actions/detect-pulumi-stacks@main
@@ -101,6 +130,12 @@ jobs:
           google_workload_identity_provider: ${{ inputs.google_workload_identity_provider }}
           google_service_account_email: ${{ inputs.google_service_account_email }}
           nodejs_package_manager: ${{ inputs.nodejs_package_manager }}
+          runs-on: ${{ inputs.runs-on }}
+          extra-substituters: ${{ inputs.binary-cache-url }}
+          extra-trusted-public-keys: ${{ inputs.binary-cache-public-key }}
+          attic-endpoint: ${{ inputs.binary-cache-endpoint }}
+          attic-cache-name: ${{ inputs.binary-cache-name }}
+          attic-token: ${{ secrets.BINARY_CACHE_TOKEN }}
       - name: Validate .#ci-pulumi shell
         shell: bash
         env:
