@@ -40,9 +40,10 @@ runs:
     - uses: jmmaloney4/sector7/.github/actions/nix-setup@main
       with:
         runs-on: ${{ inputs.runs-on }}
-        # Mirror the detect-pulumi-stacks job: disable the FlakeHub fallback
-        # when a binary cache is configured, so the two jobs behave consistently.
-        cache: ${{ !contains(inputs.runs-on, 'self-hosted') && inputs.extra-substituters == '' }}
+        # Keep the FlakeHub fallback enabled unless a fully-configured custom
+        # cache is available (substituters + trusted keys both set), so a
+        # missing public key doesn't leave nix-setup without a usable cache.
+        cache: ${{ !contains(inputs.runs-on, 'self-hosted') && !(inputs.extra-substituters != '' && inputs.extra-trusted-public-keys != '') }}
         extra-substituters: ${{ inputs.extra-substituters }}
         extra-trusted-public-keys: ${{ inputs.extra-trusted-public-keys }}
         attic-endpoint: ${{ inputs.attic-endpoint }}

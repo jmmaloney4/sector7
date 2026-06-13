@@ -86,12 +86,16 @@ jobs:
       - uses: jmmaloney4/sector7/.github/actions/nix-setup@main
         with:
           runs-on: ${{ inputs.runs-on }}
-          cache: ${{ !contains(inputs.runs-on, 'self-hosted') && inputs.binary-cache-url == '' }}
+          # Keep the FlakeHub fallback enabled unless a fully-configured custom
+          # cache is available (URL + public key both set). A URL without a
+          # public key leaves nix-setup with an unverifiable substituter.
+          cache: ${{ !contains(inputs.runs-on, 'self-hosted') && !(inputs.binary-cache-url != '' && inputs.binary-cache-public-key != '') }}
           extra-substituters: ${{ inputs.binary-cache-url }}
           extra-trusted-public-keys: ${{ inputs.binary-cache-public-key }}
           attic-endpoint: ${{ inputs.binary-cache-endpoint }}
           attic-cache-name: ${{ inputs.binary-cache-name }}
-          attic-token: ${{ secrets.BINARY_CACHE_TOKEN }}
+          # Forks don't get push credentials even if the caller supplies a token.
+          attic-token: ${{ inputs.is_fork && '' || secrets.BINARY_CACHE_TOKEN }}
       - name: Detect all (project, stack) pairs
         id: set-matrix
         uses: jmmaloney4/sector7/.github/actions/detect-pulumi-stacks@main
@@ -135,7 +139,8 @@ jobs:
           extra-trusted-public-keys: ${{ inputs.binary-cache-public-key }}
           attic-endpoint: ${{ inputs.binary-cache-endpoint }}
           attic-cache-name: ${{ inputs.binary-cache-name }}
-          attic-token: ${{ secrets.BINARY_CACHE_TOKEN }}
+          # Forks don't get push credentials even if the caller supplies a token.
+          attic-token: ${{ inputs.is_fork && '' || secrets.BINARY_CACHE_TOKEN }}
       - name: Validate .#ci-pulumi shell
         shell: bash
         env:
