@@ -10,8 +10,7 @@
 			"matchUpdateTypes": ["minor", "patch", "pin"],
 			"automerge": true,
 			"addLabels": ["deps/npm"],
-			"schedule": ["at any time"],
-			"minimumReleaseAge": null
+			"schedule": ["at any time"]
 		},
 		{
 			"groupName": "Rust Dependencies",
