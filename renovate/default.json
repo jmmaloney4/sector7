@@ -53,6 +53,11 @@
 			"description": "Skip dependency updates under docs/ directories — archived reference material not actively maintained",
 			"matchFileNames": ["**/docs/**"],
 			"enabled": false
+		},
+		{
+			"description": "Skip dependency updates under dbt_packages/ directories — vendored dbt package code, not maintained in this repo",
+			"matchFileNames": ["**/dbt_packages/**"],
+			"enabled": false
 		}
 	]
 }

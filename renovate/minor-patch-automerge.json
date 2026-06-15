@@ -21,7 +21,7 @@
 		},
 		{
 			"groupName": "Python Dependencies",
-			"matchManagers": ["pip_requirements", "pip_setup", "pipenv", "poetry"],
+			"matchManagers": ["pip_requirements", "pip_setup", "pipenv", "poetry", "pep621"],
 			"matchDatasources": ["pypi"],
 			"matchUpdateTypes": ["minor", "patch"],
 			"automerge": true
