@@ -71,11 +71,11 @@ jobs:
           # cache is available (URL + public key both set). A URL without a
           # public key leaves nix-setup with an unverifiable substituter.
           cache: ${{ !contains(inputs.runs-on, 'self-hosted') && !(inputs.binary-cache-url != '' && inputs.binary-cache-public-key != '') }}
-          extra-substituters: ${{ inputs.binary-cache-url }}
-          extra-trusted-public-keys: ${{ inputs.binary-cache-public-key }}
-          attic-endpoint: ${{ inputs.binary-cache-endpoint }}
-          attic-cache-name: ${{ inputs.binary-cache-name }}
-          attic-token: ${{ secrets.BINARY_CACHE_TOKEN }}
+          extra-substituters: ${{ inputs.binary-cache-url != '' && inputs.binary-cache-public-key != '' && inputs.binary-cache-url || '' }}
+          extra-trusted-public-keys: ${{ inputs.binary-cache-url != '' && inputs.binary-cache-public-key != '' && inputs.binary-cache-public-key || '' }}
+          attic-endpoint: ${{ inputs.binary-cache-endpoint != '' && inputs.binary-cache-name != '' && secrets.BINARY_CACHE_TOKEN != '' && inputs.binary-cache-endpoint || '' }}
+          attic-cache-name: ${{ inputs.binary-cache-endpoint != '' && inputs.binary-cache-name != '' && secrets.BINARY_CACHE_TOKEN != '' && inputs.binary-cache-name || '' }}
+          attic-token: ${{ inputs.binary-cache-endpoint != '' && inputs.binary-cache-name != '' && secrets.BINARY_CACHE_TOKEN != '' && secrets.BINARY_CACHE_TOKEN || '' }}
       - name: Add ci-pnpm tools to PATH
         run: nix develop .#ci-pnpm --command bash -c 'echo "$PATH" >> "$GITHUB_PATH"'
       - name: Analyze packages (target=${{ inputs.target }})
@@ -114,11 +114,11 @@ jobs:
           # cache is available (URL + public key both set). A URL without a
           # public key leaves nix-setup with an unverifiable substituter.
           cache: ${{ !contains(inputs.runs-on, 'self-hosted') && !(inputs.binary-cache-url != '' && inputs.binary-cache-public-key != '') }}
-          extra-substituters: ${{ inputs.binary-cache-url }}
-          extra-trusted-public-keys: ${{ inputs.binary-cache-public-key }}
-          attic-endpoint: ${{ inputs.binary-cache-endpoint }}
-          attic-cache-name: ${{ inputs.binary-cache-name }}
-          attic-token: ${{ secrets.BINARY_CACHE_TOKEN }}
+          extra-substituters: ${{ inputs.binary-cache-url != '' && inputs.binary-cache-public-key != '' && inputs.binary-cache-url || '' }}
+          extra-trusted-public-keys: ${{ inputs.binary-cache-url != '' && inputs.binary-cache-public-key != '' && inputs.binary-cache-public-key || '' }}
+          attic-endpoint: ${{ inputs.binary-cache-endpoint != '' && inputs.binary-cache-name != '' && secrets.BINARY_CACHE_TOKEN != '' && inputs.binary-cache-endpoint || '' }}
+          attic-cache-name: ${{ inputs.binary-cache-endpoint != '' && inputs.binary-cache-name != '' && secrets.BINARY_CACHE_TOKEN != '' && inputs.binary-cache-name || '' }}
+          attic-token: ${{ inputs.binary-cache-endpoint != '' && inputs.binary-cache-name != '' && secrets.BINARY_CACHE_TOKEN != '' && secrets.BINARY_CACHE_TOKEN || '' }}
       - name: Verify lockfile is up to date
         run: nix develop .#ci-pnpm --command pnpm install --frozen-lockfile
   publish-packages:
@@ -144,11 +144,11 @@ jobs:
           # cache is available (URL + public key both set). A URL without a
           # public key leaves nix-setup with an unverifiable substituter.
           cache: ${{ !contains(inputs.runs-on, 'self-hosted') && !(inputs.binary-cache-url != '' && inputs.binary-cache-public-key != '') }}
-          extra-substituters: ${{ inputs.binary-cache-url }}
-          extra-trusted-public-keys: ${{ inputs.binary-cache-public-key }}
-          attic-endpoint: ${{ inputs.binary-cache-endpoint }}
-          attic-cache-name: ${{ inputs.binary-cache-name }}
-          attic-token: ${{ secrets.BINARY_CACHE_TOKEN }}
+          extra-substituters: ${{ inputs.binary-cache-url != '' && inputs.binary-cache-public-key != '' && inputs.binary-cache-url || '' }}
+          extra-trusted-public-keys: ${{ inputs.binary-cache-url != '' && inputs.binary-cache-public-key != '' && inputs.binary-cache-public-key || '' }}
+          attic-endpoint: ${{ inputs.binary-cache-endpoint != '' && inputs.binary-cache-name != '' && secrets.BINARY_CACHE_TOKEN != '' && inputs.binary-cache-endpoint || '' }}
+          attic-cache-name: ${{ inputs.binary-cache-endpoint != '' && inputs.binary-cache-name != '' && secrets.BINARY_CACHE_TOKEN != '' && inputs.binary-cache-name || '' }}
+          attic-token: ${{ inputs.binary-cache-endpoint != '' && inputs.binary-cache-name != '' && secrets.BINARY_CACHE_TOKEN != '' && secrets.BINARY_CACHE_TOKEN || '' }}
       - name: Add ci-pnpm tools to PATH
         run: nix develop .#ci-pnpm --command bash -c 'echo "$PATH" >> "$GITHUB_PATH"'
       - name: Install dependencies
