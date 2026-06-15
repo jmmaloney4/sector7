@@ -316,6 +316,16 @@ export function createTailnetIngress(
 					"tailscale.com/proxy-group": "ingress-proxies",
 					"tailscale.com/proxy-group-namespace": "tailscale",
 					"tailscale.com/http-redirect": "true",
+					// Skip Pulumi's readiness check. The Tailscale operator
+					// reconciles asynchronously (WireGuard tunnels, cert
+					// provisioning, status.loadBalancer population). Deploy
+					// identities often lack RBAC to read Services in the
+					// namespace where the Ingress lives (e.g. garden's
+					// pulumi-zeus SA has Ingress CRUD only in `networking`).
+					// Without skipAwait the provider retries the endpoint
+					// check forever on 403 and never reaches the
+					// status.loadBalancer poll. See ADR-033.
+					"pulumi.com/skipAwait": "true",
 				},
 			},
 			spec: {
