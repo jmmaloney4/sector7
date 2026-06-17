@@ -31,16 +31,14 @@
 			"matchPackageNames": ["@types/node", "node", "ts-node"],
 			"matchUpdateTypes": ["minor", "patch"],
 			"automerge": true,
-			"schedule": ["at any time"],
-			"minimumReleaseAge": null
+			"schedule": ["at any time"]
 		},
 		{
 			"groupName": "TypeScript Dependencies",
 			"matchPackageNames": ["typescript", "@types/*"],
 			"matchUpdateTypes": ["minor", "patch"],
 			"automerge": true,
-			"schedule": ["at any time"],
-			"minimumReleaseAge": null
+			"schedule": ["at any time"]
 		},
 		{
 			"groupName": "Testing Dependencies",
@@ -75,8 +73,7 @@
 			"matchUpdateTypes": ["minor", "patch"],
 			"automerge": true,
 			"addLabels": ["deps/pulumi"],
-			"schedule": ["at any time"],
-			"minimumReleaseAge": null
+			"schedule": ["at any time"]
 		},
 		{
 			"description": "Deduplicate pnpm installs when updating Pulumi npm packages",
@@ -86,8 +83,7 @@
 			"matchUpdateTypes": ["minor", "patch"],
 			"addLabels": ["deps/pulumi"],
 			"postUpdateOptions": ["pnpmDedupe"],
-			"schedule": ["at any time"],
-			"minimumReleaseAge": null
+			"schedule": ["at any time"]
 		},
 		{
 			"groupName": "Nix Dependencies",
