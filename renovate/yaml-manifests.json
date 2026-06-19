@@ -1,0 +1,29 @@
+{
+	"$schema": "https://docs.renovatebot.com/renovate-schema.json",
+	"description": "Track annotated dependency pins in YAML files that Renovate's built-in managers don't cover: (1) container images in Kubernetes or HelmChart CRD manifests, and (2) Helm chart versions in HelmChart CRD specs. Both patterns require an inline `# renovate:` comment annotation on the line above, matching the opt-in style of renovate/docker-images.json. For container images, the image string itself carries the registry/repo:tag, so only datasource=docker is required in the annotation. For Helm chart versions, the annotation should include datasource=helm, depName, and optional registryUrl because the chart name and repo URL may be on separate lines.",
+	"customManagers": [
+		{
+			"customType": "regex",
+			"description": "Annotated container image string literals in YAML",
+			"managerFilePatterns": ["\\/\\.ya?ml$/"],
+			"matchStrings": [
+				"#\\s*renovate:\\s*datasource=docker(?:\\s+versioning=(?<versioning>\\S+))?[^\\n]*\\r?\\n[^\\n]*?image:\\s*[\"']?(?<depName>[^\"'@\\s:]+(?:/[^\"'@\\s:/]+)*(?::[^\"'@\\s:]+)?):(?<currentValue>[^\"'@\\s:]+)(?:@(?<currentDigest>sha256:[a-f0-9]{64}))?[\"']?"
+			],
+			"datasourceTemplate": "docker",
+			"depNameTemplate": "{{{depName}}}",
+			"versioningTemplate": "{{#if versioning}}{{{versioning}}}{{else}}docker{{/if}}"
+		},
+		{
+			"customType": "regex",
+			"description": "Annotated Helm chart versions in YAML",
+			"managerFilePatterns": ["\\/\\.ya?ml$/"],
+			"matchStrings": [
+				"#\\s*renovate:\\s*datasource=helm(?:\\s+depName=(?<depName>[^\\s]+))?(?:\\s+registryUrl=(?<registryUrl>[^\\s]+))?(?:\\s+versioning=(?<versioning>\\S+))?[^\\n]*\\r?\\n[^\\n]*?version:\\s*[\"']?(?<currentValue>[^\"'\\s]+)[\"']?"
+			],
+			"datasourceTemplate": "helm",
+			"depNameTemplate": "{{#if depName}}{{{depName}}}{{else}}default{{/if}}",
+			"registryUrlTemplate": "{{#if registryUrl}}{{{registryUrl}}}{{/if}}",
+			"versioningTemplate": "{{#if versioning}}{{{versioning}}}{{else}}semver{{/if}}"
+		}
+	]
+}
