@@ -23,7 +23,7 @@
 			"datasourceTemplate": "helm",
 			"depNameTemplate": "{{{depName}}}",
 			"registryUrlTemplate": "{{#if registryUrl}}{{{registryUrl}}}{{/if}}",
-			"versioningTemplate": "{{#if versioning}}{{{versioning}}}{{else}}semver{{/if}}"
+			"versioningTemplate": "{{#if versioning}}{{{versioning}}}{{else}}helm{{/if}}"
 		}
 	]
 }
