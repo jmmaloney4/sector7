@@ -31,10 +31,22 @@ function firstMatch(regexes: RegExp[], input: string) {
 	return regexes.map((regex) => input.match(regex)).find(Boolean);
 }
 
+function renovateRegex(pattern: string): RegExp {
+	if (pattern.startsWith("/") && pattern.lastIndexOf("/") > 0) {
+		const lastSlash = pattern.lastIndexOf("/");
+		return new RegExp(
+			pattern.slice(1, lastSlash),
+			pattern.slice(lastSlash + 1),
+		);
+	}
+
+	return new RegExp(pattern);
+}
+
 describe("renovate/yaml-manifests.json file patterns", () => {
 	const patterns = yamlConfig.customManagers
 		.flatMap((manager) => manager.managerFilePatterns ?? [])
-		.map((pattern) => new RegExp(pattern));
+		.map((pattern) => renovateRegex(pattern));
 
 	it("matches yaml and yml files", () => {
 		const testFiles = [
