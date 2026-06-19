@@ -57,6 +57,7 @@
           "renovate/pulumi.json"
           "renovate/sector7-release-tarballs.json"
           "renovate/security.json"
+          "renovate/yaml-manifests.json"
         ];
 
         renovateConfigPaths = map (path: "${self.outPath}/${path}") renovateConfigFiles;

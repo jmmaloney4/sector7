@@ -10,6 +10,7 @@ const yamlConfig = JSON.parse(
 ) as {
 	customManagers: Array<{
 		description: string;
+		managerFilePatterns: string[];
 		matchStrings: string[];
 	}>;
 };
@@ -29,6 +30,43 @@ function managerRegexes(description: string): RegExp[] {
 function firstMatch(regexes: RegExp[], input: string) {
 	return regexes.map((regex) => input.match(regex)).find(Boolean);
 }
+
+describe("renovate/yaml-manifests.json file patterns", () => {
+	const patterns = yamlConfig.customManagers
+		.flatMap((manager) => manager.managerFilePatterns ?? [])
+		.map((pattern) => new RegExp(pattern));
+
+	it("matches yaml and yml files", () => {
+		const testFiles = [
+			"kube-vip.yaml",
+			"deployment.yml",
+			"path/to/manifest.yaml",
+			"deep/nested/Chart.yml",
+		];
+
+		for (const file of testFiles) {
+			expect(
+				patterns.some((regex) => regex.test(file)),
+				`expected ${file} to match`,
+			).toBe(true);
+		}
+	});
+
+	it("does not match non-yaml files", () => {
+		const testFiles = [
+			"kube-vip.json",
+			"README.md",
+			"yaml-manifests.json",
+		];
+
+		for (const file of testFiles) {
+			expect(
+				patterns.some((regex) => regex.test(file)),
+				`expected ${file} NOT to match`,
+			).toBe(false);
+		}
+	});
+});
 
 describe("renovate/yaml-manifests.json container image regex manager", () => {
 	const description = "Annotated container image string literals in YAML";
@@ -124,6 +162,18 @@ describe("renovate/yaml-manifests.json Helm chart version regex manager", () => 
 		expect(match?.groups?.depName).toBe("cert-manager");
 		expect(match?.groups?.registryUrl).toBeUndefined();
 		expect(match?.groups?.currentValue).toBe("v1.14.5");
+	});
+
+	it("matches with parameters in a different order (registryUrl before depName)", () => {
+		const yaml = [
+			"  # renovate: datasource=helm registryUrl=https://helm.cilium.io/ depName=cilium",
+			'  version: "1.17.15"',
+		].join("\n");
+
+		const match = firstMatch(managerRegexes(description), yaml);
+		expect(match?.groups?.depName).toBe("cilium");
+		expect(match?.groups?.registryUrl).toBe("https://helm.cilium.io/");
+		expect(match?.groups?.currentValue).toBe("1.17.15");
 	});
 
 	it("does not match unannotated version lines", () => {
