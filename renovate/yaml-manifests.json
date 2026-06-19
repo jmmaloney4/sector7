@@ -7,7 +7,7 @@
 			"description": "Annotated container image string literals in YAML",
 			"managerFilePatterns": ["/\\.ya?ml$/"],
 			"matchStrings": [
-				"#\\s*renovate:\\s*datasource=docker(?:\\s+versioning=(?<versioning>\\S+))?[^\\n]*\\r?\\n[^\\n]*?image:\\s*[\"']?(?<depName>[^\"'@\\s:]+(?:/[^\"'@\\s:/]+)*(?::[^\"'@\\s:]+)?):(?<currentValue>[^\"'@\\s:]+)(?:@(?<currentDigest>sha256:[a-f0-9]{64}))?[\"']?"
+				"#\\s*renovate:\\s*datasource=docker(?:\\s+versioning=(?<versioning>\\S+))?[^\\n]*\\r?\\n[^\\n]*?image:\\s*[\"']?(?<depName>[^\"'@\\s/]+(?::\\d+)?(?:/[^\"'@\\s:/]+)+|[^\"'@\\s:/]+):(?<currentValue>[^\"'@\\s:]+)(?:@(?<currentDigest>sha256:[a-f0-9]{64}))?[\"']?"
 			],
 			"datasourceTemplate": "docker",
 			"depNameTemplate": "{{{depName}}}",
@@ -18,10 +18,10 @@
 			"description": "Annotated Helm chart versions in YAML",
 			"managerFilePatterns": ["/\\.ya?ml$/"],
 			"matchStrings": [
-				"#\\s*renovate:\\s*datasource=helm(?=[^\\n]*?\\bdepName=(?<depName>\\S+))?(?=[^\\n]*?\\bregistryUrl=(?<registryUrl>\\S+))?(?=[^\\n]*?\\bversioning=(?<versioning>\\S+))?[^\\n]*\\r?\\n[^\\n]*?version:\\s*[\"']?(?<currentValue>[^\"'\\s]+)[\"']?"
+				"#\\s*renovate:\\s*datasource=helm(?=[^\\n]*?\\bdepName=(?<depName>\\S+))(?=[^\\n]*?\\bregistryUrl=(?<registryUrl>\\S+))?(?=[^\\n]*?\\bversioning=(?<versioning>\\S+))?[^\\n]*\\r?\\n[^\\n]*?version:\\s*[\"']?(?<currentValue>[^\"'\\s]+)[\"']?"
 			],
 			"datasourceTemplate": "helm",
-			"depNameTemplate": "{{#if depName}}{{{depName}}}{{else}}default{{/if}}",
+			"depNameTemplate": "{{{depName}}}",
 			"registryUrlTemplate": "{{#if registryUrl}}{{{registryUrl}}}{{/if}}",
 			"versioningTemplate": "{{#if versioning}}{{{versioning}}}{{else}}semver{{/if}}"
 		}

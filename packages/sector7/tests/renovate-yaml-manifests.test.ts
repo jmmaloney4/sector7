@@ -94,6 +94,17 @@ describe("renovate/yaml-manifests.json container image regex manager", () => {
 		expect(match?.groups?.currentValue).toBe("1.25.3");
 	});
 
+	it("matches registries with ports", () => {
+		const yaml = [
+			"          # renovate: datasource=docker",
+			"          image: registry.example.com:5000/team/app:1.2.3",
+		].join("\n");
+
+		const match = firstMatch(managerRegexes(description), yaml);
+		expect(match?.groups?.depName).toBe("registry.example.com:5000/team/app");
+		expect(match?.groups?.currentValue).toBe("1.2.3");
+	});
+
 	it("matches images with digest pinning", () => {
 		const yaml = [
 			"          # renovate: datasource=docker",
@@ -178,6 +189,15 @@ describe("renovate/yaml-manifests.json Helm chart version regex manager", () => 
 
 	it("does not match unannotated version lines", () => {
 		const yaml = '  version: "1.17.15"';
+
+		expect(firstMatch(managerRegexes(description), yaml)).toBeUndefined();
+	});
+
+	it("does not match Helm annotations missing depName", () => {
+		const yaml = [
+			"  # renovate: datasource=helm registryUrl=https://helm.cilium.io/",
+			'  version: "1.17.15"',
+		].join("\n");
 
 		expect(firstMatch(managerRegexes(description), yaml)).toBeUndefined();
 	});
