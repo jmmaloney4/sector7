@@ -9,8 +9,7 @@
 			"matchManagers": ["npm"],
 			"matchUpdateTypes": ["minor", "patch", "pin"],
 			"automerge": true,
-			"addLabels": ["deps/npm"],
-			"schedule": ["at any time"]
+			"addLabels": ["deps/npm"]
 		},
 		{
 			"groupName": "Rust Dependencies",
@@ -30,19 +29,11 @@
 			"groupName": "Node.js Core",
 			"matchPackageNames": ["@types/node", "node", "ts-node"],
 			"matchUpdateTypes": ["minor", "patch"],
-			"automerge": true,
-			"schedule": ["at any time"]
+			"automerge": true
 		},
 		{
 			"groupName": "TypeScript Dependencies",
 			"matchPackageNames": ["typescript", "@types/*"],
-			"matchUpdateTypes": ["minor", "patch"],
-			"automerge": true,
-			"schedule": ["at any time"]
-		},
-		{
-			"groupName": "Testing Dependencies",
-			"matchPackageNames": ["jest", "@types/jest"],
 			"matchUpdateTypes": ["minor", "patch"],
 			"automerge": true
 		},
@@ -72,8 +63,7 @@
 			"matchPackageNames": ["/@pulumi/*/", "/pulumi*/"],
 			"matchUpdateTypes": ["minor", "patch"],
 			"automerge": true,
-			"addLabels": ["deps/pulumi"],
-			"schedule": ["at any time"]
+			"addLabels": ["deps/pulumi"]
 		},
 		{
 			"description": "Deduplicate pnpm installs when updating Pulumi npm packages",
@@ -82,15 +72,13 @@
 			"matchPackageNames": ["/@pulumi/*/", "/pulumi*/"],
 			"matchUpdateTypes": ["minor", "patch"],
 			"addLabels": ["deps/pulumi"],
-			"postUpdateOptions": ["pnpmDedupe"],
-			"schedule": ["at any time"]
+			"postUpdateOptions": ["pnpmDedupe"]
 		},
 		{
 			"groupName": "Nix Dependencies",
 			"matchManagers": ["nix"],
 			"matchUpdateTypes": ["minor", "patch"],
-			"automerge": true,
-			"schedule": ["before 4:00 am on Saturday and Sunday"]
+			"automerge": true
 		},
 		{
 			"groupName": "Nix PyPI Dependencies",
@@ -98,7 +86,6 @@
 			"matchDatasources": ["pypi"],
 			"matchUpdateTypes": ["minor", "patch"],
 			"automerge": true,
-			"schedule": ["before 4:00 am on Saturday and Sunday"],
 			"addLabels": ["deps/nix/pypi"]
 		},
 		{
@@ -107,7 +94,6 @@
 			"matchDatasources": ["github-releases"],
 			"matchUpdateTypes": ["minor", "patch"],
 			"automerge": true,
-			"schedule": ["before 4:00 am on Saturday and Sunday"],
 			"addLabels": ["deps/nix/github"]
 		}
 	]

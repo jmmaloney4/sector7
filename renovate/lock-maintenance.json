@@ -4,7 +4,7 @@
 	"addLabels": ["renovate"],
 	"lockFileMaintenance": {
 		"enabled": true,
-		"schedule": ["before 4:00 am on the first day of the month"],
+		"schedule": ["before 4:00 am on Sunday"],
 		"automerge": true,
 		"packageRules": [{ "matchManagers": ["nix"], "allowedVersions": ">=0" }]
 	}
