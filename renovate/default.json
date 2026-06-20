@@ -11,8 +11,8 @@
 		":pinAllExceptPeerDependencies"
 	],
 	"schedule": ["before 4:00 am"],
-	"prHourlyLimit": 10,
-	"prConcurrentLimit": 5,
+	"prHourlyLimit": 0,
+	"prConcurrentLimit": 0,
 	"rebaseWhen": "conflicted",
 	"automergeType": "pr",
 	"automergeStrategy": "merge",
@@ -39,10 +39,9 @@
 	},
 	"packageRules": [
 		{
-			"description": "Skip pinning and stability days for internal sector7 actions (own repo)",
+			"description": "Skip the stability delay for internal sector7 actions (own repo); digest pinning still applies via the global pinDigests policy",
 			"matchPackageNames": ["/^jmmaloney4\\/sector7($|\\/)/"],
-			"minimumReleaseAge": null,
-			"pinDigests": false
+			"minimumReleaseAge": null
 		},
 		{
 			"description": "Disable requires-python updates — managed manually per project as a capped minor range (e.g. >=3.13,<3.14)",
