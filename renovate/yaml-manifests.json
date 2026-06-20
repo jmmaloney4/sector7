@@ -1,6 +1,6 @@
 {
 	"$schema": "https://docs.renovatebot.com/renovate-schema.json",
-	"description": "Track annotated dependency pins in YAML files that Renovate's built-in managers don't cover: (1) container images in Kubernetes or HelmChart CRD manifests, and (2) Helm chart versions in HelmChart CRD specs. Both patterns require an inline `# renovate:` comment annotation on the line above, matching the opt-in style of renovate/docker-images.json. For container images, the image string itself carries the registry/repo:tag, so only datasource=docker is required in the annotation. For Helm chart versions, the annotation should include datasource=helm, depName, and optional registryUrl because the chart name and repo URL may be on separate lines.",
+	"description": "Track annotated dependency pins in YAML files that Renovate's built-in managers don't cover: (1) container images in Kubernetes or HelmChart CRD manifests, and (2) Helm chart versions in HelmChart CRD specs. Both patterns require an inline `# renovate:` comment annotation on the line above, matching the opt-in style of renovate/docker-images.json. For container images, the image string itself carries the registry/repo:tag, so only datasource=docker is required in the annotation. For Helm chart versions, the annotation fields must appear in order — datasource=helm depName=<chart> [registryUrl=<url>] [versioning=<scheme>] — because Renovate compiles matchStrings with RE2, which does not support the lookahead assertions that would otherwise allow arbitrary field order.",
 	"customManagers": [
 		{
 			"customType": "regex",
@@ -15,10 +15,10 @@
 		},
 		{
 			"customType": "regex",
-			"description": "Annotated Helm chart versions in YAML",
+			"description": "Annotated Helm chart versions in YAML; annotation fields are order-sensitive (depName, then optional registryUrl, then optional versioning) for RE2 compatibility",
 			"managerFilePatterns": ["/\\.ya?ml$/"],
 			"matchStrings": [
-				"#\\s*renovate:\\s*datasource=helm(?=[^\\n]*?\\bdepName=(?<depName>\\S+))(?=[^\\n]*?\\bregistryUrl=(?<registryUrl>\\S+))?(?=[^\\n]*?\\bversioning=(?<versioning>\\S+))?[^\\n]*\\r?\\n[^\\n]*?version:\\s*[\"']?(?<currentValue>[^\"'\\s]+)[\"']?"
+				"#\\s*renovate:\\s*datasource=helm\\s+depName=(?<depName>\\S+)(?:\\s+registryUrl=(?<registryUrl>\\S+))?(?:\\s+versioning=(?<versioning>\\S+))?[^\\n]*\\r?\\n[^\\n]*?version:\\s*[\"']?(?<currentValue>[^\"'\\s]+)[\"']?"
 			],
 			"datasourceTemplate": "helm",
 			"depNameTemplate": "{{{depName}}}",
