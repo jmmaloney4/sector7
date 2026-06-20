@@ -1,0 +1,354 @@
+name: '🔎☁️ pulumi drift detection'
+on:
+  workflow_call:
+    inputs:
+      runs-on:
+        description: 'Runner label(s) for all jobs (string label or JSON array of labels)'
+        required: true
+        type: string
+      repository:
+        description: 'Repository to checkout and inspect (owner/repo)'
+        required: true
+        type: string
+      ref:
+        description: 'Git ref to checkout and inspect'
+        required: true
+        type: string
+      stacks:
+        description: 'JSON array of Pulumi stack names to check'
+        required: true
+        type: string
+      working-directory:
+        description: 'Directory containing the Pulumi project'
+        required: false
+        default: '.'
+        type: string
+      pulumi-version:
+        description: 'Pulumi CLI version or semver range'
+        required: false
+        default: '^3'
+        type: string
+      pulumi-backend-url:
+        description: 'Optional Pulumi backend URL to log into before preview'
+        required: false
+        default: ''
+        type: string
+      pulumi-flags:
+        description: 'Additional flags appended to pulumi preview'
+        required: false
+        default: ''
+        type: string
+      issue-title:
+        description: 'Title used for the drift issue'
+        required: false
+        default: 'Pulumi drift detected'
+        type: string
+      issue-labels:
+        description: 'JSON array of issue labels to apply if they already exist'
+        required: false
+        default: '["pulumi","drift"]'
+        type: string
+    secrets:
+      PULUMI_ACCESS_TOKEN:
+        description: 'Pulumi Cloud access token'
+        required: false
+      PULUMI_CONFIG_PASSPHRASE:
+        description: 'Optional passphrase for passphrase-based secrets providers'
+        required: false
+permissions:
+  contents: read
+  issues: write
+jobs:
+  validate-inputs:
+    name: '🧪 validate inputs'
+    runs-on: ${{ startsWith(inputs.runs-on, '[') && fromJson(inputs.runs-on) || inputs.runs-on }}
+    outputs:
+      stacks: ${{ steps.validate.outputs.stacks }}
+    steps:
+      - name: Validate stacks input
+        id: validate
+        shell: bash
+        env:
+          STACKS_JSON: ${{ inputs.stacks }}
+        run: |
+          set -euo pipefail
+          node <<'NODE'
+          const fs = require('node:fs');
+          const raw = process.env.STACKS_JSON ?? '';
+          let parsed;
+          try {
+            parsed = JSON.parse(raw);
+          } catch (error) {
+            console.error(`Invalid stacks JSON: ${error.message}`);
+            process.exit(1);
+          }
+          if (!Array.isArray(parsed) || parsed.length === 0) {
+            console.error('The stacks input must be a non-empty JSON array.');
+            process.exit(1);
+          }
+          const stacks = parsed.map((value) => {
+            if (typeof value !== 'string' || value.trim() === '') {
+              console.error('Each stack must be a non-empty string.');
+              process.exit(1);
+            }
+            return value.trim();
+          });
+          fs.appendFileSync(process.env.GITHUB_OUTPUT, `stacks=${JSON.stringify(stacks)}\n`);
+          NODE
+  detect-drift:
+    name: '🔍 drift check (${{ matrix.stack }})'
+    needs: validate-inputs
+    runs-on: ${{ startsWith(inputs.runs-on, '[') && fromJson(inputs.runs-on) || inputs.runs-on }}
+    strategy:
+      fail-fast: false
+      matrix:
+        stack: ${{ fromJson(needs.validate-inputs.outputs.stacks) }}
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          repository: ${{ inputs.repository }}
+          ref: ${{ inputs.ref }}
+      - uses: pulumi/actions@d7906e4ad0b1822421a7e6a35d5ca353c962f410 # v6
+        with:
+          pulumi-version: ${{ inputs.pulumi-version }}
+      - name: derive safe stack name
+        id: names
+        shell: bash
+        env:
+          STACK: ${{ matrix.stack }}
+        run: |
+          set -euo pipefail
+          safe_stack=$(printf '%s' "$STACK" | tr '/:@ ' '----' | tr -cd '[:alnum:]._-' )
+          if [ -z "$safe_stack" ]; then
+            safe_stack="stack"
+          fi
+          echo "safe_stack=$safe_stack" >> "$GITHUB_OUTPUT"
+      - name: pulumi login
+        if: ${{ inputs.pulumi-backend-url != '' }}
+        shell: bash
+        working-directory: ${{ inputs.working-directory }}
+        run: pulumi login "${{ inputs.pulumi-backend-url }}"
+      - name: detect drift
+        id: detect
+        shell: bash
+        working-directory: ${{ inputs.working-directory }}
+        env:
+          PULUMI_ACCESS_TOKEN: ${{ secrets.PULUMI_ACCESS_TOKEN }}
+          PULUMI_CONFIG_PASSPHRASE: ${{ secrets.PULUMI_CONFIG_PASSPHRASE }}
+          STACK: ${{ matrix.stack }}
+          SAFE_STACK: ${{ steps.names.outputs.safe_stack }}
+          PULUMI_FLAGS: ${{ inputs.pulumi-flags }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$GITHUB_WORKSPACE/drift-results/$SAFE_STACK"
+          log_path="$GITHUB_WORKSPACE/drift-results/$SAFE_STACK/preview.log"
+          result_path="$GITHUB_WORKSPACE/drift-results/$SAFE_STACK/result.json"
+          set +e
+          pulumi preview --stack "$STACK" --refresh --expect-no-changes --non-interactive $PULUMI_FLAGS 2>&1 | tee "$log_path"
+          exit_code=${PIPESTATUS[0]}
+          set -e
+          status="clean"
+          if [ "$exit_code" -ne 0 ]; then
+            if grep -Eiq 'no changes were expected|expect-no-changes' "$log_path"; then
+              status="drift"
+            else
+              status="error"
+            fi
+          fi
+          RESULT_PATH="$result_path" STATUS="$status" EXIT_CODE="$exit_code" STACK="$STACK" node <<'NODE'
+          const fs = require('node:fs');
+          fs.writeFileSync(process.env.RESULT_PATH, JSON.stringify({
+            stack: process.env.STACK,
+            status: process.env.STATUS,
+            exit_code: Number(process.env.EXIT_CODE),
+          }, null, 2));
+          NODE
+          echo "status=$status" >> "$GITHUB_OUTPUT"
+          echo "### Pulumi drift check: \`$STACK\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Status: \`$status\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Log artifact: \`pulumi-drift-$SAFE_STACK\`" >> "$GITHUB_STEP_SUMMARY"
+      - name: upload drift result
+        if: ${{ always() }}
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
+        with:
+          name: pulumi-drift-${{ steps.names.outputs.safe_stack }}
+          path: drift-results/${{ steps.names.outputs.safe_stack }}
+          if-no-files-found: error
+  reconcile-drift-issue:
+    name: '📝 reconcile drift issue'
+    needs: detect-drift
+    if: ${{ always() }}
+    runs-on: ${{ startsWith(inputs.runs-on, '[') && fromJson(inputs.runs-on) || inputs.runs-on }}
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          pattern: pulumi-drift-*
+          path: drift-results
+          merge-multiple: false
+      - name: summarize results
+        id: summarize
+        shell: bash
+        env:
+          DRIFT_RESULTS_DIR: drift-results
+        run: |
+          set -euo pipefail
+          node <<'NODE'
+          const fs = require('node:fs');
+          const path = require('node:path');
+          const baseDir = process.env.DRIFT_RESULTS_DIR;
+          const entries = [];
+          for (const artifactDir of fs.readdirSync(baseDir, { withFileTypes: true })) {
+            if (!artifactDir.isDirectory()) {
+              continue;
+            }
+            const resultPath = path.join(baseDir, artifactDir.name, 'result.json');
+            if (!fs.existsSync(resultPath)) {
+              continue;
+            }
+            entries.push(JSON.parse(fs.readFileSync(resultPath, 'utf8')));
+          }
+          entries.sort((left, right) => left.stack.localeCompare(right.stack));
+          const drifted = entries.filter((entry) => entry.status === 'drift');
+          const errors = entries.filter((entry) => entry.status === 'error');
+          const output = process.env.GITHUB_OUTPUT;
+          fs.appendFileSync(output, `has_drift=${drifted.length > 0}\n`);
+          fs.appendFileSync(output, `has_errors=${errors.length > 0}\n`);
+          fs.writeFileSync('drift-summary.json', JSON.stringify(entries, null, 2));
+          NODE
+          {
+            echo "## Pulumi drift detection"
+            echo ""
+            echo "| Stack | Status |"
+            echo "| --- | --- |"
+            node -e 'const fs=require("node:fs"); for (const entry of JSON.parse(fs.readFileSync("drift-summary.json","utf8"))) { console.log(`| \`${entry.stack}\` | ${entry.status} |`); }'
+          } >> "$GITHUB_STEP_SUMMARY"
+      - name: create, update, or close drift issue
+        uses: actions/github-script@8582a9e8cc630786854029b4e09281acd6794b58 # v6
+        env:
+          DRIFT_SUMMARY_PATH: drift-summary.json
+          WORKING_DIRECTORY: ${{ inputs.working-directory }}
+          ISSUE_TITLE: ${{ inputs.issue-title }}
+          ISSUE_LABELS: ${{ inputs.issue-labels }}
+          CHECKED_REF: ${{ inputs.ref }}
+          DETECT_RESULT: ${{ needs.detect-drift.result }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        with:
+          script: |
+            const fs = require('node:fs');
+            const summary = JSON.parse(fs.readFileSync(process.env.DRIFT_SUMMARY_PATH, 'utf8'));
+            const drifted = summary.filter((entry) => entry.status === 'drift');
+            const errors = summary.filter((entry) => entry.status === 'error');
+            const detectResult = process.env.DETECT_RESULT;
+            const normalizedWorkingDirectory = process.env.WORKING_DIRECTORY.replace(/^\.\//, '').replace(/\/+$/, '') || '.';
+            const marker = `<!-- pulumi-drift-detection:${normalizedWorkingDirectory} -->`;
+            const issueTitle = normalizedWorkingDirectory === '.'
+              ? process.env.ISSUE_TITLE
+              : `${process.env.ISSUE_TITLE} (${normalizedWorkingDirectory})`;
+            const runUrl = process.env.RUN_URL;
+            const checkedRef = process.env.CHECKED_REF;
+            let requestedLabels = [];
+            try {
+              requestedLabels = JSON.parse(process.env.ISSUE_LABELS || '[]');
+            } catch (error) {
+              core.warning(`Ignoring invalid issue-labels JSON: ${error.message}`);
+            }
+            requestedLabels = requestedLabels.filter((label) => typeof label === 'string' && label.trim() !== '').map((label) => label.trim());
+            const repoLabels = await github.paginate(github.rest.issues.listLabelsForRepo, {
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              per_page: 100,
+            });
+            const existingLabelNames = new Set(repoLabels.map((label) => label.name));
+            const labelsToApply = requestedLabels.filter((label) => existingLabelNames.has(label));
+            const [existingIssue] = await github.paginate(github.rest.issues.listForRepo, {
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              state: 'all',
+              per_page: 100,
+            }).then((issues) => issues.filter((issue) => !issue.pull_request && typeof issue.body === 'string' && issue.body.includes(marker)));
+            const statusLines = summary.map((entry) => `| \`${entry.stack}\` | ${entry.status} |`).join('\n');
+            const sections = [
+              marker,
+              `Pulumi drift detection results for \`${normalizedWorkingDirectory}\`.`,
+              '',
+              `- Checked ref: \`${checkedRef}\``,
+              `- Workflow run: ${runUrl}`,
+              '',
+              '| Stack | Status |',
+              '| --- | --- |',
+              statusLines,
+            ];
+            if (drifted.length > 0) {
+              sections.push('', `Detected drift in ${drifted.length} stack(s): ${drifted.map((entry) => `\`${entry.stack}\``).join(', ')}.`);
+            } else {
+              sections.push('', 'No drift is currently detected.');
+            }
+            if (errors.length > 0) {
+              sections.push('', `One or more stack checks failed: ${errors.map((entry) => `\`${entry.stack}\``).join(', ')}. The issue was left open until a clean run can confirm resolution.`);
+            }
+            if (detectResult !== 'success') {
+              sections.push('', `One or more matrix jobs failed before reporting a result. Job outcome: \`${detectResult}\`.`);
+            }
+            sections.push('', '_This issue is managed automatically by the reusable Pulumi drift detection workflow._');
+            const body = sections.join('\n');
+            if (drifted.length > 0) {
+              if (existingIssue) {
+                await github.rest.issues.update({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  issue_number: existingIssue.number,
+                  title: issueTitle,
+                  body,
+                  labels: labelsToApply,
+                  state: 'open',
+                });
+              } else {
+                await github.rest.issues.create({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  title: issueTitle,
+                  body,
+                  labels: labelsToApply,
+                });
+              }
+              return;
+            }
+            if (detectResult !== 'success') {
+              core.warning(`Skipping issue close because detect-drift finished with ${detectResult}.`);
+              return;
+            }
+            if (existingIssue && errors.length === 0 && existingIssue.state === 'open') {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: existingIssue.number,
+                body: `✅ Drift resolved in ${runUrl}`,
+              });
+              await github.rest.issues.update({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: existingIssue.number,
+                title: issueTitle,
+                body,
+                labels: labelsToApply,
+                state: 'closed',
+                state_reason: 'completed',
+              });
+            }
+      - name: fail workflow on drift or errors
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "${{ needs.detect-drift.result }}" != "success" ]; then
+            echo "One or more matrix jobs failed before reporting a drift result." >&2
+            exit 1
+          fi
+          if [ "${{ steps.summarize.outputs.has_errors }}" = "true" ]; then
+            echo "One or more Pulumi drift checks failed." >&2
+            exit 1
+          fi
+          if [ "${{ steps.summarize.outputs.has_drift }}" = "true" ]; then
+            echo "Pulumi drift detected." >&2
+            exit 1
+          fi
