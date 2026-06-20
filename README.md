@@ -4,9 +4,11 @@ Reusable GitHub Actions workflows, composite actions, and development environmen
 
 ## 📚 Documentation
 
-- **[GitHub Actions Workflows](docs/public/workflows.md)** - Reusable workflows for Rust, Nix, Pulumi, and Claude AI
-- **[Pulumi Components](docs/public/pulumi.md)** - `@jmmaloney4/sector7` package with reusable Pulumi components
-- **[Renovate Presets](docs/public/renovate.md)** - Composable Renovate configurations for dependency management
+User-facing docs live in [`docs/`](docs/README.md) (one directory per system).
+
+- **[GitHub Actions Workflows](docs/actions/README.md)** - Reusable workflows for Rust, Nix, Pulumi, and Claude AI
+- **[Pulumi Components](docs/pulumi/README.md)** - `@jmmaloney4/sector7` package with reusable Pulumi components
+- **[Renovate Presets](docs/renovate/README.md)** - Composable Renovate configurations for dependency management
 
 ## 🚀 Quick Start
 

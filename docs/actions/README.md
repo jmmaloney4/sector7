@@ -162,17 +162,16 @@ jobs:
 - **Path**: `.github/workflows/pulumi.yml` (callable-only)
 - **Purpose**: Preview and deploy Pulumi stacks with PR commenting
 - **Required inputs**:
-  - **runs-on**: Runner label (e.g., `ubuntu-latest`)
   - **repository**: Repository to checkout (`owner/repo`), typically `${{ github.repository }}`
   - **ref**: Git ref to build, typically `${{ github.ref }}`
   - **google_workload_identity_provider**: GCP Workload Identity Provider resource
   - **google_service_account_email**: GCP service account email
   - **pulumi_backend_url**: GCS bucket URL for Pulumi backend (e.g., `gs://my-bucket-name`)
+  - **nodejs_package_manager**: `pnpm`, `npm`, or `none`
 - **Optional inputs**:
-  - **runs-on**: Runner label (defaults to `ubuntu-latest`)
+  - **runs-on**: Runner label (defaults to `self-hosted`)
   - **stack-filter**: Regex to limit which stack directories run
   - **stack-config-passphrase**: Passphrase for Pulumi secrets when using passphrase backend
-  - **nodejs_package_manager**: `pnpm`, `npm`, or `none`
   - **pr_number**: Pull request number for comment posting
   - **is_fork**: Whether the PR comes from a fork
   - **preview_only**: Skip `pulumi up` on pushes and run previews only
