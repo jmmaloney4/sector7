@@ -37,7 +37,7 @@ runs:
       with:
         show_costs: true
         sccache: s3
-    - uses: DeterminateSystems/nix-installer-action@1d87d45818068401a10cf16bdc5f00b24994a83f # main
+    - uses: DeterminateSystems/nix-installer-action@a7ad9c4f0c65208097f4d34f3cfa1913b80cce5c # main
       with:
         # Disable build fsync on CI runners. The nix-store workload is
         # fsync-bound (sqlite path-registration + small-file writes); on a
@@ -50,7 +50,7 @@ runs:
           fsync-metadata = false
           fsync-store-paths = false
     - if: ${{ inputs.cache == 'true' }}
-      uses: DeterminateSystems/flakehub-cache-action@f9c8d8aaf92e6dbde896d6f84350f33d62392bd5 # main
+      uses: DeterminateSystems/flakehub-cache-action@9926dde74484ccb2224835b80531de64ed4336ef # main
       # TODO: Fix this
       # with:
       # use-gha-cache: enabled
