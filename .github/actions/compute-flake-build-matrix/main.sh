@@ -52,7 +52,14 @@ nix_eval_args=(
   --option extra-trusted-public-keys "$extra_trusted_public_keys_value"
 )
 
-nix run github:nix-community/nix-eval-jobs/v2.34.1 "${nix_eval_args[@]}" -- --flake . --check-cache-status --meta --workers 1 --select "(${select_expr}) \"${system}\"" >"$tmp_all"
+# --max-memory-size bounds each eval worker's RSS; nix-eval-jobs recycles a
+# worker once it exceeds this (between attributes), reclaiming the evaluator
+# heap that Nix never frees mid-run. The DEFAULT is 4 GiB/worker, which on the
+# warm-store runners exceeds the pod's memory limit and gets the worker
+# OOMKilled by the cgroup before it can recycle (garden#1046). Pin it to 4096
+# MiB explicitly, kept under the runner's 5Gi cgroup limit so recycling wins
+# the race with the OOM killer. Large flakes (garden: 143 nodes) need this.
+nix run github:nix-community/nix-eval-jobs/v2.34.1 "${nix_eval_args[@]}" -- --flake . --check-cache-status --meta --workers 1 --max-memory-size 4096 --select "(${select_expr}) \"${system}\"" >"$tmp_all"
 
 # Transform nix-eval-jobs output to matrix format
 echo "Processing nix-eval-jobs output..." >&2
