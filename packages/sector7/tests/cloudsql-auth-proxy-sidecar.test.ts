@@ -45,6 +45,7 @@ describe("CloudSqlAuthProxySidecar", () => {
 			"my-project:us-east5:my-instance",
 			"--address=127.0.0.1",
 			"--port=6432",
+			"--structured-logs",
 		]);
 		expect(container.livenessProbe).toBeUndefined();
 		expect(container.readinessProbe).toBeUndefined();
@@ -95,6 +96,7 @@ describe("CloudSqlAuthProxySidecar", () => {
 			"my-project:us-east5:my-instance",
 			"--address=127.0.0.1",
 			"--port=5432",
+			"--structured-logs",
 			"--credentials-file=/cloudsql/credentials.json",
 		]);
 		expect(container.volumeMounts).toEqual([
@@ -188,9 +190,26 @@ describe("CloudSqlAuthProxySidecar", () => {
 			"my-project:us-east5:my-instance",
 			"--address=127.0.0.1",
 			"--port=5432",
+			"--structured-logs",
 			"--auto-iam-authn",
 		]);
 		expect(container.volumeMounts).toBeUndefined();
 		expect(volumes).toEqual([]);
+	});
+
+	it("omits --structured-logs when structuredLogs is disabled", async () => {
+		const proxy = new CloudSqlAuthProxySidecar("plaintext-proxy", {
+			connectionName: "my-project:us-east5:my-instance",
+			credentials: { mode: "ambient-iam" },
+			structuredLogs: false,
+		});
+
+		const container = await resolveOutput(proxy.container);
+
+		expect(container.args).toEqual([
+			"my-project:us-east5:my-instance",
+			"--address=127.0.0.1",
+			"--port=5432",
+		]);
 	});
 });
