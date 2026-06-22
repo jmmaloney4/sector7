@@ -53,9 +53,13 @@ runs:
           echo "Host Nix daemon detected; using the host store, skipping in-pod install."
           echo "present=true" >> "$GITHUB_OUTPUT"
           echo "NIX_REMOTE=daemon" >> "$GITHUB_ENV"
-          # The node mounts /nix but not /run/current-system, so expose the
-          # host store's Nix CLI via the daemon's own default profile.
-          echo "/nix/var/nix/profiles/default/bin" >> "$GITHUB_PATH"
+          # The node mounts /nix but not /run/current-system, so expose the host
+          # store's Nix CLI via the NixOS *system* profile, which lives under
+          # /nix (so it comes with the mount) and carries nix. NB: the *default*
+          # profile (/nix/var/nix/profiles/default) does NOT contain nix on
+          # NixOS — verified on voldemort (Determinate Nix 3.21.1), where nix is
+          # at /nix/var/nix/profiles/system/sw/bin/nix.
+          echo "/nix/var/nix/profiles/system/sw/bin" >> "$GITHUB_PATH"
         else
           echo "No host Nix daemon; will install Nix in-pod."
           echo "present=false" >> "$GITHUB_OUTPUT"
