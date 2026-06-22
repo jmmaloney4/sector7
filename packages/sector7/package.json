@@ -1,6 +1,6 @@
 {
 	"name": "@jmmaloney4/sector7",
-	"version": "0.16.8",
+	"version": "0.16.9",
 	"description": "Reusable Pulumi components for infrastructure management",
 	"license": "MPL-2.0",
 	"publishConfig": {
