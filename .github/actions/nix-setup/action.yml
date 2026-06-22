@@ -37,7 +37,35 @@ runs:
       with:
         show_costs: true
         sccache: s3
-    - uses: DeterminateSystems/nix-installer-action@a7ad9c4f0c65208097f4d34f3cfa1913b80cce5c # main
+    # If the runner has a host Nix daemon available (its /nix store and daemon
+    # socket bind-mounted from the node — see garden's ARC runner template), use
+    # that warm, shared store instead of installing a second, per-pod Nix. Two
+    # independent daemons writing one /nix corrupt the store, so every step that
+    # installs or configures in-pod Nix below is gated on the host daemon being
+    # ABSENT. This auto-detects via the socket, so consumers without a host
+    # daemon (cloud runners) are unaffected, and it safely no-ops until the
+    # mount is actually present.
+    - name: Detect host Nix daemon
+      id: host-daemon
+      shell: bash
+      run: |
+        if [ -S /nix/var/nix/daemon-socket/socket ]; then
+          echo "Host Nix daemon detected; using the host store, skipping in-pod install."
+          echo "present=true" >> "$GITHUB_OUTPUT"
+          echo "NIX_REMOTE=daemon" >> "$GITHUB_ENV"
+          # The node mounts /nix but not /run/current-system, so expose the host
+          # store's Nix CLI via the NixOS *system* profile, which lives under
+          # /nix (so it comes with the mount) and carries nix. NB: the *default*
+          # profile (/nix/var/nix/profiles/default) does NOT contain nix on
+          # NixOS — verified on voldemort (Determinate Nix 3.21.1), where nix is
+          # at /nix/var/nix/profiles/system/sw/bin/nix.
+          echo "/nix/var/nix/profiles/system/sw/bin" >> "$GITHUB_PATH"
+        else
+          echo "No host Nix daemon; will install Nix in-pod."
+          echo "present=false" >> "$GITHUB_OUTPUT"
+        fi
+    - if: ${{ steps.host-daemon.outputs.present != 'true' }}
+      uses: DeterminateSystems/nix-installer-action@a7ad9c4f0c65208097f4d34f3cfa1913b80cce5c # main
       with:
         # Disable build fsync on CI runners. The nix-store workload is
         # fsync-bound (sqlite path-registration + small-file writes); on a
@@ -49,12 +77,15 @@ runs:
         extra-conf: |
           fsync-metadata = false
           fsync-store-paths = false
-    - if: ${{ inputs.cache == 'true' }}
+    - if: ${{ inputs.cache == 'true' && steps.host-daemon.outputs.present != 'true' }}
       uses: DeterminateSystems/flakehub-cache-action@9926dde74484ccb2224835b80531de64ed4336ef # main
       # TODO: Fix this
       # with:
       # use-gha-cache: enabled
-    - if: ${{ inputs.extra-substituters != '' || inputs.extra-trusted-public-keys != '' }}
+    # Skipped when using a host daemon: client-side nix.conf edits don't take
+    # effect for an untrusted daemon client, and the host daemon already carries
+    # the homelab substituters/keys (Attic-first) from its NixOS config.
+    - if: ${{ (inputs.extra-substituters != '' || inputs.extra-trusted-public-keys != '') && steps.host-daemon.outputs.present != 'true' }}
       shell: bash
       env:
         INPUT_EXTRA_SUBSTITUTERS: ${{ inputs.extra-substituters }}
