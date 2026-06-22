@@ -63,7 +63,15 @@ runs:
           # `nix profile add nixpkgs#attic-client` (watch-store seed) fails too.
           # experimental-features is a client-side, non-daemon-restricted
           # setting, so an untrusted daemon client may set it via NIX_CONFIG.
-          echo "NIX_CONFIG=extra-experimental-features = nix-command flakes" >> "$GITHUB_ENV"
+          # Append rather than assign so we don't clobber any NIX_CONFIG a
+          # caller/earlier step already set (substituters, access-tokens, …);
+          # the `extra-` prefix also merges with any base experimental-features.
+          {
+            echo "NIX_CONFIG<<__NIX_CONFIG_EOF__"
+            if [ -n "${NIX_CONFIG:-}" ]; then printf '%s\n' "$NIX_CONFIG"; fi
+            echo "extra-experimental-features = nix-command flakes"
+            echo "__NIX_CONFIG_EOF__"
+          } >> "$GITHUB_ENV"
           # The node mounts /nix but not /run/current-system, so expose the host
           # store's Nix CLI via the NixOS *system* profile, which lives under
           # /nix (so it comes with the mount) and carries nix. NB: the *default*
