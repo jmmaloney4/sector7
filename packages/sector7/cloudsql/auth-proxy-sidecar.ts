@@ -50,6 +50,13 @@ export interface CloudSqlAuthProxySidecarArgs {
 	databaseUrl?: pulumi.Input<string>;
 	proxyPort?: pulumi.Input<number>;
 	image?: pulumi.Input<string>;
+	/**
+	 * Emit logs in the proxy's structured JSON `LogEntry` format
+	 * (`--structured-logs`). Defaults to `true` so sidecar logs are
+	 * machine-parseable by cluster log pipelines (e.g. Loki/Alloy) instead of
+	 * unstructured text. Set to `false` to restore the proxy's plaintext logs.
+	 */
+	structuredLogs?: pulumi.Input<boolean>;
 	extraArgs?: pulumi.Input<pulumi.Input<string>[]>;
 	resources?: pulumi.Input<k8s.types.input.core.v1.ResourceRequirements>;
 	kubernetes?: CloudSqlAuthProxyKubernetesArgs;
@@ -100,6 +107,7 @@ function buildContainer(args: {
 	connectionName: string;
 	proxyPort: number;
 	image: string;
+	structuredLogs: boolean;
 	extraArgs?: string[];
 	resources: k8s.types.input.core.v1.ResourceRequirements;
 	credentialSecretName?: string;
@@ -109,6 +117,9 @@ function buildContainer(args: {
 		"--address=127.0.0.1",
 		`--port=${args.proxyPort}`,
 	];
+	if (args.structuredLogs) {
+		sidecarArgs.push("--structured-logs");
+	}
 	if (args.credentialSecretName) {
 		sidecarArgs.push(`--credentials-file=${CREDENTIALS_FILE_PATH}`);
 	}
@@ -161,6 +172,9 @@ export class CloudSqlAuthProxySidecar extends pulumi.ComponentResource {
 		const image = pulumi
 			.output(args.image)
 			.apply((value) => value ?? DEFAULT_PROXY_IMAGE);
+		const structuredLogs = pulumi
+			.output(args.structuredLogs)
+			.apply((value) => value ?? true);
 		const extraArgs = pulumi.output(args.extraArgs);
 		const resources = pulumi
 			.output(args.resources)
@@ -313,6 +327,7 @@ export class CloudSqlAuthProxySidecar extends pulumi.ComponentResource {
 				pulumi.output(args.connectionName),
 				proxyPort,
 				image,
+				structuredLogs,
 				extraArgs,
 				resources,
 				credentialSecretNameOutput,
@@ -322,6 +337,7 @@ export class CloudSqlAuthProxySidecar extends pulumi.ComponentResource {
 					connectionName,
 					resolvedProxyPort,
 					resolvedImage,
+					resolvedStructuredLogs,
 					resolvedExtraArgs,
 					resolvedResources,
 					resolvedCredentialSecretName,
@@ -330,6 +346,7 @@ export class CloudSqlAuthProxySidecar extends pulumi.ComponentResource {
 						connectionName,
 						proxyPort: resolvedProxyPort,
 						image: resolvedImage,
+						structuredLogs: resolvedStructuredLogs,
 						extraArgs: resolvedExtraArgs,
 						resources: resolvedResources,
 						credentialSecretName: resolvedCredentialSecretName,
