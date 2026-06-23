@@ -17,12 +17,18 @@ const yamlConfig = JSON.parse(
 
 function managerRegexes(description: string): RegExp[] {
 	// Match by prefix so that extending a manager's description (e.g. appending
-	// an RE2-compatibility note) does not silently break these lookups.
-	const manager = yamlConfig.customManagers.find((candidate) =>
+	// an RE2-compatibility note) does not silently break these lookups. Require
+	// exactly one match so an ambiguous prefix fails loudly instead of silently
+	// binding the first entry.
+	const matches = yamlConfig.customManagers.filter((candidate) =>
 		candidate.description.startsWith(description),
 	);
 
-	expect(manager).toBeDefined();
+	expect(
+		matches,
+		`expected exactly one manager whose description starts with "${description}"`,
+	).toHaveLength(1);
+	const manager = matches[0];
 	if (!manager) {
 		throw new Error(`Missing manager: ${description}`);
 	}

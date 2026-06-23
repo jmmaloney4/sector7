@@ -16,7 +16,22 @@ const pulumiConfig = JSON.parse(
 	}>;
 };
 
-const [manager] = pulumiConfig.customManagers;
+// Select by a stable property (targets Pulumi config files) rather than by
+// array position, so reordering or adding managers can't silently make these
+// tests exercise the wrong configuration.
+function selectPulumiManager() {
+	const matches = pulumiConfig.customManagers.filter((m) =>
+		m.managerFilePatterns.some((pattern) => pattern.includes("Pulumi")),
+	);
+	if (matches.length !== 1) {
+		throw new Error(
+			`expected exactly one Pulumi customManager, found ${matches.length}`,
+		);
+	}
+	return matches[0];
+}
+
+const manager = selectPulumiManager();
 const regexes = manager.matchStrings.map((pattern) => new RegExp(pattern));
 
 function firstMatch(input: string) {
