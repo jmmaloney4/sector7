@@ -112,6 +112,25 @@ async function withProxyBaseUrl<T>(
 	);
 }
 
+/**
+ * Error raised when a LiteLLM admin request returns a non-2xx status. Carries
+ * the HTTP `status` so callers can distinguish a definitive client-side outcome
+ * (e.g. a 404 "this key no longer exists") from an auth failure or a transient
+ * server/network error — see `keyProvider.read()`, which must only treat a
+ * genuine not-found as resource deletion.
+ */
+class LiteLLMRequestError extends Error {
+	// Declared + assigned explicitly rather than via a constructor parameter
+	// property: this package sets `erasableSyntaxOnly`, which forbids the latter.
+	readonly status: number;
+
+	constructor(status: number, message: string) {
+		super(message);
+		this.name = "LiteLLMRequestError";
+		this.status = status;
+	}
+}
+
 /** Issue an authenticated request against the LiteLLM admin API. */
 async function adminRequest(
 	baseUrl: string,
@@ -132,7 +151,8 @@ async function adminRequest(
 
 	const text = await response.text();
 	if (!response.ok) {
-		throw new Error(
+		throw new LiteLLMRequestError(
+			response.status,
 			`LiteLLM ${method} ${path} failed: ${response.status} ${response.statusText}\n${text}`,
 		);
 	}
@@ -494,6 +514,23 @@ function buildKeyUpdateBody(
 	return body;
 }
 
+/**
+ * True when an admin request failed because the queried key no longer exists on
+ * the proxy. A 404 (not found) or 400 (LiteLLM reports a missing/invalid token
+ * as a bad request in several versions) is treated as definitive absence.
+ *
+ * Auth failures (401/403 — a wrong master key, which would fail EVERY key at
+ * once) and server/network errors are deliberately NOT absence: `read()` must
+ * preserve state on those so a transient refresh hiccup never triggers a
+ * needless recreate.
+ */
+function isMissingKeyError(err: unknown): boolean {
+	return (
+		err instanceof LiteLLMRequestError &&
+		(err.status === 404 || err.status === 400)
+	);
+}
+
 const keyProvider: dynamic.ResourceProvider = {
 	async check(
 		_olds: KeyProviderState,
@@ -574,6 +611,41 @@ const keyProvider: dynamic.ResourceProvider = {
 				id: tokenId,
 				outs: { ...inputs, tokenId },
 			};
+		});
+	},
+
+	// Reconcile stored state against the live admin plane on `pulumi refresh`
+	// (and `pulumi up --refresh`). Without this, a key that vanished server-side
+	// — Cloud SQL restore, a redeploy onto a fresh DB, a manual /key/delete —
+	// stays invisible: diff() only compares declared inputs, so plain `up`
+	// reports no changes while every consumer 401s on a token the proxy no
+	// longer knows. Reporting the resource as gone lets the next `up` re-run
+	// create(), which re-registers the SAME RandomPassword-derived value
+	// (non-rotating, idempotent) — self-healing the drift.
+	async read(id: string, props: KeyProviderState): Promise<dynamic.ReadResult> {
+		const token = id || props?.tokenId;
+		// No persisted token hash to probe (e.g. a half-created resource): treat
+		// as absent so the next up creates it; never invent existence.
+		if (!token) return { id: undefined };
+		return withProxyBaseUrl(props, async (baseUrl) => {
+			try {
+				await adminRequest(
+					baseUrl,
+					props.masterKey,
+					`/key/info?key=${encodeURIComponent(token)}`,
+					"GET",
+				);
+			} catch (err) {
+				// Only a definitive not-found drops the resource. Auth/5xx/network
+				// errors are re-thrown so a transient refresh can't trigger a
+				// credential-churning recreate. (One LiteLLM variant returns 200 with
+				// an `{error}` body for a missing key; adminRequest surfaces that as a
+				// generic error, so it is preserved rather than self-healed — the safe
+				// direction.)
+				if (isMissingKeyError(err)) return { id: undefined };
+				throw err;
+			}
+			return { id: token, props };
 		});
 	},
 
