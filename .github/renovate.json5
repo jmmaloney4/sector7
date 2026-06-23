@@ -1,5 +1,22 @@
 {
   extends: [
-    "github>jmmaloney4/sector7//renovate/all.json"
-  ]
+    "github>jmmaloney4/sector7//renovate/all.json",
+  ],
+  packageRules: [
+    {
+      // sector7's own reusable workflows and composite actions are intentionally
+      // referenced @main (see .github/workflows/*.yml and .github/actions/*) so
+      // that our dogfood workflows always run the latest commit. Pinning these
+      // self-references to a digest creates a perpetual "always one behind" lag:
+      // every push to a reusable workflow/action would require a follow-up
+      // Renovate PR to bump the SHA. Keep them floating on @main instead.
+      //
+      // This override is deliberately repo-local (not in renovate/default.json),
+      // because other repos consuming sector7's actions may legitimately want
+      // digest pinning for stability. It only affects sector7 renovating itself.
+      description: "Do not pin digests for internal sector7 actions/workflows — they intentionally track @main to avoid always-one-behind lag.",
+      matchPackageNames: ["/^jmmaloney4\\/sector7($|\\/)/"],
+      pinDigests: false,
+    },
+  ],
 }
