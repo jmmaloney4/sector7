@@ -37,6 +37,10 @@ type Provider = {
 		news: Record<string, unknown>,
 	) => Promise<{ outs: Record<string, unknown> }>;
 	delete: (id: string, props: Record<string, unknown>) => Promise<void>;
+	read?: (
+		id: string,
+		props: Record<string, unknown>,
+	) => Promise<{ id?: string; props?: Record<string, unknown> }>;
 };
 
 const capturedProviders: Provider[] = [];
@@ -154,6 +158,22 @@ function installFetch(
 	});
 	vi.stubGlobal("fetch", mock);
 	return calls;
+}
+
+// A mock fetch returning a fixed HTTP status — used to exercise read()'s
+// not-found vs. transient-error branches, which the always-200 installFetch
+// can't express.
+function installFetchStatus(status: number, payload: unknown = {}) {
+	const mock = vi.fn(async () => {
+		return {
+			ok: status >= 200 && status < 300,
+			status,
+			statusText: String(status),
+			text: async () => JSON.stringify(payload ?? {}),
+		} as Response;
+	});
+	vi.stubGlobal("fetch", mock);
+	return mock;
 }
 
 let teamProvider: Provider;
@@ -612,6 +632,48 @@ describe("LiteLLMApiKey provider", () => {
 		await expect(
 			keyProvider.create({ ...baseKey, tokenId: undefined }),
 		).rejects.toThrow(/no token id/);
+		vi.unstubAllGlobals();
+	});
+
+	it("read keeps state when the key still exists on the proxy", async () => {
+		installFetchStatus(200, { info: { key_alias: "prod-openwebui" } });
+		const result = await keyProvider.read?.("hash-1", baseKey);
+		expect(result?.id).toBe("hash-1");
+		vi.unstubAllGlobals();
+	});
+
+	it("read drops the resource when the key is gone (404) so up recreates it", async () => {
+		installFetchStatus(404, { error: "key not found" });
+		const result = await keyProvider.read?.("hash-1", baseKey);
+		expect(result?.id).toBeUndefined();
+		vi.unstubAllGlobals();
+	});
+
+	it("read treats a 400 (missing/invalid token) as gone", async () => {
+		installFetchStatus(400, { error: "invalid key" });
+		const result = await keyProvider.read?.("hash-1", baseKey);
+		expect(result?.id).toBeUndefined();
+		vi.unstubAllGlobals();
+	});
+
+	it("read re-throws on an auth failure (401) rather than dropping state", async () => {
+		installFetchStatus(401, { error: "auth" });
+		await expect(keyProvider.read?.("hash-1", baseKey)).rejects.toThrow();
+		vi.unstubAllGlobals();
+	});
+
+	it("read re-throws on a server error (500) rather than dropping state", async () => {
+		installFetchStatus(500, { error: "boom" });
+		await expect(keyProvider.read?.("hash-1", baseKey)).rejects.toThrow();
+		vi.unstubAllGlobals();
+	});
+
+	it("read reports absent without probing when no token hash is stored", async () => {
+		const mock = installFetchStatus(200, {});
+		const result = await keyProvider.read?.("", { ...baseKey, tokenId: "" });
+		expect(result?.id).toBeUndefined();
+		// Must not hit the admin plane when there is nothing to reconcile.
+		expect(mock).not.toHaveBeenCalled();
 		vi.unstubAllGlobals();
 	});
 });
