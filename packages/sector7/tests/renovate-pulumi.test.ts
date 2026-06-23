@@ -99,27 +99,28 @@ describe("renovate/pulumi.json Pulumi YAML version manager", () => {
 			// replacement is used. Nothing further to check.
 			return;
 		}
-		const captureGroupNames = new Set(
-			manager.matchStrings.flatMap((pattern) =>
-				[...pattern.matchAll(/\(\?<(\w+)>/g)].map((m) => m[1]),
-			),
-		);
+		// Computed update fields are always available on the upgrade object.
+		const ALWAYS_AVAILABLE = new Set([
+			"newValue",
+			"newDigest",
+			"newName",
+			"newVersion",
+		]);
 		const referenced = [...template.matchAll(/\{\{\{?\s*(\w+)\s*\}?\}\}/g)].map(
 			(m) => m[1],
 		);
 		for (const name of referenced) {
-			// Computed fields are always available on the upgrade object.
-			if (["newValue", "newDigest", "newName", "newVersion"].includes(name)) {
+			if (ALWAYS_AVAILABLE.has(name)) {
 				continue;
 			}
-			// If the template reuses one of our capture groups, that group must
-			// be a field Renovate actually preserves post-extraction.
-			if (captureGroupNames.has(name)) {
-				expect(
-					VALID_MATCH_FIELDS.has(name),
-					`autoReplaceStringTemplate references capture group "${name}", which Renovate drops after extraction (not a valid match field) — it will render empty and corrupt the file`,
-				).toBe(true);
-			}
+			// Anything else must be a field Renovate actually carries onto the
+			// upgrade object. A custom capture group (e.g. `versionKey`) or a
+			// typo is NOT carried and renders empty, corrupting the file — fail
+			// for any such reference, not just known capture groups.
+			expect(
+				VALID_MATCH_FIELDS.has(name),
+				`autoReplaceStringTemplate references "${name}", which Renovate does not carry onto the upgrade object (not a computed field or valid match field) — it will render empty and corrupt the file`,
+			).toBe(true);
 		}
 	});
 });
