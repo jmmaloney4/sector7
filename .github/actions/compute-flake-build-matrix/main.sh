@@ -62,7 +62,18 @@ nix_eval_args=(
 # keeps it under the cgroup OOM killer. (The 4 GiB default OOMed at the old 3Gi
 # limit, and even at 5Gi leaves only 1 GiB slack.) garden#1046; large flakes
 # like garden's 143 nodes are what hit this.
-nix run github:nix-community/nix-eval-jobs/v2.34.1 "${nix_eval_args[@]}" -- --flake . --check-cache-status --meta --workers 1 --max-memory-size 3072 --select "(${select_expr}) \"${system}\"" >"$tmp_all"
+# Run the eval at the lowest CPU/IO priority so it can't starve the GitHub
+# runner agent. The agent (Runner.Listener) shares this pod's cgroup with the
+# eval; a heavy nix-eval-jobs run (garden: 143 nodes) can peg CPU + disk and
+# stall the agent's heartbeats, which GitHub reports as "the self-hosted runner
+# lost communication with the server" -- often WITHOUT a clean OOM, because the
+# agent loses the scheduler race before the kernel acts (garden#1046). nice +
+# ionice keep the normal-priority agent winning CPU/IO so it stays connected.
+# Built as a prefix array so it degrades gracefully if either tool is absent.
+lowprio=()
+command -v nice >/dev/null 2>&1 && lowprio+=(nice -n 19)
+command -v ionice >/dev/null 2>&1 && lowprio+=(ionice -c2 -n7)
+"${lowprio[@]}" nix run github:nix-community/nix-eval-jobs/v2.34.1 "${nix_eval_args[@]}" -- --flake . --check-cache-status --meta --workers 1 --max-memory-size 3072 --select "(${select_expr}) \"${system}\"" >"$tmp_all"
 
 # Transform nix-eval-jobs output to matrix format
 echo "Processing nix-eval-jobs output..." >&2
