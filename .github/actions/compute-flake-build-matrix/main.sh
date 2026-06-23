@@ -52,7 +52,17 @@ nix_eval_args=(
   --option extra-trusted-public-keys "$extra_trusted_public_keys_value"
 )
 
-nix run github:nix-community/nix-eval-jobs/v2.34.1 "${nix_eval_args[@]}" -- --flake . --check-cache-status --meta --workers 1 --select "(${select_expr}) \"${system}\"" >"$tmp_all"
+# --max-memory-size bounds each eval worker's RSS; nix-eval-jobs recycles a
+# worker once it exceeds this (checked between attributes), reclaiming the
+# evaluator heap Nix never frees mid-run. Set to 3072 MiB -- below BOTH
+# nix-eval-jobs' 4 GiB default AND the warm-store runner's 5Gi cgroup limit
+# (garden#1047) -- so the worker recycles ~2 GiB under the limit, independent
+# of it. That headroom matters because the RSS check is only between
+# attributes, so a worker can spike during one heavy attribute; recycling early
+# keeps it under the cgroup OOM killer. (The 4 GiB default OOMed at the old 3Gi
+# limit, and even at 5Gi leaves only 1 GiB slack.) garden#1046; large flakes
+# like garden's 143 nodes are what hit this.
+nix run github:nix-community/nix-eval-jobs/v2.34.1 "${nix_eval_args[@]}" -- --flake . --check-cache-status --meta --workers 1 --max-memory-size 3072 --select "(${select_expr}) \"${system}\"" >"$tmp_all"
 
 # Transform nix-eval-jobs output to matrix format
 echo "Processing nix-eval-jobs output..." >&2
