@@ -28,14 +28,21 @@ if [ -z "$endpoint" ] || [ -z "$cache" ] || [ -z "$token" ]; then
   exit 0
 fi
 
-# Ensure the attic client is on PATH for the rest of the job. attic-client is
-# in nixpkgs (substituted from cache.nixos.org), so this does not build.
-if ! command -v attic >/dev/null 2>&1; then
-  echo "Installing attic-client into the Nix profile..."
-  if ! nix profile install nixpkgs#attic-client; then
-    echo "::warning::failed to install attic-client; skipping watch-store"
+# Resolve the attic client binary's ABSOLUTE path. `nix profile install` puts
+# attic in the user profile, but that profile's bin dir is NOT on PATH on the
+# host-Nix-daemon runners (only the system profile is), so `attic` was
+# "command not found" at login/watch-store time (garden#1048). Use an explicit
+# path instead of relying on PATH. attic-client is in nixpkgs (substituted from
+# cache.nixos.org), so this does not build.
+attic="$(command -v attic 2>/dev/null || true)"
+if [ -z "$attic" ]; then
+  echo "Resolving attic-client from nixpkgs..."
+  attic_out="$(nix build --no-link --print-out-paths nixpkgs#attic-client 2>/dev/null | head -n1 || true)"
+  if [ -z "$attic_out" ] || [ ! -x "$attic_out/bin/attic" ]; then
+    echo "::warning::failed to resolve attic-client; skipping watch-store"
     exit 0
   fi
+  attic="$attic_out/bin/attic"
 fi
 
 # Isolate the attic client state to a per-job config dir so the token is not
@@ -44,7 +51,7 @@ fi
 XDG_CONFIG_HOME="$(mktemp -d -t attic-watch-XXXXXX)"
 export XDG_CONFIG_HOME
 
-if ! attic login "$server" "$endpoint" "$token"; then
+if ! "$attic" login "$server" "$endpoint" "$token"; then
   echo "::warning::attic login failed; skipping watch-store (incremental cache push disabled for this job)"
   exit 0
 fi
@@ -57,6 +64,6 @@ echo "Starting 'attic watch-store $server:$cache' in the background (log: $log)"
 # to a file so the step never hangs on an open pipe. It is still reaped at job
 # end. Failures land in the log and never affect the job. XDG_CONFIG_HOME is
 # inherited so the watcher reads the isolated login config.
-setsid attic watch-store "$server:$cache" </dev/null >"$log" 2>&1 &
+setsid "$attic" watch-store "$server:$cache" </dev/null >"$log" 2>&1 &
 disown || true
 echo "attic watch-store started (pid $!)"
