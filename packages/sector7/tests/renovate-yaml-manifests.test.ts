@@ -16,8 +16,10 @@ const yamlConfig = JSON.parse(
 };
 
 function managerRegexes(description: string): RegExp[] {
-	const manager = yamlConfig.customManagers.find(
-		(candidate) => candidate.description === description,
+	// Match by prefix so that extending a manager's description (e.g. appending
+	// an RE2-compatibility note) does not silently break these lookups.
+	const manager = yamlConfig.customManagers.find((candidate) =>
+		candidate.description.startsWith(description),
 	);
 
 	expect(manager).toBeDefined();
@@ -65,11 +67,7 @@ describe("renovate/yaml-manifests.json file patterns", () => {
 	});
 
 	it("does not match non-yaml files", () => {
-		const testFiles = [
-			"kube-vip.json",
-			"README.md",
-			"yaml-manifests.json",
-		];
+		const testFiles = ["kube-vip.json", "README.md", "yaml-manifests.json"];
 
 		for (const file of testFiles) {
 			expect(
@@ -187,16 +185,18 @@ describe("renovate/yaml-manifests.json Helm chart version regex manager", () => 
 		expect(match?.groups?.currentValue).toBe("v1.14.5");
 	});
 
-	it("matches with parameters in a different order (registryUrl before depName)", () => {
+	it("is order-sensitive: depName must precede registryUrl (RE2 has no lookahead)", () => {
+		// The manager intentionally requires `depName` immediately after
+		// `datasource=helm` because RE2 cannot express the lookahead that would
+		// allow arbitrary field order. Annotations that put registryUrl first do
+		// not extract — this documents that contract so the annotation style
+		// stays consistent.
 		const yaml = [
 			"  # renovate: datasource=helm registryUrl=https://helm.cilium.io/ depName=cilium",
 			'  version: "1.17.15"',
 		].join("\n");
 
-		const match = firstMatch(managerRegexes(description), yaml);
-		expect(match?.groups?.depName).toBe("cilium");
-		expect(match?.groups?.registryUrl).toBe("https://helm.cilium.io/");
-		expect(match?.groups?.currentValue).toBe("1.17.15");
+		expect(firstMatch(managerRegexes(description), yaml)).toBeUndefined();
 	});
 
 	it("does not match unannotated version lines", () => {

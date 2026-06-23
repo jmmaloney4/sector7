@@ -1,6 +1,6 @@
 {
 	"$schema": "https://docs.renovatebot.com/renovate-schema.json",
-	"description": "Pulumi-specific Renovate configuration with custom regex managers for dependency extraction",
+	"description": "Pulumi-specific Renovate configuration. Tracks dependency versions annotated inline in Pulumi YAML config files (`Pulumi.yaml`, `Pulumi.<stack>.yaml`) as `someVersion: X.Y.Z # renovate: datasource=<ds> depName=<name> registryUrl=<url>` — e.g. Helm chart versions consumed by Pulumi programs. Replacement deliberately relies on Renovate's default in-place behaviour, which rewrites only the matched `currentValue` and preserves the rest of the line. Do NOT add an `autoReplaceStringTemplate` that references the `versionKey` capture group: Renovate only carries its recognised match fields (depName, packageName, currentValue, currentDigest, datasource, versioning, extractVersion, registryUrl, depType, indentation) plus the computed new* fields onto the upgrade object that renders the replace template, so `{{{versionKey}}}` resolves to an empty string. That produced a malformed line (`  : X.Y.Z # ...`) which failed Renovate's post-replace re-extraction (confirmIfDepUpdated) and aborted every update with WORKER_FILE_UPDATE_FAILED, surfacing on the dependency dashboard as 'Error updating branch: update failure'.",
 	"customManagers": [
 		{
 			"customType": "regex",
@@ -11,8 +11,7 @@
 			"datasourceTemplate": "{{{datasource}}}",
 			"depNameTemplate": "{{{depName}}}",
 			"registryUrlTemplate": "{{{registryUrl}}}",
-			"versioningTemplate": "semver",
-			"autoReplaceStringTemplate": "{{{versionKey}}}: {{{newValue}}} # renovate: datasource={{{datasource}}} depName={{{depName}}} registryUrl={{{registryUrl}}}"
+			"versioningTemplate": "semver"
 		}
 	]
 }
