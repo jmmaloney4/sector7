@@ -1,9 +1,10 @@
 {
 	"$schema": "https://docs.renovatebot.com/renovate-schema.json",
-	"description": "Pulumi-specific Renovate configuration. Tracks dependency versions annotated inline in Pulumi YAML config files (`Pulumi.yaml`, `Pulumi.<stack>.yaml`) as `someVersion: X.Y.Z # renovate: datasource=<ds> depName=<name> registryUrl=<url>` — e.g. Helm chart versions consumed by Pulumi programs. Replacement deliberately relies on Renovate's default in-place behaviour, which rewrites only the matched `currentValue` and preserves the rest of the line. Do NOT add an `autoReplaceStringTemplate` that references the `versionKey` capture group: Renovate only carries its recognised match fields (depName, packageName, currentValue, currentDigest, datasource, versioning, extractVersion, registryUrl, depType, indentation) plus the computed new* fields onto the upgrade object that renders the replace template, so `{{{versionKey}}}` resolves to an empty string. That produced a malformed line (`  : X.Y.Z # ...`) which failed Renovate's post-replace re-extraction (confirmIfDepUpdated) and aborted every update with WORKER_FILE_UPDATE_FAILED, surfacing on the dependency dashboard as 'Error updating branch: update failure'.",
+	"description": "Pulumi-specific Renovate configuration. Tracks two kinds of dependency pins annotated inline in Pulumi YAML config files (`Pulumi.yaml`, `Pulumi.<stack>.yaml`). (1) Helm chart (and other semver) versions written as `someVersion: X.Y.Z # renovate: datasource=<ds> depName=<name> registryUrl=<url>`. Replacement deliberately relies on Renovate's default in-place behaviour, which rewrites only the matched `currentValue` and preserves the rest of the line. Do NOT add an `autoReplaceStringTemplate` that references the `versionKey` capture group: Renovate only carries its recognised match fields (depName, packageName, currentValue, currentDigest, datasource, versioning, extractVersion, registryUrl, depType, indentation) plus the computed new* fields onto the upgrade object that renders the replace template, so `{{{versionKey}}}` resolves to an empty string. That produced a malformed line (`  : X.Y.Z # ...`) which failed Renovate's post-replace re-extraction (confirmIfDepUpdated) and aborted every update with WORKER_FILE_UPDATE_FAILED, surfacing on the dependency dashboard as 'Error updating branch: update failure'. (2) Container image references stored as Pulumi config values — `<name>Image: \"<registry>/<repo>:<tag>[@sha256:...]\" # renovate: datasource=docker [versioning=<scheme>]` — for Pulumi programs that read the image from config rather than from a TypeScript literal (which renovate/docker-images.json already covers). depName is derived from the image string itself (the repository up to the tag), so it can never drift from the value being rewritten; the value may be quoted or unquoted and may carry a pinned `@sha256:` digest. Both managers are opt-in: only lines carrying the inline `# renovate:` comment are touched — no heuristic scanning.",
 	"customManagers": [
 		{
 			"customType": "regex",
+			"description": "Annotated Helm chart / semver versions in Pulumi YAML config",
 			"managerFilePatterns": ["/(^|.*\\/)?Pulumi(\\..+)?\\.yaml$/"],
 			"matchStrings": [
 				"(?<versionKey>[A-Za-z0-9_:-]*Version):\\s*(?<currentValue>\\d+\\.\\d+\\.\\d+)\\s*#\\s*renovate:\\s*datasource=(?<datasource>\\S+)\\s+depName=(?<depName>\\S+)\\s+registryUrl=(?<registryUrl>\\S+)"
@@ -12,6 +13,17 @@
 			"depNameTemplate": "{{{depName}}}",
 			"registryUrlTemplate": "{{{registryUrl}}}",
 			"versioningTemplate": "semver"
+		},
+		{
+			"customType": "regex",
+			"description": "Annotated container image references stored as Pulumi config values; depName is derived from the image literal so it cannot drift from the rewritten string",
+			"managerFilePatterns": ["/(^|.*\\/)?Pulumi(\\..+)?\\.yaml$/"],
+			"matchStrings": [
+				":\\s*[\"']?(?<depName>(?:[^\"'@\\s]+/)*[^\"'@\\s/]+):(?<currentValue>[^\"'@\\s:]+)(?:@(?<currentDigest>sha256:[a-f0-9]{64}))?[\"']?\\s*#\\s*renovate:\\s*datasource=docker(?:\\s+versioning=(?<versioning>\\S+))?"
+			],
+			"datasourceTemplate": "docker",
+			"depNameTemplate": "{{{depName}}}",
+			"versioningTemplate": "{{#if versioning}}{{{versioning}}}{{else}}docker{{/if}}"
 		}
 	]
 }
