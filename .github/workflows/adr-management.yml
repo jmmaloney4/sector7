@@ -56,7 +56,7 @@ jobs:
           repository: ${{ inputs.repository }}
           ref: ${{ inputs.ref }}
           fetch-depth: 0
-      - uses: jmmaloney4/sector7/.github/actions/nix-setup@main
+      - uses: jmmaloney4/sector7/.github/actions/nix-setup@854c70baf2ecbf108215f8056f766c6aac4084a0 # main
         with:
           runs-on: ${{ inputs.runs-on }}
           cache: ${{ !contains(inputs.runs-on, 'self-hosted') }}
@@ -108,7 +108,7 @@ jobs:
           fi
       - name: Check ADR number conflicts
         id: check
-        uses: jmmaloney4/sector7/.github/actions/check-adr-conflicts@main
+        uses: jmmaloney4/sector7/.github/actions/check-adr-conflicts@854c70baf2ecbf108215f8056f766c6aac4084a0 # main
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GH_REPO: ${{ inputs.repository }}
@@ -119,7 +119,7 @@ jobs:
           pr_number: ${{ inputs.pr_number }}
       - name: Create and push placeholder to main
         if: steps.detect_new.outputs.has_new_adrs == 'true' && steps.check.outputs.has_conflict == 'false'
-        uses: jmmaloney4/sector7/.github/actions/create-adr-placeholder@main
+        uses: jmmaloney4/sector7/.github/actions/create-adr-placeholder@854c70baf2ecbf108215f8056f766c6aac4084a0 # main
         with:
           adr_files: /tmp/new_adrs.txt
           pr_url: ${{ inputs.pr_url }}

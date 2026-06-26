@@ -83,7 +83,7 @@ jobs:
         with:
           repository: ${{ inputs.repository }}
           ref: ${{ inputs.ref }}
-      - uses: jmmaloney4/sector7/.github/actions/nix-setup@main
+      - uses: jmmaloney4/sector7/.github/actions/nix-setup@854c70baf2ecbf108215f8056f766c6aac4084a0 # main
         with:
           runs-on: ${{ inputs.runs-on }}
           # Keep the FlakeHub fallback enabled unless a fully-configured custom
@@ -98,7 +98,7 @@ jobs:
           attic-token: ${{ inputs.is_fork && '' || secrets.BINARY_CACHE_TOKEN }}
       - name: Detect all (project, stack) pairs
         id: set-matrix
-        uses: jmmaloney4/sector7/.github/actions/detect-pulumi-stacks@main
+        uses: jmmaloney4/sector7/.github/actions/detect-pulumi-stacks@854c70baf2ecbf108215f8056f766c6aac4084a0 # main
         with:
           ignore_projects: ${{ inputs.ignore_projects }}
   pulumi-preview-and-deploy:
@@ -129,7 +129,7 @@ jobs:
         with:
           repository: ${{ inputs.repository }}
           ref: ${{ inputs.ref }}
-      - uses: jmmaloney4/sector7/.github/actions/pulumi-setup@main
+      - uses: jmmaloney4/sector7/.github/actions/pulumi-setup@854c70baf2ecbf108215f8056f766c6aac4084a0 # main
         with:
           google_workload_identity_provider: ${{ inputs.google_workload_identity_provider }}
           google_service_account_email: ${{ inputs.google_service_account_email }}
@@ -221,7 +221,7 @@ jobs:
       - name: pulumi preview
         id: preview
         continue-on-error: true
-        uses: jmmaloney4/sector7/.github/actions/pulumi-preview@main
+        uses: jmmaloney4/sector7/.github/actions/pulumi-preview@854c70baf2ecbf108215f8056f766c6aac4084a0 # main
         with:
           project: ${{ matrix.project }}
           stack: ${{ matrix.stack }}

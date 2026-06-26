@@ -8,7 +8,7 @@ permissions:
 jobs:
   adr-management:
     if: github.actor != 'github-actions[bot]'
-    uses: jmmaloney4/sector7/.github/workflows/adr-management.yml@main
+    uses: jmmaloney4/sector7/.github/workflows/adr-management.yml@854c70baf2ecbf108215f8056f766c6aac4084a0 # main
     with:
       repository: ${{ github.repository }}
       ref: refs/pull/${{ github.event.pull_request.number }}/head

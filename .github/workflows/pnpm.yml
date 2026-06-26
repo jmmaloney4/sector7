@@ -64,7 +64,7 @@ jobs:
         with:
           repository: ${{ inputs.repository }}
           ref: ${{ inputs.ref }}
-      - uses: jmmaloney4/sector7/.github/actions/nix-setup@main
+      - uses: jmmaloney4/sector7/.github/actions/nix-setup@854c70baf2ecbf108215f8056f766c6aac4084a0 # main
         with:
           runs-on: ${{ inputs.runs-on }}
           # Keep the FlakeHub fallback enabled unless a fully-configured custom
@@ -80,7 +80,7 @@ jobs:
         run: nix develop .#ci-pnpm --command bash -c 'echo "$PATH" >> "$GITHUB_PATH"'
       - name: Analyze packages (target=${{ inputs.target }})
         id: analyze
-        uses: jmmaloney4/sector7/.github/actions/analyze-pnpm-packages@main
+        uses: jmmaloney4/sector7/.github/actions/analyze-pnpm-packages@854c70baf2ecbf108215f8056f766c6aac4084a0 # main
         with:
           dry_run: ${{ inputs.dry_run }}
           target: ${{ inputs.target }}
@@ -107,7 +107,7 @@ jobs:
         with:
           repository: ${{ inputs.repository }}
           ref: ${{ inputs.ref }}
-      - uses: jmmaloney4/sector7/.github/actions/nix-setup@main
+      - uses: jmmaloney4/sector7/.github/actions/nix-setup@854c70baf2ecbf108215f8056f766c6aac4084a0 # main
         with:
           runs-on: ${{ inputs.runs-on }}
           # Keep the FlakeHub fallback enabled unless a fully-configured custom
@@ -137,7 +137,7 @@ jobs:
         with:
           repository: ${{ inputs.repository }}
           ref: ${{ inputs.ref }}
-      - uses: jmmaloney4/sector7/.github/actions/nix-setup@main
+      - uses: jmmaloney4/sector7/.github/actions/nix-setup@854c70baf2ecbf108215f8056f766c6aac4084a0 # main
         with:
           runs-on: ${{ inputs.runs-on }}
           # Keep the FlakeHub fallback enabled unless a fully-configured custom
