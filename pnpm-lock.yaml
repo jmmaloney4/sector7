@@ -37,8 +37,8 @@ importers:
         specifier: 1.2.1
         version: 1.2.1(typescript@6.0.3)
       '@pulumi/gcp':
-        specifier: 9.27.0
-        version: 9.27.0(typescript@6.0.3)
+        specifier: 9.28.0
+        version: 9.28.0(typescript@6.0.3)
       '@pulumi/kubernetes':
         specifier: 4.32.0
         version: 4.32.0(typescript@6.0.3)
@@ -487,8 +487,8 @@ packages:
   '@pulumi/command@1.2.1':
     resolution: {integrity: sha512-mutNDIUYP67yCBYOVIidQyxuTwZDY9v/sx9EGbgIv4PXfyfolOKGgGLeoHEbI1lxRwaw2wbTZ3VNIynDnA5VKA==}
 
-  '@pulumi/gcp@9.27.0':
-    resolution: {integrity: sha512-VAb3uMvDuR0LU+m1CoWjFgbkpBXkXZkSZKs6Go2EvDakBFVsJaRrcQmZVUEiCEdSbq0FfjCMgXIVaenlHfHDaA==}
+  '@pulumi/gcp@9.28.0':
+    resolution: {integrity: sha512-N5AqEj7mE2+FDGSjW0X/Jik04Hy3SBAJDGjAB/uWiETor8uS+AcuQyueXsNVtVjXHaV112ySVJG+it4hTApmqA==}
 
   '@pulumi/kubernetes@4.32.0':
     resolution: {integrity: sha512-JMzaG8BI+nsHzcOwFEbmueyn2HN4HrLv1znVAKS0vPgLrlSAc+WDsaRUxQnHBE37+3RL3r4mipUemRCIe8Xvww==}
@@ -2370,7 +2370,7 @@ snapshots:
       - ts-node
       - typescript
 
-  '@pulumi/gcp@9.27.0(typescript@6.0.3)':
+  '@pulumi/gcp@9.28.0(typescript@6.0.3)':
     dependencies:
       '@npmcli/package-json': 6.2.0
       '@pulumi/pulumi': 3.247.0(typescript@6.0.3)
