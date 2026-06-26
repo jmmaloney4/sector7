@@ -11,7 +11,7 @@ permissions: # required by the action
   pull-requests: write
 jobs:
   deploy:
-    runs-on: ${{ vars.ACTIONS_RUNS_ON }}
+    runs-on: self-hosted
     permissions:
       id-token: write
       actions: read
@@ -24,8 +24,8 @@ jobs:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
       - uses: jmmaloney4/sector7/.github/actions/nix-setup@main
         with:
-          runs-on: ${{ vars.ACTIONS_RUNS_ON }}
-          cache: ${{ !contains(vars.ACTIONS_RUNS_ON, 'self-hosted') }}
+          runs-on: self-hosted
+          cache: false
       - name: Build site with Nix
         run: |
           nix develop -c quarto render ./research
