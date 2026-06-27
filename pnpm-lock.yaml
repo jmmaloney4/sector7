@@ -37,14 +37,14 @@ importers:
         specifier: 1.2.1
         version: 1.2.1(typescript@6.0.3)
       '@pulumi/gcp':
-        specifier: 9.27.0
-        version: 9.27.0(typescript@6.0.3)
+        specifier: 9.29.0
+        version: 9.29.0(typescript@6.0.3)
       '@pulumi/kubernetes':
         specifier: 4.32.0
         version: 4.32.0(typescript@6.0.3)
       '@pulumi/pulumi':
-        specifier: 3.247.0
-        version: 3.247.0(typescript@6.0.3)
+        specifier: 3.248.0
+        version: 3.248.0(typescript@6.0.3)
       '@pulumi/random':
         specifier: 4.21.0
         version: 4.21.0(typescript@6.0.3)
@@ -487,14 +487,14 @@ packages:
   '@pulumi/command@1.2.1':
     resolution: {integrity: sha512-mutNDIUYP67yCBYOVIidQyxuTwZDY9v/sx9EGbgIv4PXfyfolOKGgGLeoHEbI1lxRwaw2wbTZ3VNIynDnA5VKA==}
 
-  '@pulumi/gcp@9.27.0':
-    resolution: {integrity: sha512-VAb3uMvDuR0LU+m1CoWjFgbkpBXkXZkSZKs6Go2EvDakBFVsJaRrcQmZVUEiCEdSbq0FfjCMgXIVaenlHfHDaA==}
+  '@pulumi/gcp@9.29.0':
+    resolution: {integrity: sha512-u+0pLqz7mCpXncAiP/5wWTVYVKa9dWhUgGXCVuPNJOb6VrapaWN7tT3lh3o8SYAS4DzqItCFo1TkdjxMRouQXQ==}
 
   '@pulumi/kubernetes@4.32.0':
     resolution: {integrity: sha512-JMzaG8BI+nsHzcOwFEbmueyn2HN4HrLv1znVAKS0vPgLrlSAc+WDsaRUxQnHBE37+3RL3r4mipUemRCIe8Xvww==}
 
-  '@pulumi/pulumi@3.247.0':
-    resolution: {integrity: sha512-JaXgWfRaT8XLQaqy6MriSxnphuyE56EjD8enZcNSEZ9nWthuTLV6i+w7q1KdcDJKGuMEn6yBeZuBoNafQtx4XA==}
+  '@pulumi/pulumi@3.248.0':
+    resolution: {integrity: sha512-EqgeHjVIqMS8voAM7F8SOzFAMHnVXUDdKTNF1o3Lg85YwVI0j4/eIlWG0iIVAWJl3DX0KOOM6++X0wLKHWWwmQ==}
     engines: {node: '>=20'}
     peerDependencies:
       ts-node: '>= 7.0.1 < 12'
@@ -810,9 +810,6 @@ packages:
     resolution: {integrity: sha512-4Dj6M28JB+oAH8kFkTLUo+a2jwOFkuqb3yucU0CANcRRUbxS0cP0nZYCGjcc3BNXwRIsUVmDGgzawme7zvJHvg==}
     engines: {node: '>=12'}
 
-  argparse@1.0.10:
-    resolution: {integrity: sha512-o5Roy6tNG4SL/FOkCAN6RzjiakZS25RLYFrcMttJqbdd8BWrnA+fGz57iN5Pb06pvBGvl5gQ0B48dJlslXvoTg==}
-
   argparse@2.0.1:
     resolution: {integrity: sha512-8+9WqebbFzpX9OR+Wa6O29asIogeRMzcGtAINdpMHHyAg10f05aSFVBbcEqGf/PXw1EjAZ+q2/bEBg3DvurK3Q==}
 
@@ -1011,11 +1008,6 @@ packages:
     resolution: {integrity: sha512-WUj2qlxaQtO4g6Pq5c29GTcWGDyd8itL8zTlipgECz3JesAiiOKotd8JU6otB3PACgG6xkJUyVhboMS+bje/jA==}
     engines: {node: '>=6'}
 
-  esprima@4.0.1:
-    resolution: {integrity: sha512-eGuFFw7Upda+g4p+QHvnW0RyTX/SVeJBDM/gCtMARO0cLuT2HcEKnTPvhjV6aGeqrCB/sbNop0Kszm0jsaWU4A==}
-    engines: {node: '>=4'}
-    hasBin: true
-
   estree-walker@3.0.3:
     resolution: {integrity: sha512-7RUKfXgSMMkzt6ZuXmqapOurLGPPfgj6l9uRZ7lRGolvk0y2yocc35LdcxKC5PQZdn2DMqioAQ2NoWcrTKmm6g==}
 
@@ -1212,10 +1204,6 @@ packages:
 
   jose@6.2.3:
     resolution: {integrity: sha512-YYVDInQKFJfR/xa3ojUTl8c2KoTwiL1R5Wg9YCydwH0x0B9grbzlg5HC7mMjCtUJjbQ/YnGEZIhI5tCgfTb4Hw==}
-
-  js-yaml@3.14.2:
-    resolution: {integrity: sha512-PMSmkqxr106Xa156c2M265Z+FTrPl+oxd/rgOQy2tijQeK5TxQ43psO1ZCwhVOSdnn+RzkzlRz/eY4BgJBYVpg==}
-    hasBin: true
 
   js-yaml@4.2.0:
     resolution: {integrity: sha512-ePWsvanv0DWuDRsW8dnt+R4jQ31SCRCQ7hhNcPXZPsoBZiemuZNYGf7adZdqX2D86j6rvKp3RpCxVTSb8WQlOw==}
@@ -1625,9 +1613,6 @@ packages:
 
   spdx-license-ids@3.0.22:
     resolution: {integrity: sha512-4PRT4nh1EImPbt2jASOKHX7PB7I+e4IWNLvkKFDxNhJlfjbYlleYQh285Z/3mPTHSAK/AvdMmw5BNNuYH8ShgQ==}
-
-  sprintf-js@1.0.3:
-    resolution: {integrity: sha512-D9cPgkvLlV3t3IzL0D0YLvGA9Ahk4PcvVwUbN0dSGr1aP0Nrt4AEnTUbuGvquEC0mA64Gqt1fzirlRs5ibXx8g==}
 
   ssri@13.0.1:
     resolution: {integrity: sha512-QUiRf1+u9wPTL/76GTYlKttDEBWV1ga9ZXW8BG6kfdeyyM8LGPix9gROyg9V2+P0xNyF3X2Go526xKFdMZrHSQ==}
@@ -2356,7 +2341,7 @@ snapshots:
 
   '@pulumi/cloudflare@6.17.0(typescript@6.0.3)':
     dependencies:
-      '@pulumi/pulumi': 3.247.0(typescript@6.0.3)
+      '@pulumi/pulumi': 3.248.0(typescript@6.0.3)
     transitivePeerDependencies:
       - supports-color
       - ts-node
@@ -2364,16 +2349,16 @@ snapshots:
 
   '@pulumi/command@1.2.1(typescript@6.0.3)':
     dependencies:
-      '@pulumi/pulumi': 3.247.0(typescript@6.0.3)
+      '@pulumi/pulumi': 3.248.0(typescript@6.0.3)
     transitivePeerDependencies:
       - supports-color
       - ts-node
       - typescript
 
-  '@pulumi/gcp@9.27.0(typescript@6.0.3)':
+  '@pulumi/gcp@9.29.0(typescript@6.0.3)':
     dependencies:
       '@npmcli/package-json': 6.2.0
-      '@pulumi/pulumi': 3.247.0(typescript@6.0.3)
+      '@pulumi/pulumi': 3.248.0(typescript@6.0.3)
       '@types/express': 4.17.25
     transitivePeerDependencies:
       - supports-color
@@ -2382,7 +2367,7 @@ snapshots:
 
   '@pulumi/kubernetes@4.32.0(typescript@6.0.3)':
     dependencies:
-      '@pulumi/pulumi': 3.247.0(typescript@6.0.3)
+      '@pulumi/pulumi': 3.248.0(typescript@6.0.3)
       glob: 12.0.0
       shell-quote: 1.8.3
     transitivePeerDependencies:
@@ -2390,7 +2375,7 @@ snapshots:
       - ts-node
       - typescript
 
-  '@pulumi/pulumi@3.247.0(typescript@6.0.3)':
+  '@pulumi/pulumi@3.248.0(typescript@6.0.3)':
     dependencies:
       '@grpc/grpc-js': 1.14.3
       '@logdna/tail-file': 2.2.0
@@ -2410,7 +2395,7 @@ snapshots:
       fdir: 6.5.0(picomatch@4.0.3)
       google-protobuf: 3.21.4
       ini: 2.0.0
-      js-yaml: 3.14.2
+      js-yaml: 4.2.0
       minimist: 1.2.8
       normalize-package-data: 6.0.2
       picomatch: 4.0.3
@@ -2426,7 +2411,7 @@ snapshots:
 
   '@pulumi/random@4.21.0(typescript@6.0.3)':
     dependencies:
-      '@pulumi/pulumi': 3.247.0(typescript@6.0.3)
+      '@pulumi/pulumi': 3.248.0(typescript@6.0.3)
     transitivePeerDependencies:
       - supports-color
       - ts-node
@@ -2687,10 +2672,6 @@ snapshots:
 
   ansi-styles@6.2.3: {}
 
-  argparse@1.0.10:
-    dependencies:
-      sprintf-js: 1.0.3
-
   argparse@2.0.1: {}
 
   assertion-error@2.0.1: {}
@@ -2880,8 +2861,6 @@ snapshots:
       '@esbuild/win32-x64': 0.27.4
 
   escalade@3.2.0: {}
-
-  esprima@4.0.1: {}
 
   estree-walker@3.0.3:
     dependencies:
@@ -3084,11 +3063,6 @@ snapshots:
       '@isaacs/cliui': 9.0.0
 
   jose@6.2.3: {}
-
-  js-yaml@3.14.2:
-    dependencies:
-      argparse: 1.0.10
-      esprima: 4.0.1
 
   js-yaml@4.2.0:
     dependencies:
@@ -3551,8 +3525,6 @@ snapshots:
       spdx-license-ids: 3.0.22
 
   spdx-license-ids@3.0.22: {}
-
-  sprintf-js@1.0.3: {}
 
   ssri@13.0.1:
     dependencies:

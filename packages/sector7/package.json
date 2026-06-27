@@ -100,9 +100,9 @@
 		"yaml": "2.9.0"
 	},
 	"devDependencies": {
-		"@pulumi/pulumi": "3.247.0",
+		"@pulumi/pulumi": "3.248.0",
 		"@pulumi/cloudflare": "6.17.0",
-		"@pulumi/gcp": "9.27.0",
+		"@pulumi/gcp": "9.29.0",
 		"@pulumi/command": "1.2.1",
 		"@pulumi/kubernetes": "4.32.0",
 		"@pulumi/random": "4.21.0",
