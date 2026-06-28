@@ -73,7 +73,7 @@ nix_eval_args=(
 lowprio=()
 command -v nice >/dev/null 2>&1 && lowprio+=(nice -n 19)
 command -v ionice >/dev/null 2>&1 && lowprio+=(ionice -c2 -n7)
-"${lowprio[@]}" nix run github:nix-community/nix-eval-jobs/v2.34.1 "${nix_eval_args[@]}" -- --flake . --check-cache-status --meta --workers 1 --max-memory-size 3072 --select "(${select_expr}) \"${system}\"" >"$tmp_all"
+"${lowprio[@]}" nix run github:nix-community/nix-eval-jobs/v2.34.3 "${nix_eval_args[@]}" -- --flake . --check-cache-status --meta --workers 1 --max-memory-size 3072 --select "(${select_expr}) \"${system}\"" >"$tmp_all"
 
 # Transform nix-eval-jobs output to matrix format
 echo "Processing nix-eval-jobs output..." >&2
