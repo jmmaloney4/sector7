@@ -10,7 +10,7 @@ jobs:
   add-to-project:
     # Secrets cannot be used in `if`; set PROJECT_URL when you want this enabled.
     if: vars.PROJECT_URL != ''
-    uses: jmmaloney4/sector7/.github/workflows/add-to-project.yml@main
+    uses: jmmaloney4/sector7/.github/workflows/add-to-project.yml@854c70baf2ecbf108215f8056f766c6aac4084a0 # main
     with:
       project_url: ${{ vars.PROJECT_URL }}
     secrets:

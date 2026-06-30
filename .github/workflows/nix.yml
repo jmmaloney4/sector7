@@ -71,7 +71,7 @@ jobs:
         with:
           repository: ${{ inputs.repository }}
           ref: ${{ inputs.ref }}
-      - uses: jmmaloney4/sector7/.github/actions/nix-setup@main
+      - uses: jmmaloney4/sector7/.github/actions/nix-setup@854c70baf2ecbf108215f8056f766c6aac4084a0 # main
         with:
           runs-on: ${{ inputs.runs-on }}
           cache: ${{ !contains(inputs.runs-on, 'self-hosted') && inputs.binary-cache-url == '' }}
@@ -82,7 +82,7 @@ jobs:
           attic-token: ${{ secrets.BINARY_CACHE_TOKEN }}
       - name: compute build-needed matrix via nix-eval-jobs
         id: compute
-        uses: jmmaloney4/sector7/.github/actions/compute-flake-build-matrix@main
+        uses: jmmaloney4/sector7/.github/actions/compute-flake-build-matrix@854c70baf2ecbf108215f8056f766c6aac4084a0 # main
         with:
           probe-timeout-seconds: '180'
           extra-substituters: ${{ inputs.binary-cache-url }}
@@ -118,7 +118,7 @@ jobs:
         with:
           repository: ${{ inputs.repository }}
           ref: ${{ inputs.ref }}
-      - uses: jmmaloney4/sector7/.github/actions/nix-setup@main
+      - uses: jmmaloney4/sector7/.github/actions/nix-setup@854c70baf2ecbf108215f8056f766c6aac4084a0 # main
         with:
           runs-on: ${{ inputs.runs-on }}
           cache: ${{ !contains(inputs.runs-on, 'self-hosted') && inputs.binary-cache-url == '' }}
@@ -136,7 +136,7 @@ jobs:
           nix-fast-build --skip-cached --no-nom --no-link -j 1 --flake "$attr"
       - name: Push built store paths to binary cache
         if: ${{ inputs.binary-cache-endpoint != '' && inputs.binary-cache-name != '' && env.BINARY_CACHE_TOKEN != '' }}
-        uses: jmmaloney4/sector7/.github/actions/push-attic-cache@main
+        uses: jmmaloney4/sector7/.github/actions/push-attic-cache@854c70baf2ecbf108215f8056f766c6aac4084a0 # main
         with:
           flake-attr: ${{ matrix.flake_attr }}
           attic-endpoint: ${{ inputs.binary-cache-endpoint }}
@@ -150,7 +150,7 @@ jobs:
       fail-fast: false
       matrix:
         package-name: ${{ fromJson(needs.detect.outputs.images_to_push) }}
-    uses: jmmaloney4/sector7/.github/workflows/push-nix-image.yml@main
+    uses: jmmaloney4/sector7/.github/workflows/push-nix-image.yml@854c70baf2ecbf108215f8056f766c6aac4084a0 # main
     with:
       runs-on: ${{ inputs.runs-on }}
       package-name: ${{ matrix.package-name }}
