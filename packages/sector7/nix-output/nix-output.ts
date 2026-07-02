@@ -26,8 +26,26 @@ export interface NixOutputArgs {
 	 * The path must exist within the output derivation.
 	 */
 	subPath?: pulumi.Input<string>;
-	/** Additional trigger values (added alongside nixAttr). */
+	/** Additional trigger values (added alongside the computed triggers). */
 	triggers?: pulumi.Input<string>[];
+	/**
+	 * How the component detects that the nix output changed so the child
+	 * command re-runs on `pulumi up`.
+	 *
+	 * "drv" (default) evaluates the derivation path
+	 * (`nix eval --raw <repoRoot>#<nixAttr>.drvPath`) at program time and
+	 * includes it in the command's triggers. The drv hash covers every
+	 * transitive build input — sources, lockfiles, flake inputs — so the
+	 * command re-runs exactly when the build would produce a different
+	 * result, and previews stay clean when nothing changed. Costs one
+	 * flake evaluation per preview/up.
+	 *
+	 * "none" restores the legacy behavior: the command re-runs only when
+	 * `nixAttr` or a caller-supplied trigger changes. With no custom
+	 * triggers this means content changes never re-resolve — the store
+	 * path is served from Pulumi state until an input string changes.
+	 */
+	changeDetection?: "drv" | "none";
 	/**
 	 * "resolve" = resolve the output path without building (default).
 	 * Fast — just evaluates the flake to find the store path.
@@ -69,6 +87,36 @@ function parseStorePath(stdout: string, name: string): string {
 		);
 	}
 	return line.slice(prefix.length);
+}
+
+/**
+ * Evaluate the derivation path for a flake attribute. The drv path is
+ * nix's own content hash over every transitive build input, which makes
+ * it the precise "did anything relevant change?" trigger — Pulumi cannot
+ * know which files feed a build, but nix can.
+ *
+ * Exported for testing.
+ */
+export function resolveDrvPathTrigger(
+	repoRoot: string,
+	nixAttr: string,
+): string {
+	try {
+		return execFileSync(
+			"nix",
+			["eval", "--raw", `${repoRoot}#${nixAttr}.drvPath`],
+			{ encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] },
+		).trim();
+	} catch (error) {
+		const stderr =
+			error instanceof Error && "stderr" in error
+				? String((error as { stderr?: unknown }).stderr ?? "")
+				: "";
+		throw new Error(
+			`NixOutput: failed to evaluate drvPath for ${repoRoot}#${nixAttr}` +
+				` (changeDetection: "drv"): ${stderr || String(error)}`,
+		);
+	}
 }
 
 function isStringRecord(
@@ -136,12 +184,26 @@ export class NixOutput extends pulumi.ComponentResource {
 			...(args.subPath ? { SUB_PATH: args.subPath } : {}),
 		};
 
+		const changeDetection = args.changeDetection ?? "drv";
+		const drvPathTrigger =
+			changeDetection === "drv"
+				? pulumi
+						.all([args.repoRoot, args.nixAttr])
+						.apply(([repoRoot, nixAttr]) =>
+							resolveDrvPathTrigger(repoRoot, nixAttr),
+						)
+				: undefined;
+
 		const cmd = new command.local.Command(
 			`${name}-resolve`,
 			{
 				create: pulumi.interpolate`bash "${scriptPath}"`,
 				environment: env,
-				triggers: [args.nixAttr, ...(args.triggers ?? [])],
+				triggers: [
+					args.nixAttr,
+					...(drvPathTrigger !== undefined ? [drvPathTrigger] : []),
+					...(args.triggers ?? []),
+				],
 			},
 			{ parent: this },
 		);

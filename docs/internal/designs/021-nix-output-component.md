@@ -161,11 +161,48 @@ The `NixOutput` component runs `nix-output-resolve.sh`. The refactored `NixImage
 
 ## Trigger semantics
 
-Default trigger for `NixOutput` is `nixAttr` (the attribute path as a string). This means changing the attribute — e.g. from `packages.x86_64-linux.lens-api-image` to `packages.x86_64-linux.lens-api-v2-image` — will trigger a rebuild.
+> **Amended 2026-07-02.** The original design triggered only on `nixAttr`
+> (plus caller-supplied `triggers`). In practice no consumer passed extra
+> triggers, so `command.local.Command` never re-ran after the first
+> deploy: content changes silently served the stale store path from
+> Pulumi state (observed on the theoreticaledge.com dev stack, where a
+> `pulumi up` after new posts merged reported "unchanged" and deployed
+> nothing). Correct-by-default replaces opt-in triggering.
 
-Consumers who need finer-grained triggering (e.g. flake lock hash, git commit SHA) can pass `triggers` directly.
+`NixOutput` computes a **derivation-path trigger** by default
+(`changeDetection: "drv"`): at program time it runs
+`nix eval --raw <repoRoot>#<nixAttr>.drvPath` and includes the result in
+the child command's `triggers`. The drv path is nix's own hash over every
+transitive build input (sources as nix would copy them, lockfiles, flake
+inputs, toolchain), so:
 
-For `NixImage`, the default trigger remains `imageTag` since that's the deployment-level signal that matters. Additional triggers can be layered in.
+- the command re-runs **iff** the build would produce a different result;
+- `pulumi preview` stays clean when nothing relevant changed;
+- Pulumi never needs to know which files feed the build — nix answers that.
+
+Cost: one flake evaluation per preview/up. Nix's eval is the same work a
+no-op `nix build` would do, so this does not meaningfully slow deploys.
+An eval failure fails the program with a descriptive error (the build
+could not have succeeded either).
+
+`changeDetection: "none"` restores the legacy attr-only triggering for
+consumers whose evaluation is prohibitively slow and who manage triggers
+manually. `nixAttr` remains a trigger in both modes, and caller-supplied
+`triggers` are appended after the computed ones.
+
+For `NixImage` (build mode), the composed `NixOutput` inherits the same
+default, and the push command already re-triggers off `storePath`, so a
+drv change propagates build → push automatically. `NixImage` exposes a
+`changeDetection` passthrough for opt-out.
+
+Alternatives considered for the trigger value:
+
+- **Source narHash / git SHA**: cheaper to compute but wrong in both
+  directions — over-triggers on unrelated monorepo changes and cannot see
+  flake-input or toolchain changes that alter the output.
+- **Always re-run (timestamp/nonce trigger)**: correct results (nix
+  caches), but every preview shows a diff and state churns on every up.
+- **drvPath (selected)**: exact change semantics at the cost of one eval.
 
 # Consequences
 
@@ -213,6 +250,7 @@ Balances declarative intent ("output" of the nix system) with generality. An out
 
 - 2026-05-13: Proposed
 - 2026-05-13: Accepted — all open questions resolved, implementation in progress
+- 2026-07-02: Amended — default drvPath change detection (`changeDetection: "drv"`) replaces attr-only triggering after a stale-deploy incident
 
 # Resolved Questions
 

@@ -48,6 +48,13 @@ export interface NixImageArgs {
 	/** Additional trigger values (added alongside imageTag) */
 	triggers?: pulumi.Input<string>[];
 	/**
+	 * Change-detection strategy for the underlying NixOutput build step
+	 * (build mode only). "drv" (default) re-runs the build when the
+	 * derivation path changes; "none" restores the legacy
+	 * imageTag/triggers-only behavior. See NixOutputArgs.changeDetection.
+	 */
+	changeDetection?: "drv" | "none";
+	/**
 	 * "build" = build+push the image (default)
 	 * "resolve" = skip build, just resolve the digest of the already-pushed tag
 	 */
@@ -156,6 +163,7 @@ export class NixImage extends pulumi.ComponentResource {
 					repoRoot: args.repoRoot,
 					mode: "build",
 					triggers: [args.imageTag, ...(args.triggers ?? [])],
+					changeDetection: args.changeDetection,
 					env: args.env,
 				},
 				{ parent: this },

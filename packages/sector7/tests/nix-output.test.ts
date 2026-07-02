@@ -1,7 +1,11 @@
 import { execFileSync } from "node:child_process";
 import * as pulumi from "@pulumi/pulumi";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { NixOutput, resolvePreviewStorePath } from "../nix-output/nix-output";
+import {
+	NixOutput,
+	resolveDrvPathTrigger,
+	resolvePreviewStorePath,
+} from "../nix-output/nix-output";
 
 vi.mock("node:child_process", () => ({
 	execFileSync: vi.fn(),
@@ -59,10 +63,15 @@ function installMocks(preview = false): void {
 	);
 }
 
+const MOCK_DRV_PATH = "/nix/store/drvhash123-myapp-1.0.0.drv";
+
 beforeEach(() => {
 	resources.length = 0;
 	vi.clearAllMocks();
 	vi.restoreAllMocks();
+	// Default changeDetection ("drv") evaluates the drvPath via execFileSync
+	// during resource construction, so give it a stable answer.
+	vi.mocked(execFileSync).mockReturnValue(`${MOCK_DRV_PATH}\n`);
 	installMocks(false);
 });
 
@@ -176,7 +185,7 @@ describe("NixOutput", () => {
 		});
 	});
 
-	it("uses nixAttr as default trigger", async () => {
+	it("includes the drvPath trigger by default", async () => {
 		const output = new NixOutput("test-trigger-default", {
 			nixAttr: "packages.x86_64-linux.myapp",
 			repoRoot: "/home/user/my-repo",
@@ -188,10 +197,36 @@ describe("NixOutput", () => {
 		expect(cmds).toHaveLength(1);
 
 		const triggers = cmds[0].inputs.triggers as string[];
-		expect(triggers).toEqual(["packages.x86_64-linux.myapp"]);
+		expect(triggers).toEqual(["packages.x86_64-linux.myapp", MOCK_DRV_PATH]);
+		expect(execFileSync).toHaveBeenCalledWith(
+			"nix",
+			[
+				"eval",
+				"--raw",
+				"/home/user/my-repo#packages.x86_64-linux.myapp.drvPath",
+			],
+			expect.objectContaining({ encoding: "utf8" }),
+		);
 	});
 
-	it("appends custom triggers after nixAttr", async () => {
+	it("omits the drvPath trigger with changeDetection none", async () => {
+		const output = new NixOutput("test-trigger-none", {
+			nixAttr: "packages.x86_64-linux.myapp",
+			repoRoot: "/home/user/my-repo",
+			changeDetection: "none",
+		});
+
+		await resolveOutput(output.storePath);
+
+		const cmds = byName("test-trigger-none-resolve");
+		expect(cmds).toHaveLength(1);
+
+		const triggers = cmds[0].inputs.triggers as string[];
+		expect(triggers).toEqual(["packages.x86_64-linux.myapp"]);
+		expect(execFileSync).not.toHaveBeenCalled();
+	});
+
+	it("appends custom triggers after nixAttr and the drvPath trigger", async () => {
 		const output = new NixOutput("test-trigger-custom", {
 			nixAttr: "packages.x86_64-linux.myapp",
 			repoRoot: "/home/user/my-repo",
@@ -206,9 +241,36 @@ describe("NixOutput", () => {
 		const triggers = cmds[0].inputs.triggers as string[];
 		expect(triggers).toEqual([
 			"packages.x86_64-linux.myapp",
+			MOCK_DRV_PATH,
 			"commit-sha-abc",
 			"v2.0.0",
 		]);
+	});
+
+	it("resolveDrvPathTrigger trims the evaluated drv path", () => {
+		vi.mocked(execFileSync).mockReturnValue("/nix/store/deadbeef-site.drv\n");
+
+		const drvPath = resolveDrvPathTrigger("/repo", "site-html");
+		expect(drvPath).toBe("/nix/store/deadbeef-site.drv");
+		expect(execFileSync).toHaveBeenCalledWith(
+			"nix",
+			["eval", "--raw", "/repo#site-html.drvPath"],
+			expect.objectContaining({ encoding: "utf8" }),
+		);
+	});
+
+	it("resolveDrvPathTrigger surfaces stderr on eval failure", () => {
+		vi.mocked(execFileSync).mockImplementation(() => {
+			const error = new Error("Command failed") as Error & {
+				stderr: string;
+			};
+			error.stderr = "error: attribute 'missing' not found";
+			throw error;
+		});
+
+		expect(() => resolveDrvPathTrigger("/repo", "missing")).toThrow(
+			/failed to evaluate drvPath for \/repo#missing.*attribute 'missing' not found/s,
+		);
 	});
 
 	it("passes extra env vars to the command", async () => {
