@@ -52,7 +52,7 @@ on:
 jobs:
   analyze:
     name: "🧱 analyze pnpm packages"
-    runs-on: ${{ inputs.runs-on }}
+    runs-on: ${{ (startsWith(inputs.runs-on, '[') || startsWith(inputs.runs-on, '{')) && fromJson(inputs.runs-on) || inputs.runs-on }}
     permissions:
       contents: read
       packages: read
@@ -99,7 +99,7 @@ jobs:
           echo '${{ toJson(fromJson(steps.analyze.outputs.matrix || '[]')) }}'
   verify-lockfile:
     name: "🔒 verify pnpm-lock.yaml"
-    runs-on: ${{ inputs.runs-on }}
+    runs-on: ${{ (startsWith(inputs.runs-on, '[') || startsWith(inputs.runs-on, '{')) && fromJson(inputs.runs-on) || inputs.runs-on }}
     permissions:
       contents: read
     steps:
@@ -124,7 +124,7 @@ jobs:
   publish-packages:
     name: "🚀 publish (${{ inputs.target }}): ${{ matrix.name }}"
     needs: [analyze, verify-lockfile]
-    runs-on: ${{ inputs.runs-on }}
+    runs-on: ${{ (startsWith(inputs.runs-on, '[') || startsWith(inputs.runs-on, '{')) && fromJson(inputs.runs-on) || inputs.runs-on }}
     if: needs.analyze.outputs.has_packages == 'true'
     strategy:
       fail-fast: false

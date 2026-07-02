@@ -30,7 +30,7 @@ permissions:
   contents: read
 jobs:
   add-to-project:
-    runs-on: ${{ inputs.runs-on }}
+    runs-on: ${{ (startsWith(inputs.runs-on, '[') || startsWith(inputs.runs-on, '{')) && fromJson(inputs.runs-on) || inputs.runs-on }}
     steps:
       - name: Add issue or PR to project
         uses: jmmaloney4/sector7/.github/actions/add-to-project@main
