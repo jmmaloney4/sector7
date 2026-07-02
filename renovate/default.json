@@ -10,7 +10,7 @@
 		":enableVulnerabilityAlertsWithLabel(security)",
 		":pinAllExceptPeerDependencies"
 	],
-	"schedule": ["before 4:00 am"],
+	"schedule": ["before 4:00 am on Friday"],
 	"prHourlyLimit": 0,
 	"prConcurrentLimit": 0,
 	"rebaseWhen": "conflicted",
