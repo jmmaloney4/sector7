@@ -1,8 +1,17 @@
+import { execFileSync } from "node:child_process";
 import * as command from "@pulumi/command";
 import * as pulumi from "@pulumi/pulumi";
-import { beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { NixImage } from "../nix-image/nix-image";
 import { NixImagePushGroup } from "../nix-image/push-group";
+
+vi.mock("node:child_process", () => ({
+	execFileSync: vi.fn(),
+}));
+
+// The NixOutput child's default changeDetection ("drv") evaluates the
+// drvPath via execFileSync during resource construction.
+const MOCK_DRV_PATH = "/nix/store/drvhash123-my-image.drv";
 
 type MockResource = {
 	type: string;
@@ -50,6 +59,7 @@ beforeAll(() => {
 
 beforeEach(() => {
 	resources.length = 0;
+	vi.mocked(execFileSync).mockReturnValue(`${MOCK_DRV_PATH}\n`);
 });
 
 function resolveOutput<T>(value: pulumi.Input<T>): Promise<T> {
@@ -178,11 +188,15 @@ describe("NixImage", () => {
 
 		await resolveOutput(img.digest);
 
-		// NixOutput child triggers: [nixAttr, imageTag]
+		// NixOutput child triggers: [nixAttr, drvPath, imageTag]
 		const buildCmds = byName("test-triggers-default-build-resolve");
 		expect(buildCmds).toHaveLength(1);
 		const buildTriggers = buildCmds[0].inputs.triggers as string[];
-		expect(buildTriggers).toEqual(["packages.x86_64-linux.my-image", "dev"]);
+		expect(buildTriggers).toEqual([
+			"packages.x86_64-linux.my-image",
+			MOCK_DRV_PATH,
+			"dev",
+		]);
 
 		// Push command should also have imageTag as trigger
 		const pushCmds = byName("test-triggers-default-push");
