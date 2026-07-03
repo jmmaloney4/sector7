@@ -4,16 +4,31 @@
 // authenticates to, so the target needs no tailnet/public ingress.
 //
 // SERIALIZATION CONTRACT — do not break:
-// This module MUST have no top-level *runtime* `import` statements. Every Node/k8s
-// import is a lazy `await import()` *inside* `withPortForward`. Dynamic resource
-// providers (e.g. `onepassword/item.ts`, and `litellm/admin.ts` once it adopts
-// this) reference `withPortForward` from their provider callbacks; Pulumi
-// serializes that closure, capturing this function and its (import-free) module
-// scope. A top-level `import * as k8s from "@kubernetes/client-node"` here would
-// be pulled into every such closure and break serialization. `import type` is
-// fine — it is erased at compile time and produces no runtime import.
+// This module MUST have no top-level *runtime* `import` of heavy third-party
+// packages. Pulumi serializes the provider callbacks that reference
+// `withPortForward` and re-evaluates them from the *consuming* workspace's
+// working directory — not from sector7's installed location. Under pnpm strict
+// isolation, a lazy `await import("@kubernetes/client-node")` in that context
+// resolves against the consumer's `node_modules`, where the package does NOT
+// exist, so the import fails (`Cannot find package '@kubernetes/client-node'`).
+//
+// To stay resolvable in any consumer context we pre-resolve the absolute path
+// to the package here, at module load, using a `require` scoped to *this* file
+// (sector7's own installed location). The result is a plain string that Pulumi's
+// closure serializer captures as a free variable — the same mechanism that
+// already carries module-level consts into serialized functions. `import()`
+// with an absolute path then loads the package directly, bypassing the
+// consumer's module resolution entirely. `node:module` is a Node built-in, so
+// importing it at the top level does not violate the "no heavy third-party
+// imports" rule.
 
+import { createRequire } from "node:module";
 import type { Socket } from "node:net";
+
+// Pre-resolved at module load. The resolved path string is captured by Pulumi's
+// closure serializer; see the SERIALIZATION CONTRACT above.
+const require_ = createRequire(import.meta.url);
+const k8sClientNodePath = require_.resolve("@kubernetes/client-node");
 
 /** Where to open an in-process port-forward. */
 export interface PortForwardTarget {
@@ -82,7 +97,7 @@ export async function withPortForward<T>(
 	target: PortForwardTarget,
 	fn: (baseUrl: string) => Promise<T>,
 ): Promise<T> {
-	const k8s = await import("@kubernetes/client-node");
+	const k8s = await import(k8sClientNodePath);
 	const net = await import("node:net");
 
 	const kc = new k8s.KubeConfig();

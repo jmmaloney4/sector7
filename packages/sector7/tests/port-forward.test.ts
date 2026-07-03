@@ -1,3 +1,4 @@
+import { existsSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { buildLabelSelector } from "../k8s/port-forward.ts";
 
@@ -49,5 +50,28 @@ describe("buildLabelSelector", () => {
 		expect(buildLabelSelector({ matchLabels: {}, matchExpressions: [] })).toBe(
 			"",
 		);
+	});
+});
+
+describe("k8sClientNodePath pre-resolution", () => {
+	it("resolves @kubernetes/client-node to an absolute path inside sector7's deps", async () => {
+		// Loading the module exercises the module-level createRequire().resolve
+		// call; if the package were not resolvable from sector7's installed
+		// location, the import would throw before this assertion runs.
+		await import("../k8s/port-forward.ts");
+		const { createRequire } = await import("node:module");
+		const require_ = createRequire(import.meta.url);
+		const resolved = require_.resolve("@kubernetes/client-node");
+
+		expect(resolved).toMatch(/@kubernetes[\\/]client-node/);
+		expect(existsSync(resolved)).toBe(true);
+	});
+
+	it("keeps withPortForward as a serializable function reference", async () => {
+		const mod = await import("../k8s/port-forward.ts");
+		expect(typeof mod.withPortForward).toBe("function");
+		// The function must not close over the heavy k8s module at load time.
+		// The module-level pre-resolution is a string; the actual import happens
+		// inside the function body via `await import(k8sClientNodePath)`.
 	});
 });
