@@ -4,6 +4,7 @@ import {
 	mkdtempSync,
 	readdirSync,
 	readFileSync,
+	rmSync,
 	writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -76,7 +77,7 @@ afterEach(() => {
 	for (const dir of tempDirs.splice(0)) {
 		// best-effort cleanup; leaked temp dirs are harmless
 		try {
-			spawnSync("rm", ["-rf", dir]);
+			rmSync(dir, { recursive: true, force: true });
 		} catch {
 			/* ignore */
 		}
@@ -114,9 +115,10 @@ describe("nix-output-resolve.sh UTF-8 safety", () => {
 		expect(isValidUtf8(stderr)).toBe(true);
 		expect(stderr.includes(0x8b)).toBe(false);
 
-		// The raw bytes are preserved in the log file, not discarded.
+		// The raw bytes are preserved in the log file, not discarded — the whole
+		// invalid sequence survives verbatim, not just one byte of it.
 		const log = readOnlyLog(logDir);
-		expect(log.includes(INVALID_UTF8[1])).toBe(true); // 0x8b survives in the log
+		expect(log.includes(INVALID_UTF8)).toBe(true);
 	});
 
 	it("keeps the failure diagnostic ASCII-only when the build log has invalid bytes", () => {
