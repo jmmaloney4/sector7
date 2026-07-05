@@ -460,6 +460,124 @@ describe("WorkerSite", () => {
 		expect(privateApp).toBeDefined();
 	});
 
+	it("serves via Workers Static Assets when staticAssets is configured", async () => {
+		const site = new WorkerSite("assets-site", {
+			accountId: "account-123",
+			zoneId: "zone-123",
+			name: "assets-site",
+			domains: ["assets.example.com"],
+			staticAssets: { directory: "/nix/store/abc-site" },
+		});
+
+		await resolveOutput(site.worker.id);
+
+		expect(site.bucket).toBeUndefined();
+		expect(byName("-bucket")).toHaveLength(0);
+
+		const worker = byName("-worker")[0];
+		const assets = worker.inputs.assets as Record<string, unknown>;
+		expect(assets.directory).toBe("/nix/store/abc-site");
+		expect(assets.config).toMatchObject({ notFoundHandling: "404-page" });
+		expect(
+			(assets.config as Record<string, unknown>).runWorkerFirst,
+		).toBeUndefined();
+
+		const bindings = worker.inputs.bindings as Array<Record<string, unknown>>;
+		expect(bindings).toEqual([{ name: "ASSETS", type: "assets" }]);
+
+		expect(worker.inputs.content).toContain("env.ASSETS.fetch(request)");
+		expect(worker.inputs.content).not.toContain("R2_BUCKET");
+	});
+
+	it("enables runWorkerFirst when assets mode has redirects", async () => {
+		const site = new WorkerSite("assets-redirect-site", {
+			accountId: "account-123",
+			zoneId: "zone-123",
+			name: "assets-redirect-site",
+			domains: ["example.com", "www.example.com"],
+			staticAssets: { directory: "/nix/store/def-site" },
+			redirects: [{ fromHost: "www.example.com", toHost: "example.com" }],
+		});
+
+		await resolveOutput(site.worker.id);
+
+		const worker = byName("-worker")[0];
+		const assets = worker.inputs.assets as Record<string, unknown>;
+		expect((assets.config as Record<string, unknown>).runWorkerFirst).toBe(
+			true,
+		);
+		expect(worker.inputs.content).toContain(
+			'url.hostname === "www.example.com"',
+		);
+	});
+
+	it("passes through explicit staticAssets config", async () => {
+		const site = new WorkerSite("assets-config-site", {
+			accountId: "account-123",
+			zoneId: "zone-123",
+			name: "assets-config-site",
+			domains: ["cfg.example.com"],
+			staticAssets: {
+				directory: "/nix/store/ghi-site",
+				htmlHandling: "none",
+				notFoundHandling: "single-page-application",
+				runWorkerFirst: ["/api/*"],
+			},
+		});
+
+		await resolveOutput(site.worker.id);
+
+		const worker = byName("-worker")[0];
+		const assets = worker.inputs.assets as Record<string, unknown>;
+		expect(assets.config).toMatchObject({
+			htmlHandling: "none",
+			notFoundHandling: "single-page-application",
+			runWorkerFirst: ["/api/*"],
+		});
+	});
+
+	it("rejects configuring both r2Bucket and staticAssets", () => {
+		expect(
+			() =>
+				new WorkerSite("both-modes-site", {
+					accountId: "account-123",
+					zoneId: "zone-123",
+					name: "both-modes-site",
+					domains: ["both.example.com"],
+					r2Bucket: { bucketName: "both-assets" },
+					staticAssets: { directory: "/nix/store/jkl-site" },
+				}),
+		).toThrow("r2Bucket and staticAssets are mutually exclusive");
+	});
+
+	it("rejects configuring neither r2Bucket nor staticAssets", () => {
+		expect(
+			() =>
+				new WorkerSite("no-mode-site", {
+					accountId: "account-123",
+					zoneId: "zone-123",
+					name: "no-mode-site",
+					domains: ["nomode.example.com"],
+				}),
+		).toThrow(
+			"WorkerSite requires either r2Bucket (R2 serving mode) or staticAssets (Workers Static Assets mode)",
+		);
+	});
+
+	it("rejects R2 cache settings in staticAssets mode", () => {
+		expect(
+			() =>
+				new WorkerSite("assets-cache-site", {
+					accountId: "account-123",
+					zoneId: "zone-123",
+					name: "assets-cache-site",
+					domains: ["cache.example.com"],
+					staticAssets: { directory: "/nix/store/mno-site" },
+					cacheTtlSeconds: 3600,
+				}),
+		).toThrow("cacheTtlSeconds and cacheKeyVersion apply only to R2 mode");
+	});
+
 	it("does not create an IDP when githubOAuthConfig is not provided", async () => {
 		const site = new WorkerSite("no-idp-site", {
 			accountId: "account-123",
