@@ -6,6 +6,7 @@ import {
 	type AccessPathConfig,
 } from "../access/access-gate.ts";
 import {
+	generateAssetsWorkerScript,
 	generateWorkerScript,
 	type RedirectRule,
 } from "./worker-site-script.ts";
@@ -62,6 +63,51 @@ export interface WorkerScriptConfig {
  * The callback URL should be `https://<your-team>.cloudflareaccess.com/cdn-cgi/access/callback`.
  */
 export type GithubOAuthConfig = AccessGithubOAuthConfig;
+
+/**
+ * Configuration for serving the site via Workers Static Assets (ADR-034).
+ *
+ * In this mode the Cloudflare provider scans `directory`, computes a
+ * content-addressed manifest, and uploads only new/changed files as part of
+ * the `WorkersScript` update — no R2 bucket, no per-file Pulumi resources,
+ * and no zone cache purge (deploys are atomic and versioned).
+ */
+export interface StaticAssetsConfig {
+	/**
+	 * Path to the built site directory to upload (e.g. a NixOutput store path).
+	 * A changed path or changed contents trigger a manifest re-upload of only
+	 * the missing files.
+	 */
+	directory: pulumi.Input<string>;
+
+	/**
+	 * Redirect/rewrite handling for HTML requests.
+	 * Available values: "auto-trailing-slash", "force-trailing-slash",
+	 * "drop-trailing-slash", "none".
+	 * @default "auto-trailing-slash" (Cloudflare's default)
+	 */
+	htmlHandling?: pulumi.Input<string>;
+
+	/**
+	 * Response when a request matches no asset.
+	 * Available values: "none", "404-page", "single-page-application".
+	 * "404-page" serves a root `/404.html` with a 404 status — the right
+	 * default for the static-site use case this component targets.
+	 * @default "404-page"
+	 */
+	notFoundHandling?: pulumi.Input<string>;
+
+	/**
+	 * Invoke the Worker script before attempting to serve a matching asset.
+	 * `true` routes every request through the Worker; a string[] of path rules
+	 * (glob and `!` negation) routes selectively.
+	 *
+	 * Defaults to `true` when `redirects` are configured (the generated script
+	 * must see the request before asset serving to apply host redirects) and
+	 * unset otherwise (assets served directly; Worker only runs on misses).
+	 */
+	runWorkerFirst?: boolean | string[];
+}
 
 /**
  * Configuration for Cloudflare Worker observability.
@@ -154,9 +200,13 @@ export interface WorkerSiteArgs {
 	domains: pulumi.Input<string>[];
 
 	/**
-	 * R2 bucket configuration.
+	 * R2 bucket configuration (R2 serving mode).
+	 *
+	 * Exactly one of `r2Bucket` or `staticAssets` must be provided. Prefer
+	 * `staticAssets` for static sites — it avoids per-file upload resources
+	 * and serves assets from Cloudflare's asset pipeline (ADR-034).
 	 */
-	r2Bucket: {
+	r2Bucket?: {
 		/**
 		 * R2 bucket name.
 		 */
@@ -183,6 +233,15 @@ export interface WorkerSiteArgs {
 		 */
 		location?: pulumi.Input<string>;
 	};
+
+	/**
+	 * Serve the site via Workers Static Assets instead of R2 (ADR-034).
+	 *
+	 * Exactly one of `r2Bucket` or `staticAssets` must be provided. In this
+	 * mode `cacheTtlSeconds` and `cacheKeyVersion` must be left unset — asset
+	 * caching and invalidation are handled by the platform.
+	 */
+	staticAssets?: StaticAssetsConfig;
 
 	/**
 	 * GitHub Identity Provider ID in Cloudflare Access.
@@ -286,12 +345,25 @@ export interface WorkerSiteArgs {
  *
  * @remarks
  * ADR-011 implementation with:
- * - R2-backed Worker serving static files with Cache API
+ * - Two serving modes: R2-backed Worker with Cache API (`r2Bucket`), or
+ *   Workers Static Assets with provider-managed uploads (`staticAssets`, ADR-034)
  * - Multiple domains via WorkersCustomDomain
  * - Optional Zero Trust access control per path
  * - Optional declarative R2 asset uploads via the sibling `./r2` sub-path (ADR-014)
  * - Optional host-level redirect rules
  * - Optional custom Worker script with extra bindings
+ *
+ * @example
+ * Static site served via Workers Static Assets (no R2, no upload resources):
+ * ```typescript
+ * const site = new WorkerSite("my-site", {
+ *   accountId: "abc123",
+ *   zoneId: "xyz789",
+ *   name: "my-site",
+ *   domains: ["example.com"],
+ *   staticAssets: { directory: siteBuild.storePath },
+ * });
+ * ```
  *
  * @example
  * Fully public site with www redirect:
@@ -392,6 +464,27 @@ export class WorkerSite extends pulumi.ComponentResource {
 			);
 		}
 
+		if (args.r2Bucket && args.staticAssets) {
+			throw new Error(
+				"r2Bucket and staticAssets are mutually exclusive — choose one serving mode",
+			);
+		}
+
+		if (!args.r2Bucket && !args.staticAssets) {
+			throw new Error(
+				"WorkerSite requires either r2Bucket (R2 serving mode) or staticAssets (Workers Static Assets mode)",
+			);
+		}
+
+		if (
+			args.staticAssets &&
+			(args.cacheTtlSeconds !== undefined || args.cacheKeyVersion !== undefined)
+		) {
+			throw new Error(
+				"cacheTtlSeconds and cacheKeyVersion apply only to R2 mode — Workers Static Assets caching is managed by the platform",
+			);
+		}
+
 		const resourceOpts = { parent: this };
 
 		// 0. Delegate Access provisioning to AccessGate (ADR-016)
@@ -418,8 +511,8 @@ export class WorkerSite extends pulumi.ComponentResource {
 			this.githubIdp = accessGate.githubIdp;
 		}
 
-		// 1. Create or reference R2 bucket
-		if (args.r2Bucket.create === true) {
+		// 1. Create or reference R2 bucket (R2 serving mode only)
+		if (args.r2Bucket?.create === true) {
 			this.bucket = new cloudflare.R2Bucket(
 				`${name}-bucket`,
 				{
@@ -432,12 +525,14 @@ export class WorkerSite extends pulumi.ComponentResource {
 
 		const bucketName = this.bucket
 			? this.bucket.name
-			: pulumi.output(args.r2Bucket.bucketName);
+			: args.r2Bucket
+				? pulumi.output(args.r2Bucket.bucketName)
+				: undefined;
 
 		// 2. Build Worker script content
 		const bucketBinding = "R2_BUCKET";
 		const cacheTtl = args.cacheTtlSeconds ?? 31536000; // Default 1 year
-		const prefix = args.r2Bucket.prefix
+		const prefix = args.r2Bucket?.prefix
 			? pulumi.output(args.r2Bucket.prefix)
 			: undefined;
 		const cacheKeyVersion = pulumi
@@ -497,6 +592,10 @@ export class WorkerSite extends pulumi.ComponentResource {
 				...b,
 				type: "plain_text" as const,
 			}));
+		} else if (args.staticAssets) {
+			// Assets mode: platform serves matching assets; the script only
+			// handles redirects and falls through to the ASSETS binding.
+			scriptContent = generateAssetsWorkerScript(args.redirects);
 		} else {
 			// Generate default script, optionally with redirect rules
 			scriptContent = prefix
@@ -506,6 +605,51 @@ export class WorkerSite extends pulumi.ComponentResource {
 				: generateWorkerScript(bucketBinding, undefined, args.redirects);
 		}
 
+		// Host redirects in the generated assets-mode script only take effect
+		// if the Worker sees the request before asset serving.
+		const hasGeneratedRedirects =
+			!args.workerScript && (args.redirects?.length ?? 0) > 0;
+
+		const bindings: cloudflare.types.input.WorkersScriptBinding[] =
+			args.staticAssets
+				? [{ name: "ASSETS", type: "assets" }, ...extraBindings]
+				: [
+						{
+							name: bucketBinding,
+							// biome-ignore lint/style/noNonNullAssertion: r2 mode guarantees a bucket name (validated above)
+							bucketName: bucketName!,
+							type: "r2_bucket",
+						},
+						{
+							name: "CACHE_TTL_SECONDS",
+							text: pulumi
+								.output(cacheTtl)
+								.apply((ttl: number) => ttl.toString()),
+							type: "plain_text",
+						},
+						{
+							name: "CACHE_KEY_VERSION",
+							text: cacheKeyVersion,
+							type: "plain_text",
+						},
+						...extraBindings,
+					];
+
+		const assets: cloudflare.types.input.WorkersScriptAssets | undefined =
+			args.staticAssets
+				? {
+						directory: args.staticAssets.directory,
+						config: {
+							htmlHandling: args.staticAssets.htmlHandling,
+							notFoundHandling:
+								args.staticAssets.notFoundHandling ?? "404-page",
+							runWorkerFirst:
+								args.staticAssets.runWorkerFirst ??
+								(hasGeneratedRedirects ? true : undefined),
+						},
+					}
+				: undefined;
+
 		// 3. Create WorkersScript
 		this.worker = new cloudflare.WorkersScript(
 			`${name}-worker`,
@@ -514,26 +658,8 @@ export class WorkerSite extends pulumi.ComponentResource {
 				scriptName: args.name,
 				content: scriptContent,
 				mainModule: "worker.js",
-				bindings: [
-					{
-						name: bucketBinding,
-						bucketName: bucketName,
-						type: "r2_bucket",
-					},
-					{
-						name: "CACHE_TTL_SECONDS",
-						text: pulumi
-							.output(cacheTtl)
-							.apply((ttl: number) => ttl.toString()),
-						type: "plain_text",
-					},
-					{
-						name: "CACHE_KEY_VERSION",
-						text: cacheKeyVersion,
-						type: "plain_text",
-					},
-					...extraBindings,
-				],
+				bindings,
+				...(assets ? { assets } : {}),
 				observability: workerObservability,
 			},
 			resourceOpts,
