@@ -1,0 +1,217 @@
+/**
+ * 1Password CLI-style op:// parser + CRD creation helpers.
+ *
+ * This module provides utilities for detecting op:// config values,
+ * parsing them, and creating 1Password-operator CRDs that sync secrets
+ * into Kubernetes Secrets consumable by pods via secretKeyRef.
+ */
+
+import type * as pulumi from "@pulumi/pulumi";
+import type * as k8s from "@pulumi/kubernetes";
+
+/**
+ * Parse a 1Password CLI-style `op://` reference into the CRD `itemPath` and
+ * field-name components needed to sync a Kubernetes Secret via the
+ * 1Password Connect operator.
+ *
+ * Accepts:
+ *   op://<vault-uuid>/<item-uuid>/<field-name>
+ *   op://<vault-uuid>/<item-uuid>/<section>/<field-name>
+ *
+ * The OnePasswordItem CRD `itemPath` format is `vaults/<vault>/items/<item>`.
+ * The field name is the **last** path segment — it becomes the key in the
+ * synced K8s Secret (matching the 1Password item's field label).
+ *
+ * @throws Error if the reference has fewer than 3 segments or is malformed.
+ */
+export function parseOnePasswordItemReference(
+	opRef: string,
+	accountKey: string,
+): { itemPath: string; fieldName: string } {
+	const path = opRef.slice("op://".length);
+	const parts = path.split("/").filter(Boolean);
+	if (parts.length < 3) {
+		throw new Error(
+			`Invalid 1Password reference for backend account '${accountKey}': "${opRef}". ` +
+				"Expected op://<vault>/<item>/<field> or op://<vault>/<item>/<section>/<field>.",
+		);
+	}
+	const [vaultId, itemId, ...rest] = parts;
+	const fieldName = rest[rest.length - 1];
+	return {
+		itemPath: `vaults/${vaultId}/items/${itemId}`,
+		fieldName,
+	};
+}
+
+/**
+ * Merge multiple secret-ref env var maps into a single map.
+ * Returns undefined if all inputs are undefined or the merged result is empty.
+ */
+export function mergeSecretRefEnvs(
+	...envMaps: (
+		| Record<string, { secretName: pulumi.Input<string>; key: pulumi.Input<string> }>
+		| undefined
+	)[]
+):
+	| Record<string, { secretName: pulumi.Input<string>; key: pulumi.Input<string> }>
+	| undefined {
+	const merged = Object.assign({}, ...envMaps.filter(Boolean));
+	return Object.keys(merged).length > 0 ? merged : undefined;
+}
+
+/**
+ * Options for creating 1Password secret references from config values.
+ */
+export interface CreateOnePasswordSecretRefsOptions<
+	T extends Record<string, unknown>,
+> {
+	/**
+	 * Pulumi config object to read raw values from.
+	 */
+	config: pulumi.Config;
+
+	/**
+	 * Base config key prefix (e.g., "backendAccounts").
+	 * Combined with item key to read the specific config value.
+	 */
+	configKey: string;
+
+	/**
+	 * Map of item keys to item configurations.
+	 */
+	items: Record<string, T>;
+
+	/**
+	 * Function to extract the op:// reference field from an item.
+	 * Returns undefined if the field doesn't start with "op://".
+	 */
+	keySelector: (item: T, itemKey: string) => string | undefined;
+
+	/**
+	 * Function to convert an item key to an env var name.
+	 * Example: "personal-zai" → "PERSONAL_ZAI_API_KEY".
+	 */
+	envVarNaming: (itemKey: string) => string;
+
+	/**
+	 * Kubernetes namespace where CRDs will be created.
+	 */
+	namespace: pulumi.Input<string>;
+
+	/**
+	 * Pulumi provider for Kubernetes resources.
+	 */
+	provider: pulumi.ProviderResource;
+
+	/**
+	 * Optional resources that must exist before the CRDs are created.
+	 */
+	dependsOn?: pulumi.Input<pulumi.Resource>[];
+
+	/**
+	 * Optional guard to block op:// for certain item types.
+	 * Throws an error if the guard returns a message.
+	 */
+	blockRef?: (
+		item: T,
+		itemKey: string,
+		opRef: string,
+	) => string | undefined;
+}
+
+/**
+ * Create OnePasswordItem CRDs for op:// references and return a secret-ref
+ * env var map.
+ *
+ * This function:
+ * 1. Iterates through items
+ * 2. Checks the selected field for op:// prefix
+ * 3. Creates OnePasswordItem CRDs for detected references
+ * 4. Returns a map of env var names → secret names/keys
+ *
+ * Use with `requireMixedConfig`'s secret fields: override the original field
+ * values in the items map with `os.environ/${envVarName}` refs.
+ *
+ * @example
+ * ```typescript
+ * const providerSecretRefs = createOnePasswordSecretRefs({
+ *   config,
+ *   configKey: "backendAccounts",
+ *   items: directBackendAccounts,
+ *   keySelector: (item, key) => {
+ *     const rawApiKey = config.get(`backendAccounts.${key}.apiKey`);
+ *     return rawApiKey?.startsWith("op://") ? rawApiKey : undefined;
+ *   },
+ *   envVarNaming: (key) => key.toUpperCase().replace(/-/g, "_").concat("_API_KEY"),
+ *   namespace: litellmNamespace.metadata.name,
+ *   provider,
+ *   blockRef: (item) => item.provider === "zai"
+ *     ? `Backend account '${key}' (provider: zai) cannot use op://...`
+ *     : undefined,
+ * });
+ *
+ * // Override account API keys
+ * for (const [envVarName, { secretName, key }] of Object.entries(providerSecretRefs)) {
+ *   const accountKey = envVarName.slice(0, -"_API_KEY".length).toLowerCase().replace(/_/g, "-");
+ *   directBackendAccounts[accountKey].apiKey = `os.environ/${envVarName}`;
+ * }
+ * ```
+ */
+export function createOnePasswordSecretRefs<T extends Record<string, unknown>>(
+	options: CreateOnePasswordSecretRefsOptions<T>,
+): Record<string, { secretName: pulumi.Input<string>; key: pulumi.Input<string> }> {
+	const {
+		config,
+		configKey,
+		items,
+		keySelector,
+		envVarNaming,
+		namespace,
+		provider,
+		dependsOn = [],
+		blockRef,
+	} = options;
+
+	const secretRefs: Record<
+		string,
+		{ secretName: pulumi.Input<string>; key: pulumi.Input<string> }
+	> = {};
+
+	for (const [itemKey, item] of Object.entries(items)) {
+		const opRef = keySelector(item, itemKey);
+		if (!opRef) continue;
+
+		// Check guard
+		const blockMessage = blockRef?.(item, itemKey, opRef);
+		if (blockMessage) {
+			throw new Error(blockMessage);
+		}
+
+		const { itemPath, fieldName } = parseOnePasswordItemReference(
+			opRef,
+			itemKey,
+		);
+		const secretName = `${configKey}-${itemKey}-api-key`;
+		const envVarName = envVarNaming(itemKey);
+
+		// Create the CRD
+		new k8s.apiextensions.CustomResource(
+			`${configKey}-${itemKey}-onepassword-item`,
+			{
+				apiVersion: "onepassword.com/v1",
+				kind: "OnePasswordItem",
+				metadata: {
+					name: secretName,
+					namespace,
+				},
+				spec: { itemPath },
+			},
+			{ provider, dependsOn },
+		);
+
+		secretRefs[envVarName] = { secretName, key: fieldName };
+	}
+
+	return secretRefs;
+}
