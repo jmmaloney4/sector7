@@ -284,7 +284,9 @@ export function createOnePasswordSecretRefs<T extends Record<string, unknown>>(
 		);
 		// Kubernetes metadata.name must be DNS-1123 compliant: lowercase
 		// alphanumeric or hyphens, must start/end with alphanumeric.
-		const secretName = toDNS1123Name(`${configKey}-${itemKey}-api-key`);
+		const secretName = toDNS1123Name(
+			`${configKey}-${itemKey}-${fieldName}`,
+		);
 		if (!secretName) {
 			throw new Error(
 				`Generated secret name is empty for item '${itemKey}'. ` +
