@@ -47,6 +47,45 @@ describe("parseOnePasswordItemReference", () => {
 		).toThrow("Invalid 1Password reference");
 	});
 
+	it("throws for too many segments (> 4)", () => {
+		expect(() =>
+			parseOnePasswordItemReference("op://v1/i2/a/b/c", "test-account"),
+		).toThrow("Invalid 1Password reference");
+	});
+
+	it("strips query parameters from the field name", () => {
+		const result = parseOnePasswordItemReference(
+			"op://v1/i2/f3?attribute=otp",
+			"test-account",
+		);
+		expect(result).toEqual({
+			itemPath: "vaults/v1/items/i2",
+			fieldName: "f3",
+		});
+	});
+
+	it("strips ssh-format query parameters", () => {
+		const result = parseOnePasswordItemReference(
+			"op://Private/ssh/ssh-key/private-key?ssh-format=openssh",
+			"test-account",
+		);
+		expect(result).toEqual({
+			itemPath: "vaults/Private/items/ssh",
+			fieldName: "private-key",
+		});
+	});
+
+	it("preserves whitespace in names (official spec allows it)", () => {
+		const result = parseOnePasswordItemReference(
+			"op://Private/ssh keys/ssh key/private key",
+			"test-account",
+		);
+		expect(result).toEqual({
+			itemPath: "vaults/Private/items/ssh keys",
+			fieldName: "private key",
+		});
+	});
+
 	it("handles UUID-style IDs correctly", () => {
 		const result = parseOnePasswordItemReference(
 			"op://550e8400-e29b-41d4-a716-446655440000/550e8400-e29b-41d4-a716-446655440001/credential",

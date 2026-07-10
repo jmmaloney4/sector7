@@ -7,30 +7,42 @@
  */
 
 import type * as pulumi from "@pulumi/pulumi";
-import type * as k8s from "@pulumi/kubernetes";
+import * as k8s from "@pulumi/kubernetes";
 
 /**
- * Parse a 1Password CLI-style `op://` reference into the CRD `itemPath` and
- * field-name components needed to sync a Kubernetes Secret via the
- * 1Password Connect operator.
+ * Parse a 1Password CLI secret-reference URI (`op://`) into the CRD
+ * `itemPath` and field-name components needed to sync a Kubernetes Secret
+ * via the 1Password Connect operator.
  *
- * Accepts:
- *   op://<vault-uuid>/<item-uuid>/<field-name>
- *   op://<vault-uuid>/<item-uuid>/<section>/<field-name>
+ * Implements the official `op://` syntax:
+ *   op://<vault>/<item>/[section/]<field>
  *
- * The OnePasswordItem CRD `itemPath` format is `vaults/<vault>/items/<item>`.
- * The field name is the **last** path segment — it becomes the key in the
- * synced K8s Secret (matching the 1Password item's field label).
+ * Both names and UUIDs are accepted for vault, item, section, and field
+ * (the 1Password Connect operator's `itemPath` accepts either form).
  *
- * @throws Error if the reference has fewer than 3 segments or is malformed.
+ * Query parameters (e.g. `?attribute=otp`, `?ssh-format=openssh`) are
+ * supported but do not affect the CRD — the operator syncs the field value
+ * as-is, and the field label becomes the K8s Secret key regardless of query
+ * params. The query string is stripped before parsing.
+ *
+ * Supported characters per the 1Password spec: `a-z`, `A-Z`, `0-9`, `-`,
+ * `_`, `.`, and whitespace. Names with unsupported characters must use
+ * their UUID identifier instead.
+ *
+ * @throws Error if the reference has fewer than 3 path segments (missing
+ *         vault, item, or field) or more than 4 (unexpected nesting).
+ * @see https://developer.1password.com/docs/cli/secrets-references
  */
 export function parseOnePasswordItemReference(
 	opRef: string,
 	accountKey: string,
 ): { itemPath: string; fieldName: string } {
-	const path = opRef.slice("op://".length);
+	const pathPart = opRef.slice("op://".length);
+	// Strip query parameters (e.g. "?attribute=otp") — they affect how `op read`
+	// returns the value but not the CRD sync target.
+	const [path] = pathPart.split("?");
 	const parts = path.split("/").filter(Boolean);
-	if (parts.length < 3) {
+	if (parts.length < 3 || parts.length > 4) {
 		throw new Error(
 			`Invalid 1Password reference for backend account '${accountKey}': "${opRef}". ` +
 				"Expected op://<vault>/<item>/<field> or op://<vault>/<item>/<section>/<field>.",
