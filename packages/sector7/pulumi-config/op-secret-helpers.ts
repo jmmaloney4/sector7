@@ -71,6 +71,12 @@ export function parseOnePasswordItemReference(
 	// here — otherwise our returned key won't match the key in the synced
 	// K8s Secret, and secretKeyRef will silently point at a non-existent key.
 	const sanitizedFieldName = normalizeSecretKeyName(fieldName);
+	if (!sanitizedFieldName) {
+		throw new Error(
+			`Invalid 1Password reference for backend account '${accountKey}': "${opRef}". ` +
+				"Field name normalizes to an empty Kubernetes Secret key.",
+		);
+	}
 	return {
 		itemPath: `vaults/${vaultId}/items/${itemId}`,
 		fieldName: sanitizedFieldName,

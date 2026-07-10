@@ -103,6 +103,12 @@ describe("parseOnePasswordItemReference", () => {
 		).toThrow('Expected value to start with "op://"');
 	});
 
+	it("rejects field names that normalize to an empty secret key", () => {
+		expect(() =>
+			parseOnePasswordItemReference("op://vault/item/!!!", "test-account"),
+		).toThrow("Field name normalizes to an empty Kubernetes Secret key");
+	});
+
 	it("handles UUID-style IDs correctly", () => {
 		const result = parseOnePasswordItemReference(
 			"op://550e8400-e29b-41d4-a716-446655440000/550e8400-e29b-41d4-a716-446655440001/credential",
