@@ -37,6 +37,12 @@ export function parseOnePasswordItemReference(
 	opRef: string,
 	accountKey: string,
 ): { itemPath: string; fieldName: string } {
+	if (!opRef.startsWith("op://")) {
+		throw new Error(
+			`Invalid 1Password reference for backend account '${accountKey}': "${opRef}". ` +
+				'Expected value to start with "op://".',
+		);
+	}
 	const pathPart = opRef.slice("op://".length);
 	// Strip query parameters (e.g. "?attribute=otp") — they affect how `op read`
 	// returns the value but not the CRD sync target.
@@ -59,10 +65,45 @@ export function parseOnePasswordItemReference(
 	}
 	const [vaultId, itemId, ...rest] = parts;
 	const fieldName = rest[rest.length - 1];
+	// Kubernetes Secret data keys must comply with DNS subdomain naming. The
+	// 1Password Connect operator normalizes field labels via its own
+	// createValidSecretDataName function, so we must match that exact logic
+	// here — otherwise our returned key won't match the key in the synced
+	// K8s Secret, and secretKeyRef will silently point at a non-existent key.
+	const sanitizedFieldName = normalizeSecretKeyName(fieldName);
 	return {
 		itemPath: `vaults/${vaultId}/items/${itemId}`,
-		fieldName,
+		fieldName: sanitizedFieldName,
 	};
+}
+
+/**
+ * Normalize a 1Password field label into a valid Kubernetes Secret data key,
+ * matching the 1Password Connect operator's createValidSecretDataName logic:
+ *
+ * 1. Strip characters from the start/end that are not alphanumeric, hyphen,
+ *    underscore, or period.
+ * 2. Replace remaining invalid characters with hyphens.
+ * 3. Truncate to 253 characters (DNS1123SubdomainMaxLength).
+ *
+ * Unlike DNS-1123 label names, case is preserved (the operator does not
+ * lowercase data keys).
+ */
+function normalizeSecretKeyName(name: string): string {
+	const valid = /[a-zA-Z0-9-_.]/;
+	let result = name;
+	// Strip leading invalid chars
+	while (result.length > 0 && !valid.test(result[0]!)) {
+		result = result.slice(1);
+	}
+	// Strip trailing invalid chars
+	while (result.length > 0 && !valid.test(result[result.length - 1]!)) {
+		result = result.slice(0, -1);
+	}
+	// Replace remaining invalid chars with hyphens
+	result = result.replace(/[^a-zA-Z0-9-_.]/g, "-");
+	// Truncate to DNS1123SubdomainMaxLength (253)
+	return result.slice(0, 253);
 }
 
 /**
@@ -233,7 +274,22 @@ export function createOnePasswordSecretRefs<T extends Record<string, unknown>>(
 		// Kubernetes metadata.name must be DNS-1123 compliant: lowercase
 		// alphanumeric or hyphens, must start/end with alphanumeric.
 		const secretName = toDNS1123Name(`${configKey}-${itemKey}-api-key`);
+		if (!secretName) {
+			throw new Error(
+				`Generated secret name is empty for item '${itemKey}'. ` +
+					"Ensure configKey and itemKey contain at least one DNS-1123 character.",
+			);
+		}
 		const envVarName = envVarNaming(itemKey);
+
+		// Detect normalized secret name collisions — two different item keys can
+		// collapse to the same DNS-1123 name after sanitization.
+		if (Object.values(secretRefs).some((ref) => ref.secretName === secretName)) {
+			throw new Error(
+				`Kubernetes secret name collision: two items produced secret '${secretName}'. ` +
+					"Ensure item keys remain unique after DNS-1123 normalization.",
+			);
+		}
 
 		// Detect env var name collisions — two item keys that produce the same
 		// env var name would silently overwrite each other in the output map.

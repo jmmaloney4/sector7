@@ -84,15 +84,23 @@ describe("parseOnePasswordItemReference", () => {
 		});
 	});
 
-	it("preserves whitespace in names (official spec allows it)", () => {
+	it("normalizes whitespace in field name to match operator behavior", () => {
+		// The 1Password operator replaces spaces in field labels with hyphens
+		// when creating K8s Secret keys. Our parser must match.
 		const result = parseOnePasswordItemReference(
 			"op://Private/ssh keys/ssh key/private key",
 			"test-account",
 		);
 		expect(result).toEqual({
 			itemPath: "vaults/Private/items/ssh keys",
-			fieldName: "private key",
+			fieldName: "private-key",
 		});
+	});
+
+	it("rejects non-op:// prefix", () => {
+		expect(() =>
+			parseOnePasswordItemReference("https://vault/item/field", "test-account"),
+		).toThrow('Expected value to start with "op://"');
 	});
 
 	it("handles UUID-style IDs correctly", () => {
