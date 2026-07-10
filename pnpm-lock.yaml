@@ -40,11 +40,11 @@ importers:
         specifier: 9.29.0
         version: 9.29.0(typescript@6.0.3)
       '@pulumi/kubernetes':
-        specifier: 4.32.0
-        version: 4.32.0(typescript@6.0.3)
+        specifier: 4.33.0
+        version: 4.33.0(typescript@6.0.3)
       '@pulumi/pulumi':
-        specifier: 3.248.0
-        version: 3.248.0(typescript@6.0.3)
+        specifier: 3.250.0
+        version: 3.250.0(typescript@6.0.3)
       '@pulumi/random':
         specifier: 4.21.0
         version: 4.21.0(typescript@6.0.3)
@@ -490,12 +490,12 @@ packages:
   '@pulumi/gcp@9.29.0':
     resolution: {integrity: sha512-u+0pLqz7mCpXncAiP/5wWTVYVKa9dWhUgGXCVuPNJOb6VrapaWN7tT3lh3o8SYAS4DzqItCFo1TkdjxMRouQXQ==}
 
-  '@pulumi/kubernetes@4.32.0':
-    resolution: {integrity: sha512-JMzaG8BI+nsHzcOwFEbmueyn2HN4HrLv1znVAKS0vPgLrlSAc+WDsaRUxQnHBE37+3RL3r4mipUemRCIe8Xvww==}
+  '@pulumi/kubernetes@4.33.0':
+    resolution: {integrity: sha512-tSMUDEWNl1pqOrANVqQRao5KRKB9waghbjpC29MUqCaqiVLZe6V0biVGC0TRDMy3hKXdP2VjiLAZ7DMnqts7rw==}
 
-  '@pulumi/pulumi@3.248.0':
-    resolution: {integrity: sha512-EqgeHjVIqMS8voAM7F8SOzFAMHnVXUDdKTNF1o3Lg85YwVI0j4/eIlWG0iIVAWJl3DX0KOOM6++X0wLKHWWwmQ==}
-    engines: {node: '>=20'}
+  '@pulumi/pulumi@3.250.0':
+    resolution: {integrity: sha512-/CaE4gWlOGNFt9eWxip2SscL1Nh1i9ZzzFSkjbrNQol5u9dOjGWNzWlOCerA6riH0603MkT9xNlRnJ4TGstXrw==}
+    engines: {node: '>=22'}
     peerDependencies:
       ts-node: '>= 7.0.1 < 12'
       typescript: '>= 3.8.3 < 7'
@@ -743,9 +743,6 @@ packages:
 
   '@types/stream-buffers@3.0.8':
     resolution: {integrity: sha512-J+7VaHKNvlNPJPEJXX/fKa9DZtR/xPMwuIbe+yNOwp1YB+ApUOBv2aUpEoBJEi8nJgbgs1x8e73ttg0r1rSUdw==}
-
-  '@types/tmp@0.2.6':
-    resolution: {integrity: sha512-chhaNf2oKHlRkDGt+tiKE2Z5aJ6qalm7Z9rlLdBwmOiAAf09YQvvoLXjWK4HWPF1xU/fqvMgfNfpVoBscA/tKA==}
 
   '@vitest/expect@4.1.9':
     resolution: {integrity: sha512-vl/rYsUKcBr3SnQn166+XR5ZQcgMx3DQhFWdfli/cWpLnLUmbxZvyrJZotLFUryib+LtArYMSTJ5RbQ57ZqrlA==}
@@ -1686,10 +1683,6 @@ packages:
     resolution: {integrity: sha512-Bf+ILmBgretUrdJxzXM0SgXLZ3XfiaUuOj/IKQHuTXip+05Xn+uyEYdVg0kYDipTBcLrCVyUzAPz7QmArb0mmw==}
     engines: {node: '>=14.0.0'}
 
-  tmp@0.2.5:
-    resolution: {integrity: sha512-voyz6MApa1rQGUxT3E+BK7/ROe8itEx7vD8/HEvt4xwXucvQ5G5oeEiHkmHZJuBO21RpOf+YYm9MOivj709jow==}
-    engines: {node: '>=14.14'}
-
   tr46@0.0.3:
     resolution: {integrity: sha512-N3WMsuqV66lT30CrXNbEjx4GEwlow3v6rr4mCcv6prnfwhS01rkgyFdjPNBYd9br7LpXV1+Emh01fHnq2Gdgrw==}
 
@@ -2341,7 +2334,7 @@ snapshots:
 
   '@pulumi/cloudflare@6.17.0(typescript@6.0.3)':
     dependencies:
-      '@pulumi/pulumi': 3.248.0(typescript@6.0.3)
+      '@pulumi/pulumi': 3.250.0(typescript@6.0.3)
     transitivePeerDependencies:
       - supports-color
       - ts-node
@@ -2349,7 +2342,7 @@ snapshots:
 
   '@pulumi/command@1.2.1(typescript@6.0.3)':
     dependencies:
-      '@pulumi/pulumi': 3.248.0(typescript@6.0.3)
+      '@pulumi/pulumi': 3.250.0(typescript@6.0.3)
     transitivePeerDependencies:
       - supports-color
       - ts-node
@@ -2358,16 +2351,16 @@ snapshots:
   '@pulumi/gcp@9.29.0(typescript@6.0.3)':
     dependencies:
       '@npmcli/package-json': 6.2.0
-      '@pulumi/pulumi': 3.248.0(typescript@6.0.3)
+      '@pulumi/pulumi': 3.250.0(typescript@6.0.3)
       '@types/express': 4.17.25
     transitivePeerDependencies:
       - supports-color
       - ts-node
       - typescript
 
-  '@pulumi/kubernetes@4.32.0(typescript@6.0.3)':
+  '@pulumi/kubernetes@4.33.0(typescript@6.0.3)':
     dependencies:
-      '@pulumi/pulumi': 3.248.0(typescript@6.0.3)
+      '@pulumi/pulumi': 3.250.0(typescript@6.0.3)
       glob: 12.0.0
       shell-quote: 1.8.3
     transitivePeerDependencies:
@@ -2375,7 +2368,7 @@ snapshots:
       - ts-node
       - typescript
 
-  '@pulumi/pulumi@3.248.0(typescript@6.0.3)':
+  '@pulumi/pulumi@3.250.0(typescript@6.0.3)':
     dependencies:
       '@grpc/grpc-js': 1.14.3
       '@logdna/tail-file': 2.2.0
@@ -2390,19 +2383,15 @@ snapshots:
       '@opentelemetry/sdk-trace-node': 1.30.1(@opentelemetry/api@1.9.0)
       '@types/google-protobuf': 3.15.12
       '@types/semver': 7.7.1
-      '@types/tmp': 0.2.6
       execa: 5.1.1
-      fdir: 6.5.0(picomatch@4.0.3)
       google-protobuf: 3.21.4
       ini: 2.0.0
       js-yaml: 4.2.0
       minimist: 1.2.8
       normalize-package-data: 6.0.2
-      picomatch: 4.0.3
       require-from-string: 2.0.2
       semver: 7.7.3
       source-map-support: 0.5.21
-      tmp: 0.2.5
       upath: 1.2.0
     optionalDependencies:
       typescript: 6.0.3
@@ -2411,7 +2400,7 @@ snapshots:
 
   '@pulumi/random@4.21.0(typescript@6.0.3)':
     dependencies:
-      '@pulumi/pulumi': 3.248.0(typescript@6.0.3)
+      '@pulumi/pulumi': 3.250.0(typescript@6.0.3)
     transitivePeerDependencies:
       - supports-color
       - ts-node
@@ -2608,8 +2597,6 @@ snapshots:
   '@types/stream-buffers@3.0.8':
     dependencies:
       '@types/node': 24.13.2
-
-  '@types/tmp@0.2.6': {}
 
   '@vitest/expect@4.1.9':
     dependencies:
@@ -3623,8 +3610,6 @@ snapshots:
       picomatch: 4.0.3
 
   tinyrainbow@3.1.0: {}
-
-  tmp@0.2.5: {}
 
   tr46@0.0.3: {}
 
