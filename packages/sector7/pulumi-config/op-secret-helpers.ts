@@ -77,7 +77,24 @@ export function mergeSecretRefEnvs(
 ):
 	| Record<string, { secretName: pulumi.Input<string>; key: pulumi.Input<string> }>
 	| undefined {
-	const merged = Object.assign({}, ...envMaps.filter(Boolean));
+	const merged: Record<
+		string,
+		{ secretName: pulumi.Input<string>; key: pulumi.Input<string> }
+	> = {};
+
+	for (const envMap of envMaps) {
+		if (!envMap) continue;
+		for (const [envVarName, secretRef] of Object.entries(envMap)) {
+			if (envVarName in merged) {
+				throw new Error(
+					`Duplicate secret-ref env var '${envVarName}' during merge. ` +
+						"Ensure each secret-ref source produces unique environment variable names.",
+				);
+			}
+			merged[envVarName] = secretRef;
+		}
+	}
+
 	return Object.keys(merged).length > 0 ? merged : undefined;
 }
 

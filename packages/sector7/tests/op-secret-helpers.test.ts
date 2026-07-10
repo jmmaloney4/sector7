@@ -156,4 +156,13 @@ describe("mergeSecretRefEnvs", () => {
 			K3: { secretName: "s3", key: "k3" },
 		});
 	});
+
+	it("throws on duplicate env var names across maps", () => {
+		expect(() =>
+			mergeSecretRefEnvs(
+				{ DUP_KEY: { secretName: "s1", key: "k1" } },
+				{ DUP_KEY: { secretName: "s2", key: "k2" } },
+			),
+		).toThrow("Duplicate secret-ref env var");
+	});
 });
