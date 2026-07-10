@@ -53,6 +53,15 @@ describe("parseOnePasswordItemReference", () => {
 		).toThrow("Invalid 1Password reference");
 	});
 
+	it("rejects empty path segments caused by consecutive slashes", () => {
+		expect(() =>
+			parseOnePasswordItemReference("op://v1//f3", "test-account"),
+		).toThrow("empty path segment");
+		expect(() =>
+			parseOnePasswordItemReference("op://v1/i2//f3", "test-account"),
+		).toThrow("empty path segment");
+	});
+
 	it("strips query parameters from the field name", () => {
 		const result = parseOnePasswordItemReference(
 			"op://v1/i2/f3?attribute=otp",

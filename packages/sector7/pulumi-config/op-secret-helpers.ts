@@ -41,7 +41,16 @@ export function parseOnePasswordItemReference(
 	// Strip query parameters (e.g. "?attribute=otp") — they affect how `op read`
 	// returns the value but not the CRD sync target.
 	const [path] = pathPart.split("?");
-	const parts = path.split("/").filter(Boolean);
+	const parts = path.split("/");
+	// Reject empty segments (e.g. "op://vault//field") — these indicate a
+	// malformed reference that should fail fast rather than be silently
+	// reinterpreted as a shorter valid path.
+	if (parts.some((p) => !p)) {
+		throw new Error(
+			`Invalid 1Password reference for backend account '${accountKey}': "${opRef}". ` +
+				"Reference contains an empty path segment (consecutive slashes).",
+		);
+	}
 	if (parts.length < 3 || parts.length > 4) {
 		throw new Error(
 			`Invalid 1Password reference for backend account '${accountKey}': "${opRef}". ` +
@@ -204,8 +213,19 @@ export function createOnePasswordSecretRefs<T extends Record<string, unknown>>(
 			opRef,
 			itemKey,
 		);
-		const secretName = `${configKey}-${itemKey}-api-key`;
+		// Kubernetes metadata.name must be DNS-1123 compliant: lowercase
+		// alphanumeric or hyphens, must start/end with alphanumeric.
+		const secretName = toDNS1123Name(`${configKey}-${itemKey}-api-key`);
 		const envVarName = envVarNaming(itemKey);
+
+		// Detect env var name collisions — two item keys that produce the same
+		// env var name would silently overwrite each other in the output map.
+		if (envVarName in secretRefs) {
+			throw new Error(
+				`Environment variable name collision: two items produced env var '${envVarName}'. ` +
+					`Ensure envVarNaming produces unique names for each item key.`,
+			);
+		}
 
 		// Create the CRD
 		new k8s.apiextensions.CustomResource(
@@ -226,4 +246,17 @@ export function createOnePasswordSecretRefs<T extends Record<string, unknown>>(
 	}
 
 	return secretRefs;
+}
+
+/**
+ * Convert a string to a DNS-1123 compliant name suitable for Kubernetes
+ * metadata.name fields. Lowercases, replaces unsupported characters with
+ * hyphens, collapses consecutive hyphens, and trims leading/trailing hyphens.
+ */
+function toDNS1123Name(name: string): string {
+	return name
+		.toLowerCase()
+		.replace(/[^a-z0-9-]/g, "-")
+		.replace(/-+/g, "-")
+		.replace(/^-|-$/g, "");
 }
