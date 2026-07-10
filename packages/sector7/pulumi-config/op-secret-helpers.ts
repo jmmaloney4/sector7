@@ -60,11 +60,16 @@ export function parseOnePasswordItemReference(
 	if (parts.length < 3 || parts.length > 4) {
 		throw new Error(
 			`Invalid 1Password reference for backend account '${accountKey}': "${opRef}". ` +
-				"Expected op://<vault>/<item>/<field> or op://<vault>/<item>/<section>/<field>.",
+				"Expected op://<vault>/<item>/<field>.",
 		);
 	}
-	const [vaultId, itemId, ...rest] = parts;
-	const fieldName = rest[rest.length - 1];
+	if (parts.length === 4) {
+		throw new Error(
+			`Invalid 1Password reference for backend account '${accountKey}': "${opRef}". ` +
+				"Section-qualified references are not supported because the synced Kubernetes Secret key does not retain section information.",
+		);
+	}
+	const [vaultId, itemId, fieldName] = parts;
 	// Kubernetes Secret data keys must comply with DNS subdomain naming. The
 	// 1Password Connect operator normalizes field labels via its own
 	// createValidSecretDataName function, so we must match that exact logic

@@ -13,15 +13,13 @@ describe("parseOnePasswordItemReference", () => {
 		});
 	});
 
-	it("parses a 4-segment op:// reference with section", () => {
-		const result = parseOnePasswordItemReference(
-			"op://v1/i2/section/f4",
-			"test-account",
-		);
-		expect(result).toEqual({
-			itemPath: "vaults/v1/items/i2",
-			fieldName: "f4",
-		});
+	it("rejects section-qualified op:// references", () => {
+		expect(() =>
+			parseOnePasswordItemReference(
+				"op://v1/i2/section/f4",
+				"test-account",
+			),
+		).toThrow("Section-qualified references are not supported");
 	});
 
 	it("strips the op:// prefix correctly", () => {
@@ -75,11 +73,11 @@ describe("parseOnePasswordItemReference", () => {
 
 	it("strips ssh-format query parameters", () => {
 		const result = parseOnePasswordItemReference(
-			"op://Private/ssh/ssh-key/private-key?ssh-format=openssh",
+			"op://Private/ssh-key/private-key?ssh-format=openssh",
 			"test-account",
 		);
 		expect(result).toEqual({
-			itemPath: "vaults/Private/items/ssh",
+			itemPath: "vaults/Private/items/ssh-key",
 			fieldName: "private-key",
 		});
 	});
@@ -88,11 +86,11 @@ describe("parseOnePasswordItemReference", () => {
 		// The 1Password operator replaces spaces in field labels with hyphens
 		// when creating K8s Secret keys. Our parser must match.
 		const result = parseOnePasswordItemReference(
-			"op://Private/ssh keys/ssh key/private key",
+			"op://Private/ssh-keys/private key",
 			"test-account",
 		);
 		expect(result).toEqual({
-			itemPath: "vaults/Private/items/ssh keys",
+			itemPath: "vaults/Private/items/ssh-keys",
 			fieldName: "private-key",
 		});
 	});
