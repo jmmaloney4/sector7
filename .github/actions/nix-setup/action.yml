@@ -33,7 +33,7 @@ runs:
   using: composite
   steps:
     - if: ${{ contains(inputs.runs-on, 'runner=') }} && ${{ contains(inputs.runs-on, 's3-cache') }}
-      uses: runs-on/action@d141ef83eb66d096ce8afc767e09115a65c63b60 # v2.1.2
+      uses: runs-on/action@4e5f72399b6b17f2e79c511c1b38a315a64d22dc # v2.2.0
       with:
         show_costs: true
         sccache: s3
@@ -97,7 +97,7 @@ runs:
           fsync-metadata = false
           fsync-store-paths = false
     - if: ${{ inputs.cache == 'true' && steps.host-daemon.outputs.present != 'true' }}
-      uses: DeterminateSystems/flakehub-cache-action@9926dde74484ccb2224835b80531de64ed4336ef # main
+      uses: DeterminateSystems/flakehub-cache-action@8ceb5534cc3f9ba4f1083af0ab4ce21b6c19217f # main
       # TODO: Fix this
       # with:
       # use-gha-cache: enabled
