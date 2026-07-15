@@ -10,7 +10,7 @@
 			"groupName": null,
 			"prPriority": 10,
 			"reviewers": ["jmmaloney4"],
-			"labels": ["major-update", "deps/major", "chore/deps", "renovate"]
+			"addLabels": ["major-update", "deps/major"]
 		}
 	]
 }
