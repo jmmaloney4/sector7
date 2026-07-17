@@ -51,6 +51,14 @@
 			"addLabels": ["deps/docker"]
 		},
 		{
+			"description": "Group Helm chart minor/patch bumps (helm datasource, e.g. annotated versions in Pulumi config or HelmChart CRD manifests) into one PR. Not automerged: chart bumps only take effect at pulumi up, matching the Docker Images policy.",
+			"groupName": "Helm Releases",
+			"matchDatasources": ["helm"],
+			"matchUpdateTypes": ["minor", "patch"],
+			"automerge": false,
+			"addLabels": ["deps/helm"]
+		},
+		{
 			"groupName": "GitHub Actions",
 			"matchManagers": ["github-actions"],
 			"matchDatasources": ["github-tags", "github-digest"],
