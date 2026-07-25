@@ -71,8 +71,19 @@ STORE_PATH=""
 if [ "${SCRIPT_MODE}" = "build" ]; then
   # Build the derivation. --print-out-paths writes the store path to stdout
   # (captured below); -L build logs go to stderr, redirected to the log fd.
+  #
+  # always-allow-substitutes=false: nix2container records layer tar digests in
+  # JSONs built with allowSubstitutes=false so they always match the local
+  # store the push later streams from. Determinate Nix defaults
+  # always-allow-substitutes to true, which overrides that and lets a cache
+  # serve JSONs built on another machine — if any layer dependency is not
+  # bit-reproducible (e.g. python bytecode), every push then fails with
+  # "Digest did not match". Forcing the option off restores the invariant;
+  # it only affects derivations that explicitly opted out of substitution,
+  # which are cheap by design.
   log "--- nix build ---"
-  STORE_PATH=$(nix build "${REPO_ROOT}#${FULL_ATTR}" --no-link --print-out-paths -L 2>&3)
+  STORE_PATH=$(nix build "${REPO_ROOT}#${FULL_ATTR}" --no-link --print-out-paths -L \
+    --option always-allow-substitutes false 2>&3)
 else
   # Resolve without building. nix eval --raw gives the store path on stdout;
   # any warnings/errors go to stderr, redirected to the log fd.
