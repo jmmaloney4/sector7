@@ -106,10 +106,18 @@ if [ "${SCRIPT_MODE}" = "resolve" ]; then
       >"${DIGEST_FILE}"
 else
   # Build the image
+  #
+  # always-allow-substitutes=false: nix2container's digest-bearing JSONs are
+  # built with allowSubstitutes=false so their recorded layer digests always
+  # match the local store that skopeo streams from. Determinate Nix defaults
+  # always-allow-substitutes to true, overriding that — a substituted JSON
+  # built on another machine makes the push fail with "Digest did not match"
+  # whenever a layer dependency is not bit-reproducible.
   echo "--- nix build ---"
   echo "NIX_ATTR: ${NIX_ATTR}"
   echo "REPO_ROOT: ${REPO_ROOT}"
-  nix build "${REPO_ROOT}#${NIX_ATTR}" -o "${RESULT_LINK}" -L
+  nix build "${REPO_ROOT}#${NIX_ATTR}" -o "${RESULT_LINK}" -L \
+    --option always-allow-substitutes false
 
   IMAGE_PATH="nix:./${RESULT_LINK}"
 
