@@ -7,26 +7,47 @@
 // This module MUST have no top-level *runtime* `import` of heavy third-party
 // packages. Pulumi serializes the provider callbacks that reference
 // `withPortForward` and re-evaluates them from the *consuming* workspace's
-// working directory — not from sector7's installed location. Under pnpm strict
-// isolation, a lazy `await import("@kubernetes/client-node")` in that context
-// resolves against the consumer's `node_modules`, where the package does NOT
-// exist, so the import fails (`Cannot find package '@kubernetes/client-node'`).
+// working directory — not from sector7's installed location.
 //
-// To stay resolvable in any consumer context we pre-resolve the absolute path
-// to the package here, at module load, using a `require` scoped to *this* file
-// (sector7's own installed location). The result is a plain string that Pulumi's
-// closure serializer captures as a free variable — the same mechanism that
-// already carries module-level consts into serialized functions. `import()`
-// with an absolute path then loads the package directly, bypassing the
-// consumer's module resolution entirely. `node:module` is a Node built-in, so
-// importing it at the top level does not violate the "no heavy third-party
-// imports" rule.
+// `@kubernetes/client-node` is loaded lazily inside `withPortForward` via TWO
+// routes, tried in order, so the load works regardless of how the consumer's
+// node_modules is laid out:
+//
+//   1. Bare specifier first: `await import("@kubernetes/client-node")`. This
+//      resolves against the *consumer's* working directory at runtime, so it
+//      works whenever the consumer declares the dependency (garden's litellm
+//      stack does). Because the specifier is a plain string carrying no
+//      absolute path, nothing machine- or directory-specific is captured.
+//
+//   2. Pre-resolved absolute path as fallback: for consumers that do NOT
+//      declare the dependency, the bare import fails with ERR_MODULE_NOT_FOUND
+//      and we fall back to an absolute path pre-resolved here at module load
+//      via a `require` scoped to *this* file (sector7's own installed
+//      location). Pulumi's closure serializer captures that path string as a
+//      free variable, and `import()` with an absolute path loads the package
+//      directly, bypassing the consumer's module resolution entirely.
+//
+// Why bare-first matters: an absolute path serialized into Pulumi stack state
+// outlives the directory that produced it. Resolve it once from a git worktree
+// and that worktree path is frozen into state forever; `pulumi refresh` then
+// fails with `Cannot find module '<deleted-worktree>/.../index.js'` once the
+// worktree is removed. The bare route resolves fresh against the live consumer
+// node_modules on every refresh, so it is immune to that failure. The
+// pre-resolved fallback is retained for consumers without the dependency.
+//
+// `node:module` is a Node built-in, so importing it at the top level does not
+// violate the "no heavy third-party imports" rule. `import type` (used for the
+// k8s return type below) is erased at compile time and likewise does not
+// violate the rule.
 
 import { createRequire } from "node:module";
 import type { Socket } from "node:net";
+import type * as K8sClientNode from "@kubernetes/client-node";
 
-// Pre-resolved at module load. The resolved path string is captured by Pulumi's
-// closure serializer; see the SERIALIZATION CONTRACT above.
+// Fallback resolution path, pre-resolved at module load for consumers that do
+// not declare @kubernetes/client-node themselves. The resolved path string is
+// captured by Pulumi's closure serializer; see the SERIALIZATION CONTRACT
+// above for why the bare specifier is preferred at runtime.
 const require_ = createRequire(import.meta.url);
 const k8sClientNodePath = require_.resolve("@kubernetes/client-node");
 
@@ -82,6 +103,53 @@ export function buildLabelSelector(
 	return [...labelParts, ...exprParts].join(",");
 }
 
+/** The loaded `@kubernetes/client-node` module shape. */
+export type K8sClient = typeof K8sClientNode;
+
+/**
+ * Whether an error signals that Node could not resolve a module specifier
+ * (rather than, say, the package throwing while loading). Used to decide whether
+ * falling back to the pre-resolved absolute path is worth attempting. A genuine
+ * load-time error from inside the package is rethrown so it is not masked.
+ */
+export function isModuleResolutionError(err: unknown): boolean {
+	return (
+		err instanceof Error &&
+		["ERR_MODULE_NOT_FOUND", "ERR_PACKAGE_PATH_NOT_EXPORTED"].includes(
+			(err as NodeJS.ErrnoException).code ?? "",
+		)
+	);
+}
+
+/**
+ * Load `@kubernetes/client-node`, preferring the bare specifier and falling
+ * back to the pre-resolved absolute path only when the bare import cannot be
+ * resolved. See the SERIALIZATION CONTRACT at the top of this file for why both
+ * routes exist.
+ *
+ * `importer` is an injection seam for tests: production callers omit it and get
+ * the real `import()`, whose closure serializes faithfully for Pulumi. Passing
+ * it lets a test observe the bare-first/fallback order and the error-code
+ * narrowing without depending on vitest module-mock internals (both routes
+ * resolve to the *same* package, so a module mock cannot tell them apart).
+ */
+export async function loadKubernetesClient(
+	importer: (specifier: string) => Promise<unknown> = (specifier) =>
+		// Dynamic import of the specifier string; a variable is fine here because
+		// Pulumi serializes function source text verbatim rather than doing
+		// bundler-style static analysis at refresh time.
+		import(specifier),
+): Promise<K8sClient> {
+	try {
+		return (await importer("@kubernetes/client-node")) as K8sClient;
+	} catch (err) {
+		if (isModuleResolutionError(err)) {
+			return (await importer(k8sClientNodePath)) as K8sClient;
+		}
+		throw err;
+	}
+}
+
 /**
  * Open a short-lived in-process port-forward to a ready pod of `target`'s
  * Deployment, invoke `fn` with a `http://127.0.0.1:<port>` base URL, then tear
@@ -97,7 +165,7 @@ export async function withPortForward<T>(
 	target: PortForwardTarget,
 	fn: (baseUrl: string) => Promise<T>,
 ): Promise<T> {
-	const k8s = await import(k8sClientNodePath);
+	const k8s = await loadKubernetesClient();
 	const net = await import("node:net");
 
 	const kc = new k8s.KubeConfig();
