@@ -21,6 +21,7 @@ import (
 	"github.com/jmmaloney4/sector7/provider/attic"
 	"github.com/jmmaloney4/sector7/provider/d1"
 	"github.com/jmmaloney4/sector7/provider/litellm"
+	"github.com/jmmaloney4/sector7/provider/matrix"
 	"github.com/jmmaloney4/sector7/provider/onepassword"
 	"github.com/jmmaloney4/sector7/provider/r2"
 )
@@ -38,7 +39,7 @@ func New() (p.Provider, error) {
 	return infer.NewProviderBuilder().
 		WithNamespace("jmmaloney4").
 		WithDisplayName("sector7").
-		WithDescription("Resource provider for sector7 components (LiteLLM, Attic, 1Password, R2, D1).").
+		WithDescription("Resource provider for sector7 components (LiteLLM, Attic, 1Password, R2, D1, Matrix).").
 		WithHomepage("https://github.com/jmmaloney4/sector7").
 		WithRepository("https://github.com/jmmaloney4/sector7").
 		WithLicense("MIT").
@@ -54,6 +55,12 @@ func New() (p.Provider, error) {
 			infer.Resource(d1.Query{}),
 			infer.Resource(r2.ZoneCachePurge{}),
 			infer.Resource(r2.Object{}),
+			// Matrix resources were garden-LOCAL dynamic providers, not
+			// sector7 ones. They live here because they carry the identical
+			// serialised-closure fragility and a second plugin binary would
+			// duplicate all the packaging, discovery and release machinery.
+			infer.Resource(matrix.BotAccount{}),
+			infer.Resource(matrix.Room{}),
 		).
 		Build()
 }
