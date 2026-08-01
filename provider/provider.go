@@ -19,8 +19,10 @@ import (
 	"github.com/pulumi/pulumi-go-provider/infer"
 
 	"github.com/jmmaloney4/sector7/provider/attic"
+	"github.com/jmmaloney4/sector7/provider/d1"
 	"github.com/jmmaloney4/sector7/provider/litellm"
 	"github.com/jmmaloney4/sector7/provider/onepassword"
+	"github.com/jmmaloney4/sector7/provider/r2"
 )
 
 // Name is the provider package name. The plugin binary MUST be named
@@ -49,6 +51,8 @@ func New() (p.Provider, error) {
 			infer.Resource(onepassword.Item{}),
 			infer.Resource(attic.Cache{}),
 			infer.Resource(attic.Token{}),
+			infer.Resource(d1.Query{}),
+			infer.Resource(r2.ZoneCachePurge{}),
 		).
 		Build()
 }
