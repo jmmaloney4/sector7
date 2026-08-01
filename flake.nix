@@ -87,6 +87,26 @@
           done
           touch "$out"
         '';
+        # The Pulumi resource provider (provider/), which replaces sector7's
+        # dynamic providers. jackpkgs also packages this via nvfetcher for
+        # downstream consumers; exposing it here means sector7's own CI builds
+        # it on every PR (compute-flake-build-matrix selects packages.*), so Go
+        # breakage surfaces in this repo rather than in jackpkgs.
+        packages.pulumi-resource-sector7 = pkgs.buildGoModule {
+          pname = "pulumi-resource-sector7";
+          version =
+            (builtins.fromJSON (builtins.readFile ./packages/sector7/package.json)).version;
+          src = ./.;
+          modRoot = "provider";
+          # Maintained hash rather than a committed provider/vendor/: vendoring
+          # this tree is 83 MB / 6518 files (client-go + the Pulumi SDK), which
+          # would roughly triple the repo. A stale hash reds this repo's CI,
+          # never a consumer's.
+          vendorHash = "sha256-sGg1c8lDx94MqpEPIlVB1YHp/ZouJnphyz0+BWhnffI=";
+          subPackages = ["cmd/pulumi-resource-sector7"];
+          meta.mainProgram = "pulumi-resource-sector7";
+        };
+
         devShells.default = pkgs.mkShell {
           inputsFrom = [
             config.jackpkgs.outputs.devShell
@@ -95,6 +115,11 @@
             pnpm
             envsubst
             renovate
+            # Provider development (provider/). Not needed to build — jackpkgs
+            # does that with buildGoModule — but required to run `go test`
+            # locally against the ported CRUD.
+            go
+            gopls
           ];
         };
       };
