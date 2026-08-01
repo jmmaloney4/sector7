@@ -53,6 +53,7 @@ func New() (p.Provider, error) {
 			infer.Resource(attic.Token{}),
 			infer.Resource(d1.Query{}),
 			infer.Resource(r2.ZoneCachePurge{}),
+			infer.Resource(r2.Object{}),
 		).
 		Build()
 }
