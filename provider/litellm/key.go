@@ -415,6 +415,14 @@ func (r KeyRecord) Delete(ctx context.Context, req infer.DeleteRequest[KeyState]
 	}
 	defer done()
 
-	err = call(ctx, c, "POST", "/key/delete", map[string]any{"keys": []string{token}}, nil, true)
-	return infer.DeleteResponse{}, err
+	// Tolerate "already gone". Delete is marked idempotent so it retries on
+	// transport errors, which makes this reachable: if the first attempt
+	// succeeds but its response is lost, the retry sees a 404/400 for a token
+	// that is now absent. Returning that error would fail the operation, and
+	// Pulumi keeps the resource in state on a failed Delete — so every
+	// subsequent `up` would fail on the same 404 until someone intervened.
+	if err := call(ctx, c, "POST", "/key/delete", map[string]any{"keys": []string{token}}, nil, true); err != nil && !isMissingObject(err) {
+		return infer.DeleteResponse{}, err
+	}
+	return infer.DeleteResponse{}, nil
 }

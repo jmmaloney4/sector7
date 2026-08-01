@@ -268,8 +268,11 @@ func (r TeamRecord) Delete(ctx context.Context, req infer.DeleteRequest[TeamStat
 	}
 	defer done()
 
-	err = call(ctx, c, "POST", "/team/delete", map[string]any{"team_ids": []string{req.ID}}, nil, true)
-	return infer.DeleteResponse{}, err
+	// Tolerate "already gone" — see the equivalent note in key.go Delete.
+	if err := call(ctx, c, "POST", "/team/delete", map[string]any{"team_ids": []string{req.ID}}, nil, true); err != nil && !isMissingObject(err) {
+		return infer.DeleteResponse{}, err
+	}
+	return infer.DeleteResponse{}, nil
 }
 
 // Deliberately NO Read: the dynamic teamProvider had none, and adding refresh

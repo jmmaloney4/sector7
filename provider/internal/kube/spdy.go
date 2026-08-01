@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"sync"
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
@@ -27,6 +28,12 @@ type SPDYTransport struct {
 	// configs caches *rest.Config per kubeconfig payload. client-go caches
 	// transports globally, so this only avoids re-parsing; it deliberately does
 	// NOT cache forwards. See Connect.
+	//
+	// Guarded by mu: Pulumi serves gRPC requests concurrently, so two resources
+	// without a dependency between them reach restConfig at the same time on a
+	// shared SPDYTransport. An unsynchronised map would make Go's runtime abort
+	// the whole provider process with "concurrent map read and map write".
+	mu      sync.Mutex
 	configs map[string]*rest.Config
 }
 
@@ -169,6 +176,9 @@ func selectReadyPod(pods []corev1.Pod) string {
 }
 
 func (s *SPDYTransport) restConfig(kubeconfig string) (*rest.Config, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
 	if s.configs == nil {
 		s.configs = map[string]*rest.Config{}
 	}

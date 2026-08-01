@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 
 	p "github.com/pulumi/pulumi-go-provider"
@@ -25,9 +26,13 @@ type recorded struct {
 // pointed at an httptest server, so tests exercise the real CRUD paths without
 // touching Kubernetes.
 type harness struct {
-	t        *testing.T
-	srv      *httptest.Server
-	tr       *kube.Fake
+	t   *testing.T
+	srv *httptest.Server
+	tr  *kube.Fake
+	// mu guards Requests. findKeyHashesByAlias fans /key/info out across
+	// goroutines by design, so the httptest handler is genuinely concurrent —
+	// `go test -race` catches an unguarded append here.
+	mu       sync.Mutex
 	Requests []recorded
 }
 
@@ -44,7 +49,9 @@ func newHarness(t *testing.T, respond func(r recorded) (int, any)) *harness {
 			_ = json.NewDecoder(r.Body).Decode(&b)
 			rec.Body = b
 		}
+		h.mu.Lock()
 		h.Requests = append(h.Requests, rec)
+		h.mu.Unlock()
 
 		status, payload := 200, any(map[string]any{})
 		if respond != nil {
@@ -60,6 +67,8 @@ func newHarness(t *testing.T, respond func(r recorded) (int, any)) *harness {
 }
 
 func (h *harness) paths() []string {
+	h.mu.Lock()
+	defer h.mu.Unlock()
 	out := make([]string, 0, len(h.Requests))
 	for _, r := range h.Requests {
 		out = append(out, r.Method+" "+r.Path)
@@ -68,6 +77,8 @@ func (h *harness) paths() []string {
 }
 
 func (h *harness) find(prefix string) *recorded {
+	h.mu.Lock()
+	defer h.mu.Unlock()
 	for i := range h.Requests {
 		if strings.HasPrefix(h.Requests[i].Method+" "+h.Requests[i].Path, prefix) {
 			return &h.Requests[i]
@@ -386,3 +397,32 @@ func TestKeyDelete(t *testing.T) {
 	})
 }
 
+
+// Delete is marked idempotent so httpx retries it on transport errors. That
+// makes "already gone" reachable: if the first attempt succeeds but its
+// response is lost, the retry sees a 404/400 for a token that no longer exists.
+// Returning that error would fail the operation — and Pulumi keeps a resource in
+// state when Delete fails, so every subsequent `up` would fail on the same 404.
+func TestKeyDeleteToleratesAlreadyGone(t *testing.T) {
+	for _, status := range []int{404, 400} {
+		t.Run(http.StatusText(status), func(t *testing.T) {
+			h := newHarness(t, func(recorded) (int, any) {
+				return status, map[string]any{"detail": "not found"}
+			})
+			state := KeyState{KeyArgs: baseKeyArgs(), TokenID: "hash-1"}
+			if _, err := (KeyRecord{Transport: h.tr}).Delete(t.Context(),
+				infer.DeleteRequest[KeyState]{ID: "hash-1", State: state}); err != nil {
+				t.Fatalf("a delete of an already-absent key must succeed; got %v", err)
+			}
+		})
+	}
+
+	t.Run("but a real failure still propagates", func(t *testing.T) {
+		h := newHarness(t, func(recorded) (int, any) { return 401, map[string]any{} })
+		state := KeyState{KeyArgs: baseKeyArgs(), TokenID: "hash-1"}
+		if _, err := (KeyRecord{Transport: h.tr}).Delete(t.Context(),
+			infer.DeleteRequest[KeyState]{ID: "hash-1", State: state}); err == nil {
+			t.Fatal("401 must not be swallowed as 'already gone'")
+		}
+	})
+}
