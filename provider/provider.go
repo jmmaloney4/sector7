@@ -18,6 +18,7 @@ import (
 	p "github.com/pulumi/pulumi-go-provider"
 	"github.com/pulumi/pulumi-go-provider/infer"
 
+	"github.com/jmmaloney4/sector7/provider/attic"
 	"github.com/jmmaloney4/sector7/provider/litellm"
 	"github.com/jmmaloney4/sector7/provider/onepassword"
 )
@@ -46,6 +47,8 @@ func New() (p.Provider, error) {
 			infer.Resource(litellm.TeamRecord{}),
 			infer.Resource(litellm.KeyRecord{}),
 			infer.Resource(onepassword.Item{}),
+			infer.Resource(attic.Cache{}),
+			infer.Resource(attic.Token{}),
 		).
 		Build()
 }
