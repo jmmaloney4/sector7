@@ -19,6 +19,7 @@ import (
 	"github.com/pulumi/pulumi-go-provider/infer"
 
 	"github.com/jmmaloney4/sector7/provider/litellm"
+	"github.com/jmmaloney4/sector7/provider/onepassword"
 )
 
 // Name is the provider package name. The plugin binary MUST be named
@@ -44,6 +45,7 @@ func New() (p.Provider, error) {
 			// token the TypeScript wrapper passes to pulumi.CustomResource.
 			infer.Resource(litellm.TeamRecord{}),
 			infer.Resource(litellm.KeyRecord{}),
+			infer.Resource(onepassword.Item{}),
 		).
 		Build()
 }
