@@ -102,6 +102,15 @@ func (Room) Diff(_ context.Context, req infer.DiffRequest[RoomArgs, RoomState]) 
 	if !diffutil.StringsEqual(olds.Invite, news.Invite) {
 		diffs["invite"] = p.PropertyDiff{Kind: p.Update}
 	}
+	// The access token does not change the room, so it never forces
+	// replacement — but it MUST still produce an in-place update, or a rotated
+	// bot token is dropped and state keeps the old one. Every later Read,
+	// Update and Delete then authenticates with a credential that no longer
+	// works, and supplying a fresh token cannot recover it. Same reasoning as
+	// the transport diff on onepassword:Item.
+	if olds.AccessToken != news.AccessToken {
+		diffs["accessToken"] = p.PropertyDiff{Kind: p.Update}
+	}
 
 	return p.DiffResponse{
 		HasChanges:          len(diffs) > 0,

@@ -176,6 +176,16 @@ func (b BotAccount) Create(ctx context.Context, req infer.CreateRequest[BotAccou
 		}
 	}
 
+	// A 2xx carrying no user_id or access_token must fail loudly. Assigning an
+	// empty resource id would leave Pulumi tracking an account it cannot
+	// address, while the registered Matrix user stays live on the homeserver —
+	// the same reason Room.Create rejects an empty room_id.
+	if res.UserID == "" || res.AccessToken == "" {
+		return out, fmt.Errorf(
+			"sector7: Matrix registration for %s returned no user_id or access_token; "+
+				"the account may exist on the homeserver and must be reconciled manually", a.Username)
+	}
+
 	if a.DisplayName != "" {
 		b.setDisplayName(ctx, c, res.UserID, res.AccessToken, a.DisplayName)
 	}

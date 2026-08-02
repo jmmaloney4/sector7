@@ -823,3 +823,73 @@ func TestIsUserInUseSeesThroughWrapping(t *testing.T) {
 		t.Fatal("a different errcode must not trigger recovery")
 	}
 }
+
+// A rotated bot token must reach state, or every later Read, Update and Delete
+// keeps authenticating with a credential that no longer works — and supplying a
+// fresh token cannot recover it, because Diff reports no change to apply.
+func TestRoomDiffCatchesTokenRotation(t *testing.T) {
+	base := RoomArgs{HomeserverURL: "https://hs", AccessToken: "tok", Name: "Ops"}
+	old := RoomState{RoomArgs: base, RoomID: "!abc:hs"}
+
+	news := base
+	news.AccessToken = "rotated"
+	r, _ := Room{}.Diff(t.Context(), infer.DiffRequest[RoomArgs, RoomState]{State: old, Inputs: news})
+	if r.DetailedDiff["accessToken"].Kind != pgo.Update {
+		t.Fatalf("a rotated token must produce an in-place update; got %+v", r.DetailedDiff)
+	}
+	// It must NOT force replacement: the token says nothing about the room, and
+	// recreating one would abandon the live room and its history.
+	for _, d := range r.DetailedDiff {
+		if d.Kind == pgo.UpdateReplace {
+			t.Fatalf("a token rotation must never replace the room; got %+v", r.DetailedDiff)
+		}
+	}
+
+	// Update must carry the new token into the returned state.
+	h, url := newHarness(t)
+	old.HomeserverURL, news.HomeserverURL = url, url
+	resp, err := Room{}.Update(t.Context(), infer.UpdateRequest[RoomArgs, RoomState]{
+		ID: "!abc:hs", State: old, Inputs: news,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp.Output.AccessToken != "rotated" {
+		t.Fatalf("the new token must land in state; got %q", resp.Output.AccessToken)
+	}
+	if got := h.paths(); len(got) != 0 {
+		t.Fatalf("rotating a token changes nothing on the homeserver; got %v", got)
+	}
+}
+
+// A 2xx carrying no user_id or access_token must fail loudly. Recording an
+// empty resource id would leave Pulumi tracking an account it cannot address
+// while the registered user stays live on the homeserver.
+func TestBotAccountCreateRejectsIncompleteResponse(t *testing.T) {
+	for name, payload := range map[string]string{
+		"no user_id":      `{"access_token":"tok"}`,
+		"no access_token": `{"user_id":"@bot:example.org"}`,
+		"empty object":    `{}`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			h, url := newHarness(t)
+			h.route("/_matrix/client/v3/register", json200(payload))
+			_, err := BotAccount{}.Create(t.Context(), infer.CreateRequest[BotAccountArgs]{
+				Inputs: BotAccountArgs{
+					HomeserverURL: url, Username: "bot", RegistrationToken: "rt",
+					Password: "pw", DisplayName: "Bot",
+				},
+			})
+			if err == nil {
+				t.Fatal("an incomplete registration response must fail, not record an unusable account")
+			}
+			// The display-name call must not have fired on a response we are
+			// about to reject.
+			for _, p := range h.paths() {
+				if strings.Contains(p, "displayname") {
+					t.Fatal("must not act on an incomplete response")
+				}
+			}
+		})
+	}
+}
