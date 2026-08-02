@@ -4,7 +4,11 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"strings"
 	"testing"
+
+	"github.com/pulumi/pulumi-go-provider/infer"
+	"github.com/pulumi/pulumi/sdk/v3/go/property"
 
 	"github.com/jmmaloney4/sector7/provider/internal/httpx"
 )
@@ -163,5 +167,72 @@ func TestAsHTTPErrorSeesThroughWrapping(t *testing.T) {
 	var he *httpx.Error
 	if asHTTPError(errors.New("dial tcp: connection refused"), &he) {
 		t.Fatal("a transport error must not be treated as an HTTP status")
+	}
+}
+
+// ContentHash sorts fields by label, and the TypeScript it must match sorted
+// with localeCompare (item.ts:293) — ICU collation, not byte order. They
+// disagree on mixed case, and a disagreement changes the hash, which surfaces
+// as a spurious diff that REWRITES A LIVE SECRET.
+//
+// Rather than reimplement ICU collation, Check restricts multi-field items to
+// the domain where the two orders are provably identical. These cases pin that
+// boundary; the JS side of each was confirmed under node.
+func TestCheckGuardsCollationUnsafeLabels(t *testing.T) {
+	labelFailures := func(fields ...string) []string {
+		vals := []property.Value{}
+		for _, l := range fields {
+			vals = append(vals, property.New(map[string]property.Value{
+				"label": property.New(l), "value": property.New("v"),
+			}))
+		}
+		resp, err := Item{}.Check(t.Context(), infer.CheckRequest{
+			NewInputs: property.NewMap(map[string]property.Value{
+				"connectToken": property.New("t"),
+				"namespace":    property.New("1password"),
+				"vault":        property.New("v"),
+				"title":        property.New("item"),
+				"fields":       property.New(vals),
+			}),
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		var out []string
+		for _, f := range resp.Failures {
+			if strings.Contains(string(f.Property), ".label") {
+				out = append(out, string(f.Property))
+			}
+		}
+		return out
+	}
+
+	// A single field has nothing to sort, so its hash cannot depend on
+	// collation. This is why the live `LiteLLM-Key` item is unaffected — the
+	// guard must NOT fire here.
+	if got := labelFailures("LiteLLM-Key"); len(got) != 0 {
+		t.Fatalf("a single-field item has no sort and must not be constrained; got %v", got)
+	}
+
+	// The live multi-field item (gateway's mcp-consumer-tokens). Both orders
+	// agree, so it must keep passing.
+	if got := labelFailures("goose", "hermes", "claude-code"); len(got) != 0 {
+		t.Fatalf("lowercase-kebab labels are collation-safe; got %v", got)
+	}
+
+	// node: ["LiteLLM-Key","api-token"].sort(localeCompare) => ["api-token","LiteLLM-Key"]
+	//       byte order                                      => ["LiteLLM-Key","api-token"]
+	// Mixed case is the real trigger — not non-ASCII, which is what makes this
+	// easy to miss.
+	if got := labelFailures("LiteLLM-Key", "api-token"); len(got) != 1 {
+		t.Fatalf("mixed-case labels in a multi-field item must fail check; got %v", got)
+	}
+	if got := labelFailures("Alpha", "beta"); len(got) != 1 {
+		t.Fatalf("a capitalised label must fail check; got %v", got)
+	}
+	// Underscores and dots are where a case-folding approximation of
+	// localeCompare diverges, so they are outside the safe domain too.
+	if got := labelFailures("a_b", "ab"); len(got) != 1 {
+		t.Fatalf("underscored labels must fail check; got %v", got)
 	}
 }

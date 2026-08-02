@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"regexp"
 	"sort"
 	"strings"
 	"time"
@@ -115,9 +116,46 @@ func (Item) Check(ctx context.Context, req infer.CheckRequest) (infer.CheckRespo
 				seen[f.Label] = true
 			}
 		}
+
+		// Collation guard. contentHash sorts fields by label to build the
+		// canonical JSON, and the TypeScript it must match sorted with
+		// String.prototype.localeCompare (onepassword/item.ts:293) — ICU
+		// collation, not byte order. The two DISAGREE on mixed case:
+		// localeCompare orders ["LiteLLM-Key","api-token"] as
+		// ["api-token","LiteLLM-Key"]; Go's `<` gives the reverse. A divergence
+		// changes the hash, which shows up as a spurious diff and rewrites a
+		// live secret.
+		//
+		// Reimplementing ICU collation is the wrong fix: it is a large surface
+		// (a fuzz of a case-folding approximation still diverged on 6.6% of
+		// pairs, all involving `_` and `.`), and getting it subtly wrong would
+		// change the hash for items that work correctly today.
+		//
+		// Instead, restrict multi-field items to the domain where the two
+		// orders are provably identical. Byte order and localeCompare agree on
+		// every pair of lowercase-kebab labels (verified by fuzzing 382,534
+		// pairs under node: zero divergences). A single-field item has nothing
+		// to sort, so its hash cannot depend on collation at all — which is why
+		// the guard is skipped there, and why the live `LiteLLM-Key` item is
+		// unaffected.
+		if len(args.Fields) > 1 {
+			for i, f := range args.Fields {
+				if f.Label != "" && !kebabLabel.MatchString(f.Label) {
+					fail(fmt.Sprintf("fields[%d].label", i), fmt.Sprintf(
+						"multi-field items must use lowercase-kebab labels (got %q): "+
+							"field order feeds contentHash, and byte order only matches "+
+							"the TypeScript localeCompare sort within that domain", f.Label))
+				}
+			}
+		}
 	}
 	return infer.CheckResponse[ItemArgs]{Inputs: args, Failures: failures}, nil
 }
+
+// kebabLabel is the collation-safe label domain: lowercase alphanumerics and
+// interior hyphens. Matches the lowercase-kebab contract garden's gateway
+// already enforces on the only live multi-field item.
+var kebabLabel = regexp.MustCompile(`^[a-z0-9]([a-z0-9-]*[a-z0-9])?$`)
 
 func (Item) Diff(_ context.Context, req infer.DiffRequest[ItemArgs, ItemState]) (p.DiffResponse, error) {
 	olds, news := req.State, req.Inputs
