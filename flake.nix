@@ -107,6 +107,44 @@
           meta.mainProgram = "pulumi-resource-sector7";
         };
 
+        # `go test ./...` across every resource package.
+        #
+        # A separate derivation because the package above sets
+        # subPackages = ["cmd/..."], which also scopes buildGoModule's
+        # checkPhase — so building the plugin proves it COMPILES and nothing
+        # more. These tests are the entire safety argument for retyping
+        # resources that own six live LiteLLM credentials and thirteen Attic
+        # host tokens, so they have to run somewhere CI can see them.
+        #
+        # compute-flake-build-matrix selects checks.* as well as packages.*
+        # (.github/actions/compute-flake-build-matrix/select.nix), so this runs
+        # on every PR with no workflow change.
+        checks.provider-go-test = pkgs.buildGoModule {
+          pname = "provider-go-test";
+          inherit (config.packages.pulumi-resource-sector7) version src modRoot vendorHash;
+          # -race catches the class of bug that has already bitten this
+          # provider twice during the port: a shared map in the port-forward
+          # transport, and an append from the test server's goroutine.
+          buildPhase = ''
+            runHook preBuild
+            # treefmt has no Go formatter wired up, so gofmt drift reaches main
+            # unchallenged — it already has once.
+            # vendor/ is materialised by buildGoModule and is not ours.
+            unformatted=$(gofmt -l . | grep -v '^vendor/' || true)
+            if [ -n "$unformatted" ]; then
+              echo "gofmt would rewrite:" >&2
+              echo "$unformatted" >&2
+              exit 1
+            fi
+            go test -race ./...
+            runHook postBuild
+          '';
+          installPhase = "touch $out";
+          # Nothing is installed, so there is no binary to strip or fix up.
+          dontStrip = true;
+          dontFixup = true;
+        };
+
         devShells.default = pkgs.mkShell {
           inputsFrom = [
             config.jackpkgs.outputs.devShell
