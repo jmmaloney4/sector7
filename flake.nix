@@ -127,6 +127,15 @@
           # transport, and an append from the test server's goroutine.
           buildPhase = ''
             runHook preBuild
+            # treefmt has no Go formatter wired up, so gofmt drift reaches main
+            # unchallenged — it already has once.
+            # vendor/ is materialised by buildGoModule and is not ours.
+            unformatted=$(gofmt -l . | grep -v '^vendor/' || true)
+            if [ -n "$unformatted" ]; then
+              echo "gofmt would rewrite:" >&2
+              echo "$unformatted" >&2
+              exit 1
+            fi
             go test -race ./...
             runHook postBuild
           '';

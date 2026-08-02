@@ -9,8 +9,6 @@ package matrix
 
 import (
 	"context"
-	"crypto/rand"
-	"encoding/hex"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -34,7 +32,18 @@ type BotAccountArgs struct {
 	// RegistrationToken is consumed only at registration time, which is why a
 	// change to it forces replacement rather than an update.
 	RegistrationToken string `pulumi:"registrationToken" provider:"secret"`
-	Password          string `pulumi:"password,optional" provider:"secret"`
+	// Password is REQUIRED, unlike the dynamic provider this replaces, which
+	// generated a random one when it was omitted. That fallback was unsound:
+	// the generated value was never written anywhere — not to state, not to the
+	// outputs — so it existed only inside one Create call. Any later attempt to
+	// recover the account (see the M_USER_IN_USE path in Create) would log in
+	// with a DIFFERENT random password and fail, stranding a live account
+	// nobody holds the credentials for.
+	//
+	// Every live call site already passes an explicit RandomPassword, so this
+	// costs nothing and turns an unrecoverable credential into an up-front
+	// Check failure.
+	Password string `pulumi:"password" provider:"secret"`
 }
 
 type BotAccountState struct {
@@ -65,6 +74,7 @@ func (BotAccount) Check(ctx context.Context, req infer.CheckRequest) (infer.Chec
 		{"homeserverUrl", args.HomeserverURL},
 		{"username", args.Username},
 		{"registrationToken", args.RegistrationToken},
+		{"password", args.Password},
 	} {
 		if f.val == "" {
 			failures = append(failures, p.CheckFailure{Property: f.name, Reason: f.name + " is required"})
@@ -115,15 +125,6 @@ func (b BotAccount) Create(ctx context.Context, req infer.CreateRequest[BotAccou
 	a := req.Inputs
 	c := client(a.HomeserverURL)
 
-	password := a.Password
-	if password == "" {
-		var buf [16]byte
-		if _, err := rand.Read(buf[:]); err != nil {
-			return out, fmt.Errorf("sector7: generating bot password: %w", err)
-		}
-		password = hex.EncodeToString(buf[:])
-	}
-
 	var res loginResult
 	// Never retried: a retried registration after a timeout that actually
 	// succeeded hits M_USER_IN_USE, which the recovery path below handles —
@@ -134,7 +135,7 @@ func (b BotAccount) Create(ctx context.Context, req infer.CreateRequest[BotAccou
 			"type":  "m.login.registration_token",
 			"token": a.RegistrationToken,
 		},
-		"password": password,
+		"password": a.Password,
 	}, &res, false)
 
 	if err != nil {
@@ -148,7 +149,7 @@ func (b BotAccount) Create(ctx context.Context, req infer.CreateRequest[BotAccou
 		if err := c.Do(ctx, "POST", "/_matrix/client/v3/login", map[string]any{
 			"type":       "m.login.password",
 			"identifier": map[string]any{"type": "m.id.user", "user": a.Username},
-			"password":   password,
+			"password":   a.Password,
 		}, &res, false); err != nil {
 			return out, fmt.Errorf(
 				"sector7: Matrix user %s already exists but password login failed — "+

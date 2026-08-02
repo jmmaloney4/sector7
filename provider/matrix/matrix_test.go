@@ -104,7 +104,7 @@ func TestBotAccountCreateRegisters(t *testing.T) {
 
 	resp, err := BotAccount{}.Create(t.Context(), infer.CreateRequest[BotAccountArgs]{
 		Inputs: BotAccountArgs{
-			HomeserverURL: url, Username: "bot", RegistrationToken: "rt", DisplayName: "Bot",
+			HomeserverURL: url, Username: "bot", RegistrationToken: "rt", DisplayName: "Bot", Password: "pw",
 		},
 	})
 	if err != nil {
@@ -125,7 +125,7 @@ func TestBotAccountCreateDryRunMakesNoCalls(t *testing.T) {
 	h, url := newHarness(t)
 	_, err := BotAccount{}.Create(t.Context(), infer.CreateRequest[BotAccountArgs]{
 		DryRun: true,
-		Inputs: BotAccountArgs{HomeserverURL: url, Username: "bot", RegistrationToken: "rt"},
+		Inputs: BotAccountArgs{HomeserverURL: url, Username: "bot", RegistrationToken: "rt", Password: "pw"},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -172,7 +172,7 @@ func TestBotAccountCreateFailsOnOtherErrors(t *testing.T) {
 		status(http.StatusForbidden, `{"errcode":"M_FORBIDDEN"}`))
 
 	_, err := BotAccount{}.Create(t.Context(), infer.CreateRequest[BotAccountArgs]{
-		Inputs: BotAccountArgs{HomeserverURL: url, Username: "bot", RegistrationToken: "rt"},
+		Inputs: BotAccountArgs{HomeserverURL: url, Username: "bot", RegistrationToken: "rt", Password: "pw"},
 	})
 	if err == nil {
 		t.Fatal("a forbidden registration must fail, not silently attempt login")
@@ -192,7 +192,7 @@ func TestBotAccountCreateDoesNotRetryRegistration(t *testing.T) {
 	h.route("/_matrix/client/v3/register", status(http.StatusInternalServerError, `{}`))
 
 	if _, err := (BotAccount{}).Create(t.Context(), infer.CreateRequest[BotAccountArgs]{
-		Inputs: BotAccountArgs{HomeserverURL: url, Username: "bot", RegistrationToken: "rt"},
+		Inputs: BotAccountArgs{HomeserverURL: url, Username: "bot", RegistrationToken: "rt", Password: "pw"},
 	}); err == nil {
 		t.Fatal("expected an error")
 	}
@@ -237,7 +237,7 @@ func TestBotAccountReadStatusMatrix(t *testing.T) {
 // "replaces on username, homeserverUrl or registrationToken; updates displayName"
 func TestBotAccountDiff(t *testing.T) {
 	base := BotAccountArgs{
-		HomeserverURL: "https://hs", Username: "bot", RegistrationToken: "rt", DisplayName: "Bot",
+		HomeserverURL: "https://hs", Username: "bot", RegistrationToken: "rt", DisplayName: "Bot", Password: "pw",
 	}
 	old := BotAccountState{BotAccountArgs: base, UserID: "@bot:hs"}
 
@@ -609,5 +609,32 @@ func TestRoomDeleteSkipsForgetWhenLeaveFails(t *testing.T) {
 		if strings.HasSuffix(p, "/forget") {
 			t.Fatal("forget must not be attempted after a failed leave")
 		}
+	}
+}
+
+// password is REQUIRED, unlike the dynamic provider, which generated a random
+// one when omitted. That generated value was written nowhere, so the
+// M_USER_IN_USE recovery path below would log in with a DIFFERENT random
+// password and fail — stranding a live account nobody holds credentials for.
+// An up-front Check failure is the correct outcome.
+func TestBotAccountCheckRequiresPassword(t *testing.T) {
+	resp, err := BotAccount{}.Check(t.Context(), infer.CheckRequest{
+		NewInputs: property.NewMap(map[string]property.Value{
+			"homeserverUrl":     property.New("https://hs"),
+			"username":          property.New("bot"),
+			"registrationToken": property.New("rt"),
+		}),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got bool
+	for _, f := range resp.Failures {
+		if string(f.Property) == "password" {
+			got = true
+		}
+	}
+	if !got {
+		t.Fatalf("an omitted password must fail check rather than silently minting an unrecoverable one; got %+v", resp.Failures)
 	}
 }
