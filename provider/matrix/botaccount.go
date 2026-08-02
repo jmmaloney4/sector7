@@ -100,33 +100,39 @@ func (BotAccount) Diff(_ context.Context, req infer.DiffRequest[BotAccountArgs, 
 	if olds.RegistrationToken != news.RegistrationToken {
 		diffs["registrationToken"] = p.PropertyDiff{Kind: p.UpdateReplace}
 	}
-	// The password is a create-time credential: it is sent to /register and
-	// never changed afterwards. Leaving it out of the diff — as the dynamic
-	// provider did — means a rotated password silently lands in state while the
-	// account keeps the old one, and the M_USER_IN_USE recovery path then logs
-	// in with credentials that do not match. Replacement is the honest
-	// outcome; Matrix's change-password API is a separate feature, not a
-	// silent no-op.
+	// A rotated password is applied IN PLACE via Matrix's change-password API,
+	// not by replacement. Replacement is not an option here: see the
+	// DeleteBeforeReplace comment below — there is no ordering of destroy and
+	// create that can replace a Matrix account under the same username.
 	if olds.Password != news.Password {
-		diffs["password"] = p.PropertyDiff{Kind: p.UpdateReplace}
+		diffs["password"] = p.PropertyDiff{Kind: p.Update}
 	}
 	// The display name is mutable in place.
 	if olds.DisplayName != news.DisplayName {
 		diffs["displayName"] = p.PropertyDiff{Kind: p.Update}
 	}
 
-	// A replacement that reuses the SAME homeserver and username collides with
-	// the account still registered there: /register answers M_USER_IN_USE, and
-	// the recovery path then tries to log in with the NEW password against an
-	// account that still has the old one. So the old account must be
-	// deactivated first. That is every replacement except a username or
-	// homeserver change, which by definition target a different account.
-	sameAccount := olds.Username == news.Username && olds.HomeserverURL == news.HomeserverURL
-
+	// DeleteBeforeReplace is ALWAYS false, and this is a safety property rather
+	// than a preference.
+	//
+	// Delete deactivates the account, and Matrix deactivation is irreversible:
+	// the user id is permanently retired and cannot be re-registered. So
+	// destroying first would burn the username, the follow-up /register would
+	// fail, and the recovery login would fail too because the account is
+	// deactivated — stranding both the resource and the name, with no way back.
+	//
+	// Creating first is not a working replacement either when the username and
+	// homeserver are unchanged: /register answers M_USER_IN_USE and recovery
+	// tries the new credential against an account that still has the old one.
+	// But it fails SAFELY — the apply errors and the live account is untouched.
+	//
+	// Between a loud failure and an irreversible one, take the loud failure.
+	// This is why `password` is an in-place update above rather than a
+	// replacement: it removes the only routine trigger for this situation.
 	return p.DiffResponse{
 		HasChanges:          len(diffs) > 0,
 		DetailedDiff:        diffs,
-		DeleteBeforeReplace: sameAccount,
+		DeleteBeforeReplace: false,
 	}, nil
 }
 
@@ -257,6 +263,27 @@ func (b BotAccount) Update(ctx context.Context, req infer.UpdateRequest[BotAccou
 	// provider guarded on `news.displayName &&`, which made clearing a display
 	// name a silent no-op: Diff reported an update, Update skipped the call,
 	// and state then claimed an empty name the homeserver never received.
+	// A rotated password is applied through Matrix's change-password API.
+	// logout_devices MUST be false: the default is true, which would invalidate
+	// the very access token this resource stores and every consumer's session
+	// along with it.
+	if req.Inputs.Password != req.State.Password {
+		c := client(req.State.HomeserverURL)
+		c.Bearer = req.State.AccessToken
+		if err := c.Do(ctx, "POST", "/_matrix/client/v3/account/password", map[string]any{
+			"new_password":   req.Inputs.Password,
+			"logout_devices": false,
+			"auth": map[string]any{
+				"type":       "m.login.password",
+				"identifier": map[string]any{"type": "m.id.user", "user": req.State.UserID},
+				"password":   req.State.Password,
+			},
+		}, nil, true); err != nil {
+			return out, fmt.Errorf(
+				"sector7: failed to change the password for %s: %w", req.State.Username, err)
+		}
+	}
+
 	if req.Inputs.DisplayName != req.State.DisplayName {
 		c := client(req.State.HomeserverURL)
 		c.Bearer = req.State.AccessToken

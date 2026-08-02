@@ -655,23 +655,62 @@ func TestBotAccountDiffCatchesPasswordDrift(t *testing.T) {
 	news := base
 	news.Password = "rotated"
 	r, _ := BotAccount{}.Diff(t.Context(), infer.DiffRequest[BotAccountArgs, BotAccountState]{State: old, Inputs: news})
-	if r.DetailedDiff["password"].Kind != pgo.UpdateReplace {
-		t.Fatalf("a rotated password must force replacement, not vanish; got %+v", r.DetailedDiff)
-	}
-	// Same homeserver + username, so the replacement collides with the account
-	// still registered there. It must be deactivated first, or /register
-	// answers M_USER_IN_USE and recovery logs in with the wrong password.
-	if !r.DeleteBeforeReplace {
-		t.Fatal("a same-account replacement must delete before replacing")
+	if r.DetailedDiff["password"].Kind != pgo.Update {
+		t.Fatalf("a rotated password must be an in-place change, not vanish or replace; got %+v", r.DetailedDiff)
 	}
 
-	// A username change targets a different account, so there is no collision
-	// and the old account may outlive the new one.
-	news = base
-	news.Username = "other"
-	r, _ = BotAccount{}.Diff(t.Context(), infer.DiffRequest[BotAccountArgs, BotAccountState]{State: old, Inputs: news})
-	if r.DeleteBeforeReplace {
-		t.Fatal("a different-account replacement must not delete first")
+	// DeleteBeforeReplace must be false for EVERY diff. Delete deactivates the
+	// account, and Matrix deactivation is irreversible: the user id is retired
+	// permanently. Destroying first would burn the username, and neither the
+	// follow-up /register nor the recovery login could get it back.
+	for name, mutate := range map[string]func(*BotAccountArgs){
+		"password":          func(a *BotAccountArgs) { a.Password = "rotated" },
+		"registrationToken": func(a *BotAccountArgs) { a.RegistrationToken = "rt2" },
+		"username":          func(a *BotAccountArgs) { a.Username = "other" },
+		"homeserverUrl":     func(a *BotAccountArgs) { a.HomeserverURL = "https://other" },
+	} {
+		n := base
+		mutate(&n)
+		got, _ := BotAccount{}.Diff(t.Context(), infer.DiffRequest[BotAccountArgs, BotAccountState]{State: old, Inputs: n})
+		if got.DeleteBeforeReplace {
+			t.Fatalf("%s: a Matrix account must NEVER be deactivated before its replacement exists — "+
+				"deactivation permanently retires the user id", name)
+		}
+	}
+}
+
+// A rotated password is applied through Matrix's change-password API, in place.
+// logout_devices must be false, or the call invalidates the access token this
+// resource stores and every consumer's session with it.
+func TestBotAccountUpdateChangesPassword(t *testing.T) {
+	h, url := newHarness(t)
+	old := BotAccountState{
+		BotAccountArgs: BotAccountArgs{
+			HomeserverURL: url, Username: "bot", RegistrationToken: "rt", Password: "old-pw",
+		},
+		UserID: "@bot:hs", AccessToken: "tok",
+	}
+	news := old.BotAccountArgs
+	news.Password = "new-pw"
+
+	if _, err := (BotAccount{}).Update(t.Context(), infer.UpdateRequest[BotAccountArgs, BotAccountState]{
+		ID: "@bot:hs", State: old, Inputs: news,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	calls := h.seen()
+	if len(calls) != 1 || calls[0].Path != "/_matrix/client/v3/account/password" {
+		t.Fatalf("expected exactly one change-password call; got %v", h.paths())
+	}
+	if calls[0].Body["new_password"] != "new-pw" {
+		t.Fatalf("wrong new_password: %v", calls[0].Body["new_password"])
+	}
+	if calls[0].Body["logout_devices"] != false {
+		t.Fatal("logout_devices must be false — true would invalidate the stored access token")
+	}
+	auth, _ := calls[0].Body["auth"].(map[string]any)
+	if auth["password"] != "old-pw" {
+		t.Fatalf("UIA must authenticate with the OLD password; got %v", auth["password"])
 	}
 }
 
