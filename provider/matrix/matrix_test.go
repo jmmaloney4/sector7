@@ -638,3 +638,120 @@ func TestBotAccountCheckRequiresPassword(t *testing.T) {
 		t.Fatalf("an omitted password must fail check rather than silently minting an unrecoverable one; got %+v", resp.Failures)
 	}
 }
+
+// Every input that Create sends but no Update path can change must show up in
+// Diff. Otherwise the value lands in Pulumi state while the server keeps the
+// old one — the state says one thing, the homeserver another, and nothing ever
+// reconciles them.
+func TestBotAccountDiffCatchesPasswordDrift(t *testing.T) {
+	base := BotAccountArgs{
+		HomeserverURL: "https://hs", Username: "bot", RegistrationToken: "rt", Password: "pw",
+	}
+	old := BotAccountState{BotAccountArgs: base, UserID: "@bot:hs"}
+
+	news := base
+	news.Password = "rotated"
+	r, _ := BotAccount{}.Diff(t.Context(), infer.DiffRequest[BotAccountArgs, BotAccountState]{State: old, Inputs: news})
+	if r.DetailedDiff["password"].Kind != pgo.UpdateReplace {
+		t.Fatalf("a rotated password must force replacement, not vanish; got %+v", r.DetailedDiff)
+	}
+	// Same homeserver + username, so the replacement collides with the account
+	// still registered there. It must be deactivated first, or /register
+	// answers M_USER_IN_USE and recovery logs in with the wrong password.
+	if !r.DeleteBeforeReplace {
+		t.Fatal("a same-account replacement must delete before replacing")
+	}
+
+	// A username change targets a different account, so there is no collision
+	// and the old account may outlive the new one.
+	news = base
+	news.Username = "other"
+	r, _ = BotAccount{}.Diff(t.Context(), infer.DiffRequest[BotAccountArgs, BotAccountState]{State: old, Inputs: news})
+	if r.DeleteBeforeReplace {
+		t.Fatal("a different-account replacement must not delete first")
+	}
+}
+
+// Diff reports a cleared display name as an in-place update, so Update has to
+// actually send it. The dynamic provider guarded on a non-empty value, which
+// made clearing a silent no-op with state claiming a name the homeserver never
+// received.
+func TestBotAccountUpdateClearsDisplayName(t *testing.T) {
+	h, url := newHarness(t)
+	old := BotAccountState{
+		BotAccountArgs: BotAccountArgs{
+			HomeserverURL: url, Username: "bot", RegistrationToken: "rt",
+			Password: "pw", DisplayName: "Bot",
+		},
+		UserID: "@bot:hs", AccessToken: "tok",
+	}
+	news := old.BotAccountArgs
+	news.DisplayName = ""
+
+	if _, err := (BotAccount{}).Update(t.Context(), infer.UpdateRequest[BotAccountArgs, BotAccountState]{
+		ID: "@bot:hs", State: old, Inputs: news,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	calls := h.seen()
+	if len(calls) != 1 || !strings.HasSuffix(calls[0].Path, "/displayname") {
+		t.Fatalf("clearing the display name must reach the homeserver; got %v", h.paths())
+	}
+	if calls[0].Body["displayname"] != "" {
+		t.Fatalf("expected an empty displayname; got %v", calls[0].Body["displayname"])
+	}
+
+	// An unchanged display name must still make no call.
+	h2, url2 := newHarness(t)
+	old.HomeserverURL = url2
+	if _, err := (BotAccount{}).Update(t.Context(), infer.UpdateRequest[BotAccountArgs, BotAccountState]{
+		ID: "@bot:hs", State: old, Inputs: old.BotAccountArgs,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if got := h2.paths(); len(got) != 0 {
+		t.Fatalf("an unchanged display name must make no call; got %v", got)
+	}
+}
+
+// isDirect is sent only in the createRoom body and no state event can change
+// it, so it is immutable — and absent must equal absent, or every live room
+// (whose state has no isDirect) would be replaced on the first apply.
+func TestRoomDiffTreatsIsDirectAsImmutable(t *testing.T) {
+	base := RoomArgs{HomeserverURL: "https://hs", AccessToken: "tok", Name: "Ops"}
+	old := RoomState{RoomArgs: base, RoomID: "!abc:hs"}
+
+	yes, no := true, false
+	news := base
+	news.IsDirect = &yes
+	r, _ := Room{}.Diff(t.Context(), infer.DiffRequest[RoomArgs, RoomState]{State: old, Inputs: news})
+	if r.DetailedDiff["isDirect"].Kind != pgo.UpdateReplace {
+		t.Fatalf("setting isDirect must force replacement, not vanish; got %+v", r.DetailedDiff)
+	}
+
+	// Absent on both sides — the shape of every live room.
+	r, _ = Room{}.Diff(t.Context(), infer.DiffRequest[RoomArgs, RoomState]{State: old, Inputs: base})
+	if r.HasChanges {
+		t.Fatalf("absent isDirect must equal absent; got %+v", r.DetailedDiff)
+	}
+
+	// Same value on both sides is not a change either.
+	withYes := base
+	withYes.IsDirect = &yes
+	oldYes := RoomState{RoomArgs: withYes, RoomID: "!abc:hs"}
+	alsoYes := true
+	news = base
+	news.IsDirect = &alsoYes
+	r, _ = Room{}.Diff(t.Context(), infer.DiffRequest[RoomArgs, RoomState]{State: oldYes, Inputs: news})
+	if r.HasChanges {
+		t.Fatalf("equal isDirect values must not diff; got %+v", r.DetailedDiff)
+	}
+
+	// true -> false is a change.
+	news = base
+	news.IsDirect = &no
+	r, _ = Room{}.Diff(t.Context(), infer.DiffRequest[RoomArgs, RoomState]{State: oldYes, Inputs: news})
+	if r.DetailedDiff["isDirect"].Kind != pgo.UpdateReplace {
+		t.Fatalf("flipping isDirect must force replacement; got %+v", r.DetailedDiff)
+	}
+}

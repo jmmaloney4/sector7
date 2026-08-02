@@ -82,6 +82,14 @@ func (Room) Diff(_ context.Context, req infer.DiffRequest[RoomArgs, RoomState]) 
 	if olds.HomeserverURL != news.HomeserverURL {
 		diffs["homeserverUrl"] = p.PropertyDiff{Kind: p.UpdateReplace}
 	}
+	// isDirect is sent only in the createRoom body and there is no state event
+	// to change it afterwards, so it is immutable in the same way preset is.
+	// The dynamic provider omitted it from the diff entirely, which meant a
+	// changed value silently landed in state while the room kept the old
+	// m.direct semantics.
+	if !boolPtrEqual(olds.IsDirect, news.IsDirect) {
+		diffs["isDirect"] = p.PropertyDiff{Kind: p.UpdateReplace}
+	}
 
 	// Name, topic and invites are all reconcilable in place.
 	if olds.Name != news.Name {
@@ -238,4 +246,16 @@ func (Room) Delete(ctx context.Context, req infer.DeleteRequest[RoomState]) (inf
 	}
 	_ = c.Do(ctx, "POST", "/_matrix/client/v3/rooms/"+esc+"/forget", map[string]any{}, nil, true)
 	return infer.DeleteResponse{}, nil
+}
+
+// boolPtrEqual treats absent and absent as equal.
+//
+// Nil-vs-nil matters for the migration: live rooms written by the dynamic
+// provider have no isDirect at all, so a naive pointer comparison would report
+// a change on every one of them — and isDirect forces replacement.
+func boolPtrEqual(a, b *bool) bool {
+	if a == nil || b == nil {
+		return a == b
+	}
+	return *a == *b
 }

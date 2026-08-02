@@ -99,15 +99,33 @@ func (BotAccount) Diff(_ context.Context, req infer.DiffRequest[BotAccountArgs, 
 	if olds.RegistrationToken != news.RegistrationToken {
 		diffs["registrationToken"] = p.PropertyDiff{Kind: p.UpdateReplace}
 	}
+	// The password is a create-time credential: it is sent to /register and
+	// never changed afterwards. Leaving it out of the diff — as the dynamic
+	// provider did — means a rotated password silently lands in state while the
+	// account keeps the old one, and the M_USER_IN_USE recovery path then logs
+	// in with credentials that do not match. Replacement is the honest
+	// outcome; Matrix's change-password API is a separate feature, not a
+	// silent no-op.
+	if olds.Password != news.Password {
+		diffs["password"] = p.PropertyDiff{Kind: p.UpdateReplace}
+	}
 	// The display name is mutable in place.
 	if olds.DisplayName != news.DisplayName {
 		diffs["displayName"] = p.PropertyDiff{Kind: p.Update}
 	}
 
+	// A replacement that reuses the SAME homeserver and username collides with
+	// the account still registered there: /register answers M_USER_IN_USE, and
+	// the recovery path then tries to log in with the NEW password against an
+	// account that still has the old one. So the old account must be
+	// deactivated first. That is every replacement except a username or
+	// homeserver change, which by definition target a different account.
+	sameAccount := olds.Username == news.Username && olds.HomeserverURL == news.HomeserverURL
+
 	return p.DiffResponse{
 		HasChanges:          len(diffs) > 0,
 		DetailedDiff:        diffs,
-		DeleteBeforeReplace: false,
+		DeleteBeforeReplace: sameAccount,
 	}, nil
 }
 
@@ -220,7 +238,11 @@ func (b BotAccount) Update(ctx context.Context, req infer.UpdateRequest[BotAccou
 	if req.DryRun {
 		return out, nil
 	}
-	if req.Inputs.DisplayName != "" && req.Inputs.DisplayName != req.State.DisplayName {
+	// Sent whenever it CHANGED, including a change to empty. The dynamic
+	// provider guarded on `news.displayName &&`, which made clearing a display
+	// name a silent no-op: Diff reported an update, Update skipped the call,
+	// and state then claimed an empty name the homeserver never received.
+	if req.Inputs.DisplayName != req.State.DisplayName {
 		c := client(req.State.HomeserverURL)
 		c.Bearer = req.State.AccessToken
 		if err := c.Do(ctx, "PUT",
