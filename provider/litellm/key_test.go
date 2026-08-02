@@ -397,7 +397,6 @@ func TestKeyDelete(t *testing.T) {
 	})
 }
 
-
 // Delete is marked idempotent so httpx retries it on transport errors. That
 // makes "already gone" reachable: if the first attempt succeeds but its
 // response is lost, the retry sees a 404/400 for a token that no longer exists.
