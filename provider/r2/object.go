@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -138,8 +139,29 @@ func (o Object) endpoint(a ObjectArgs) string {
 	return fmt.Sprintf("https://%s.r2.cloudflarestorage.com", a.AccountID)
 }
 
+// escapeKey percent-encodes an object key for use in a URL path, preserving
+// `/` so key prefixes stay real path segments rather than one escaped blob.
+//
+// Object keys are arbitrary strings. A key containing a space, `#`, `?` or `%`
+// concatenated raw into a URL either makes http.NewRequest fail outright or —
+// worse — silently reinterprets part of the key as a query string or fragment,
+// so the request signs one object and writes another. Splitting on `/` and
+// escaping each segment is what keeps `assets/app.css` a two-segment path
+// while `a b#c` becomes `a%20b%23c`.
+func escapeKey(key string) string {
+	parts := strings.Split(key, "/")
+	for i, p := range parts {
+		parts[i] = url.PathEscape(p)
+	}
+	return strings.Join(parts, "/")
+}
+
+// objectURL is the signing input as well as the request URL. Both go through
+// escapeKey so the canonical request the signer derives (via
+// url.URL.EscapedPath) matches the bytes actually sent — if these two ever
+// disagree, R2 answers 403 SignatureDoesNotMatch.
 func (o Object) objectURL(a ObjectArgs) string {
-	return fmt.Sprintf("%s/%s/%s", o.endpoint(a), a.BucketName, a.Key)
+	return fmt.Sprintf("%s/%s/%s", o.endpoint(a), url.PathEscape(a.BucketName), escapeKey(a.Key))
 }
 
 func (o Object) upload(ctx context.Context, a ObjectArgs) (string, error) {
@@ -147,15 +169,15 @@ func (o Object) upload(ctx context.Context, a ObjectArgs) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("sector7: reading %s: %w", a.FilePath, err)
 	}
-	url := o.objectURL(a)
-	headers, err := signedHeaders("PUT", url,
+	objURL := o.objectURL(a)
+	headers, err := signedHeaders("PUT", objURL,
 		SigV4Credentials{AccessKeyID: a.AccessKeyID, SecretAccessKey: a.SecretAccessKey},
 		body, a.ContentType, time.Now())
 	if err != nil {
 		return "", err
 	}
 
-	req, err := http.NewRequestWithContext(ctx, "PUT", url, bytes.NewReader(body))
+	req, err := http.NewRequestWithContext(ctx, "PUT", objURL, bytes.NewReader(body))
 	if err != nil {
 		return "", err
 	}
@@ -213,15 +235,15 @@ func (o Object) Update(ctx context.Context, req infer.UpdateRequest[ObjectArgs, 
 
 func (o Object) Delete(ctx context.Context, req infer.DeleteRequest[ObjectState]) (infer.DeleteResponse, error) {
 	a := req.State.ObjectArgs
-	url := o.objectURL(a)
-	headers, err := signedHeaders("DELETE", url,
+	objURL := o.objectURL(a)
+	headers, err := signedHeaders("DELETE", objURL,
 		SigV4Credentials{AccessKeyID: a.AccessKeyID, SecretAccessKey: a.SecretAccessKey},
 		nil, "", time.Now())
 	if err != nil {
 		return infer.DeleteResponse{}, err
 	}
 
-	httpReq, err := http.NewRequestWithContext(ctx, "DELETE", url, nil)
+	httpReq, err := http.NewRequestWithContext(ctx, "DELETE", objURL, nil)
 	if err != nil {
 		return infer.DeleteResponse{}, err
 	}

@@ -2,6 +2,7 @@ package attic
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"strings"
@@ -301,8 +302,9 @@ func (c Cache) Create(ctx context.Context, req infer.CreateRequest[CacheArgs]) (
 // isCacheAlreadyExists recognises Attic's create-collision response: a 400
 // whose body names CacheAlreadyExists.
 func isCacheAlreadyExists(err error) bool {
-	e, ok := err.(*httpx.Error)
-	return ok && e.Status == http.StatusBadRequest && strings.Contains(e.Body, "CacheAlreadyExists")
+	var e *httpx.Error
+	return errors.As(err, &e) && e.Status == http.StatusBadRequest &&
+		strings.Contains(e.Body, "CacheAlreadyExists")
 }
 
 func (c Cache) Update(ctx context.Context, req infer.UpdateRequest[CacheArgs, CacheState]) (infer.UpdateResponse[CacheState], error) {
@@ -349,7 +351,8 @@ func (c Cache) Delete(ctx context.Context, req infer.DeleteRequest[CacheState]) 
 	if err != nil {
 		// Idempotent delete: a cache already removed out of band means the
 		// desired end state is reached, so do not fail destroy or a replacement.
-		if e, ok := err.(*httpx.Error); ok && e.Status == http.StatusNotFound {
+		var e *httpx.Error
+		if errors.As(err, &e) && e.Status == http.StatusNotFound {
 			return infer.DeleteResponse{}, nil
 		}
 		return infer.DeleteResponse{}, err

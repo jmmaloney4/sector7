@@ -3,6 +3,7 @@ package r2
 import (
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
 	"testing"
@@ -138,5 +139,47 @@ func TestDeleteToleratesAlreadyGone(t *testing.T) {
 			t.Fatalf("status %d must succeed; got %v", status, err)
 		}
 		srv.Close()
+	}
+}
+
+// Object keys are arbitrary strings, and objectURL is BOTH the request URL and
+// the signing input. A raw key containing a space, `#`, `?` or `%` either makes
+// http.NewRequest fail or silently reinterprets part of the key as a query or
+// fragment — signing one object and writing another.
+func TestObjectURLEscapesTheKey(t *testing.T) {
+	o := Object{Endpoint: "https://acct.r2.cloudflarestorage.com"}
+	base := ObjectArgs{BucketName: "bkt"}
+
+	for _, tc := range []struct{ key, want string }{
+		// Slashes stay slashes: key prefixes are real path segments, not one
+		// escaped blob, or every existing prefixed object would move.
+		{"assets/app.css", "assets/app.css"},
+		{"a b.txt", "a%20b.txt"},
+		{"weird#frag.txt", "weird%23frag.txt"},
+		{"q?uery.txt", "q%3Fuery.txt"},
+		{"100%.txt", "100%25.txt"},
+		{"dir/sub dir/f#1.txt", "dir/sub%20dir/f%231.txt"},
+	} {
+		a := base
+		a.Key = tc.key
+		got := o.objectURL(a)
+		want := "https://acct.r2.cloudflarestorage.com/bkt/" + tc.want
+		if got != want {
+			t.Fatalf("key %q:\n got %s\nwant %s", tc.key, got, want)
+		}
+		// The URL must survive parsing, and the path the signer canonicalises
+		// (EscapedPath) must equal the bytes we send. If those ever diverge R2
+		// answers 403 SignatureDoesNotMatch.
+		u, err := url.Parse(got)
+		if err != nil {
+			t.Fatalf("key %q produced an unparseable URL: %v", tc.key, err)
+		}
+		if u.RawQuery != "" || u.Fragment != "" {
+			t.Fatalf("key %q leaked into query=%q fragment=%q", tc.key, u.RawQuery, u.Fragment)
+		}
+		if u.EscapedPath() != "/bkt/"+tc.want {
+			t.Fatalf("key %q: signer would canonicalise %q, request sends %q",
+				tc.key, u.EscapedPath(), "/bkt/"+tc.want)
+		}
 	}
 }
