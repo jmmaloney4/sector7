@@ -932,3 +932,73 @@ func TestBotAccountCreateRejectsIncompleteResponse(t *testing.T) {
 		})
 	}
 }
+
+// The password change must be the LAST thing Update does.
+//
+// A failed Update leaves Pulumi holding the OLD state, so the next apply
+// retries with the old password in the UIA stage. If the password had already
+// been changed by an earlier attempt, every retry authenticates with a password
+// the account no longer has and the account is unrecoverable — the access token
+// stays valid but cannot satisfy an m.login.password stage. Ordering every
+// other step first makes anything that fails before it cleanly retryable.
+func TestBotAccountUpdateChangesPasswordLast(t *testing.T) {
+	h, url := newHarness(t)
+	old := BotAccountState{
+		BotAccountArgs: BotAccountArgs{
+			HomeserverURL: url, Username: "bot", RegistrationToken: "rt",
+			Password: "old-pw", DisplayName: "Bot",
+		},
+		UserID: "@bot:hs", AccessToken: "tok",
+	}
+	news := old.BotAccountArgs
+	news.Password = "new-pw"
+	news.DisplayName = "Renamed"
+
+	if _, err := (BotAccount{}).Update(t.Context(), infer.UpdateRequest[BotAccountArgs, BotAccountState]{
+		ID: "@bot:hs", State: old, Inputs: news,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	got := h.paths()
+	if len(got) != 2 {
+		t.Fatalf("expected a displayname PUT then a password POST; got %v", got)
+	}
+	if !strings.Contains(got[0], "displayname") || !strings.Contains(got[1], "account/password") {
+		t.Fatalf("the password change must come last, so an earlier failure stays retryable; got %v", got)
+	}
+}
+
+// The converse: when a step that runs BEFORE the password change fails, the
+// password must never have been touched — so the whole Update can be retried
+// with the old credential still valid.
+func TestBotAccountUpdateLeavesPasswordUntouchedOnEarlierFailure(t *testing.T) {
+	h, url := newHarness(t)
+	h.fallback = func(w http.ResponseWriter, path string) {
+		if strings.Contains(path, "displayname") {
+			w.WriteHeader(http.StatusInternalServerError)
+		}
+		_, _ = w.Write([]byte(`{}`))
+	}
+	old := BotAccountState{
+		BotAccountArgs: BotAccountArgs{
+			HomeserverURL: url, Username: "bot", RegistrationToken: "rt",
+			Password: "old-pw", DisplayName: "Bot",
+		},
+		UserID: "@bot:hs", AccessToken: "tok",
+	}
+	news := old.BotAccountArgs
+	news.Password = "new-pw"
+	news.DisplayName = "Renamed"
+
+	if _, err := (BotAccount{}).Update(t.Context(), infer.UpdateRequest[BotAccountArgs, BotAccountState]{
+		ID: "@bot:hs", State: old, Inputs: news,
+	}); err == nil {
+		t.Fatal("a failed display-name update must fail the Update")
+	}
+	for _, p := range h.paths() {
+		if strings.Contains(p, "account/password") {
+			t.Fatal("the password must not be changed once an earlier step has failed — " +
+				"state would keep the old password and every retry would authenticate with it")
+		}
+	}
+}

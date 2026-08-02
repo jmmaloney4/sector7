@@ -263,10 +263,34 @@ func (b BotAccount) Update(ctx context.Context, req infer.UpdateRequest[BotAccou
 	// provider guarded on `news.displayName &&`, which made clearing a display
 	// name a silent no-op: Diff reported an update, Update skipped the call,
 	// and state then claimed an empty name the homeserver never received.
-	// A rotated password is applied through Matrix's change-password API.
+	if req.Inputs.DisplayName != req.State.DisplayName {
+		c := client(req.State.HomeserverURL)
+		c.Bearer = req.State.AccessToken
+		if err := c.Do(ctx, "PUT",
+			"/_matrix/client/v3/profile/"+url.PathEscape(req.State.UserID)+"/displayname",
+			map[string]any{"displayname": req.Inputs.DisplayName}, nil, true); err != nil {
+			return out, fmt.Errorf("sector7: failed to update display name for %s: %w", req.State.Username, err)
+		}
+	}
+
+	// The password change goes LAST, and the ordering is load-bearing.
+	//
+	// A failed Update leaves Pulumi holding the OLD state, so the next apply
+	// recomputes the same diff and retries. That retry authenticates the UIA
+	// stage with req.State.Password — the old password. If the password had
+	// already been changed on the homeserver by an earlier attempt, every
+	// retry now authenticates with a password the account no longer has, and
+	// the account is unrecoverable without server-side intervention: the
+	// access token stays valid (logout_devices is false) but cannot satisfy an
+	// m.login.password UIA stage.
+	//
+	// Putting every other step first means anything that fails before this
+	// point leaves the credentials untouched and the whole Update cleanly
+	// retryable. Only a lost response from the call below can still strand the
+	// account, which is a far narrower window than "any later step failed".
+	//
 	// logout_devices MUST be false: the default is true, which would invalidate
-	// the very access token this resource stores and every consumer's session
-	// along with it.
+	// the access token this resource stores and every consumer's session.
 	if req.Inputs.Password != req.State.Password {
 		c := client(req.State.HomeserverURL)
 		c.Bearer = req.State.AccessToken
@@ -280,19 +304,12 @@ func (b BotAccount) Update(ctx context.Context, req infer.UpdateRequest[BotAccou
 			},
 		}, nil, true); err != nil {
 			return out, fmt.Errorf(
-				"sector7: failed to change the password for %s: %w", req.State.Username, err)
+				"sector7: failed to change the password for %s: %w — if this call reached the "+
+					"homeserver, Pulumi state still holds the previous password and the account "+
+					"must be reconciled server-side", req.State.Username, err)
 		}
 	}
 
-	if req.Inputs.DisplayName != req.State.DisplayName {
-		c := client(req.State.HomeserverURL)
-		c.Bearer = req.State.AccessToken
-		if err := c.Do(ctx, "PUT",
-			"/_matrix/client/v3/profile/"+url.PathEscape(req.State.UserID)+"/displayname",
-			map[string]any{"displayname": req.Inputs.DisplayName}, nil, true); err != nil {
-			return out, fmt.Errorf("sector7: failed to update display name for %s: %w", req.State.Username, err)
-		}
-	}
 	return out, nil
 }
 
