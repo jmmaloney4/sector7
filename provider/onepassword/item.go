@@ -8,6 +8,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -461,12 +462,16 @@ func (i Item) Delete(ctx context.Context, req infer.DeleteRequest[ItemState]) (i
 	return infer.DeleteResponse{}, nil
 }
 
+// asHTTPError unwraps err to an *httpx.Error.
+//
+// errors.As, not a bare type assertion: httpx returns *Error unwrapped today,
+// but one fmt.Errorf("…: %w") added anywhere in that client would make a bare
+// assertion silently stop matching. The only consumer is Delete's 404-tolerance
+// branch, and losing it does not look like a bug — it is `pulumi destroy`
+// failing on an item that was already removed out of band, which keeps the
+// resource in state and reds every subsequent `up`.
 func asHTTPError(err error, into **httpx.Error) bool {
-	e, ok := err.(*httpx.Error)
-	if ok {
-		*into = e
-	}
-	return ok
+	return errors.As(err, into)
 }
 
 func fieldsToAny(fields []Field) []any {

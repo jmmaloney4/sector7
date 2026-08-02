@@ -1,6 +1,13 @@
 package onepassword
 
-import "testing"
+import (
+	"errors"
+	"fmt"
+	"net/http"
+	"testing"
+
+	"github.com/jmmaloney4/sector7/provider/internal/httpx"
+)
 
 // Golden vector captured from the TypeScript implementation
 // (packages/sector7/onepassword/item.ts, computeContentHash) by running its
@@ -127,5 +134,34 @@ func TestAdoptionRemovesNothing(t *testing.T) {
 	fields, _ := body["fields"].([]any)
 	if len(fields) != 2 {
 		t.Fatalf("adoption must upsert without removing; got %d fields", len(fields))
+	}
+}
+
+// Delete's 404 tolerance is what makes `pulumi destroy` idempotent for an item
+// that was already removed out of band. It hinges on recognising the error, so
+// pin that a WRAPPED *httpx.Error still matches: httpx returns its errors
+// unwrapped today, and a bare type assertion would keep passing until someone
+// adds a single `fmt.Errorf("…: %w")` to that client — at which point destroy
+// starts failing and leaves the resource in state.
+func TestAsHTTPErrorSeesThroughWrapping(t *testing.T) {
+	base := &httpx.Error{Method: "DELETE", Path: "/v1/vaults/v/items/i", Status: http.StatusNotFound}
+
+	for name, err := range map[string]error{
+		"unwrapped": base,
+		"wrapped":   fmt.Errorf("deleting item: %w", base),
+		"twice":     fmt.Errorf("outer: %w", fmt.Errorf("inner: %w", base)),
+	} {
+		t.Run(name, func(t *testing.T) {
+			var he *httpx.Error
+			if !asHTTPError(err, &he) || he.Status != http.StatusNotFound {
+				t.Fatalf("a 404 must be recognised through %s wrapping; got %v", name, he)
+			}
+		})
+	}
+
+	// A non-HTTP error must not be mistaken for one.
+	var he *httpx.Error
+	if asHTTPError(errors.New("dial tcp: connection refused"), &he) {
+		t.Fatal("a transport error must not be treated as an HTTP status")
 	}
 }
