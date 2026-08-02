@@ -2,6 +2,7 @@ package matrix
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -170,10 +171,19 @@ func (Room) Read(ctx context.Context, req infer.ReadRequest[RoomArgs, RoomState]
 	err := c.Do(ctx, "GET",
 		"/_matrix/client/v3/rooms/"+url.PathEscape(req.ID)+"/state/m.room.create", nil, nil, true)
 	if err != nil {
-		if e, ok := err.(*httpx.Error); ok &&
+		var e *httpx.Error
+		if errors.As(err, &e) &&
 			(e.Status == http.StatusForbidden || e.Status == http.StatusNotFound) {
 			return infer.ReadResponse[RoomArgs, RoomState]{}, nil
 		}
+		// Everything else keeps state — but says so. Swallowing the error
+		// silently is the real hazard the classification argument misses: a
+		// permanently revoked token would leave refresh reporting "up to date"
+		// forever while every later Update or Delete fails against a token that
+		// no longer works. A warning keeps refresh from churning a live room
+		// over a transient blip AND makes the unverifiable case visible.
+		p.GetLogger(ctx).Warningf(
+			"could not verify Matrix room %s; keeping existing state: %v", req.ID, err)
 	}
 	return infer.ReadResponse[RoomArgs, RoomState]{ID: req.ID, Inputs: req.Inputs, State: req.State}, nil
 }

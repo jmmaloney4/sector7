@@ -9,6 +9,7 @@ package matrix
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -185,8 +186,8 @@ func (b BotAccount) Create(ctx context.Context, req infer.CreateRequest[BotAccou
 }
 
 func isUserInUse(err error) bool {
-	e, ok := err.(*httpx.Error)
-	return ok && strings.Contains(e.Body, "M_USER_IN_USE")
+	var e *httpx.Error
+	return errors.As(err, &e) && strings.Contains(e.Body, "M_USER_IN_USE")
 }
 
 // setDisplayName is best-effort: a bot with the wrong display name is cosmetic,
@@ -215,11 +216,15 @@ func (BotAccount) Read(ctx context.Context, req infer.ReadRequest[BotAccountArgs
 
 	err := c.Do(ctx, "GET", "/_matrix/client/v3/profile/"+url.PathEscape(req.ID), nil, nil, true)
 	if err != nil {
-		if e, ok := err.(*httpx.Error); ok &&
+		var e *httpx.Error
+		if errors.As(err, &e) &&
 			(e.Status == http.StatusUnauthorized || e.Status == http.StatusNotFound) {
 			return infer.ReadResponse[BotAccountArgs, BotAccountState]{}, nil
 		}
-		// Any other error: assume state is still valid rather than recreating.
+		// Any other error keeps state rather than recreating — but is reported,
+		// so an account that cannot be verified does not masquerade as healthy.
+		p.GetLogger(ctx).Warningf(
+			"could not verify Matrix account %s; keeping existing state: %v", req.ID, err)
 		return infer.ReadResponse[BotAccountArgs, BotAccountState]{
 			ID: req.ID, Inputs: req.Inputs, State: req.State,
 		}, nil

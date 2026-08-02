@@ -2,6 +2,7 @@ package matrix
 
 import (
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -12,6 +13,8 @@ import (
 	pgo "github.com/pulumi/pulumi-go-provider"
 	"github.com/pulumi/pulumi-go-provider/infer"
 	"github.com/pulumi/pulumi/sdk/v3/go/property"
+
+	"github.com/jmmaloney4/sector7/provider/internal/httpx"
 )
 
 type call struct {
@@ -753,5 +756,70 @@ func TestRoomDiffTreatsIsDirectAsImmutable(t *testing.T) {
 	r, _ = Room{}.Diff(t.Context(), infer.DiffRequest[RoomArgs, RoomState]{State: oldYes, Inputs: news})
 	if r.DetailedDiff["isDirect"].Kind != pgo.UpdateReplace {
 		t.Fatalf("flipping isDirect must force replacement; got %+v", r.DetailedDiff)
+	}
+}
+
+// The M_USER_IN_USE recovery path is what makes a lost /register response
+// self-heal on the NEXT run: registration is never retried in-process (a retry
+// would be the thing that creates the duplicate), so a transport error fails
+// the apply, and the following apply hits M_USER_IN_USE and logs in instead.
+//
+// That only works because `password` is a declared, required input and is
+// therefore stable across invocations — the property the removed random
+// fallback lacked. This test pins the two halves together.
+func TestBotAccountRecoveryIsStableAcrossRuns(t *testing.T) {
+	args := BotAccountArgs{Username: "bot", RegistrationToken: "rt", Password: "declared-pw"}
+
+	// Run 1: the homeserver accepts the registration but the response is lost.
+	h1, url1 := newHarness(t)
+	h1.route("/_matrix/client/v3/register", func(w http.ResponseWriter) {
+		// A transport-shaped failure: no usable response body.
+		w.WriteHeader(http.StatusInternalServerError)
+	})
+	a1 := args
+	a1.HomeserverURL = url1
+	if _, err := (BotAccount{}).Create(t.Context(), infer.CreateRequest[BotAccountArgs]{Inputs: a1}); err == nil {
+		t.Fatal("a lost registration response must fail the apply, not be retried")
+	}
+	if got := len(h1.seen()); got != 1 {
+		t.Fatalf("register must not be retried in-process; got %d attempts", got)
+	}
+
+	// Run 2: the account now exists. Recovery logs in with the SAME declared
+	// password and succeeds.
+	h2, url2 := newHarness(t)
+	h2.route("/_matrix/client/v3/register", status(http.StatusBadRequest, `{"errcode":"M_USER_IN_USE"}`))
+	h2.route("/_matrix/client/v3/login",
+		json200(`{"user_id":"@bot:example.org","access_token":"recovered","device_id":"D"}`))
+	a2 := args
+	a2.HomeserverURL = url2
+	resp, err := BotAccount{}.Create(t.Context(), infer.CreateRequest[BotAccountArgs]{Inputs: a2})
+	if err != nil {
+		t.Fatalf("the second run must recover the stranded account: %v", err)
+	}
+	if resp.Output.AccessToken != "recovered" {
+		t.Fatalf("expected the recovered token; got %q", resp.Output.AccessToken)
+	}
+	if got := h2.seen()[1].Body["password"]; got != "declared-pw" {
+		t.Fatalf("recovery must reuse the declared password; got %v", got)
+	}
+}
+
+// isUserInUse drives that recovery, so it must survive error wrapping for the
+// same reason as onepassword's asHTTPError: httpx returns *Error unwrapped
+// today, and one added %w would turn recovery into a hard failure on an
+// account that already exists.
+func TestIsUserInUseSeesThroughWrapping(t *testing.T) {
+	base := &httpx.Error{Method: "POST", Path: "/register", Status: 400, Body: `{"errcode":"M_USER_IN_USE"}`}
+	for name, err := range map[string]error{
+		"unwrapped": base,
+		"wrapped":   fmt.Errorf("registering: %w", base),
+	} {
+		if !isUserInUse(err) {
+			t.Fatalf("M_USER_IN_USE must be recognised through %s wrapping", name)
+		}
+	}
+	if isUserInUse(&httpx.Error{Status: 403, Body: `{"errcode":"M_FORBIDDEN"}`}) {
+		t.Fatal("a different errcode must not trigger recovery")
 	}
 }
