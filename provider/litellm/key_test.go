@@ -425,3 +425,76 @@ func TestKeyDeleteToleratesAlreadyGone(t *testing.T) {
 		}
 	})
 }
+
+// The kubeconfig must actually reach the transport.
+//
+// The ambient default config is whatever kubectl happens to point at, which is
+// usually NOT the identity the rest of the stack deploys with. Dropping this
+// input anywhere between the resource and kube.Target is invisible to every
+// other test — the Fake ignores the Target and returns the same BaseURL — and
+// shows up only in production, as a port-forward refused for the wrong user:
+//
+//	deployments.apps "litellm" is forbidden: User "pulumi-zeus" cannot get
+//	resource "deployments" in API group "apps" in the namespace "litellm"
+func TestAdminTargetKubeconfigReachesTheTransport(t *testing.T) {
+	const kubeconfig = "apiVersion: v1\nkind: Config\n# platform identity\n"
+
+	t.Run("forwarded when set", func(t *testing.T) {
+		h := newHarness(t, nil)
+		args := baseKeyArgs()
+		args.Kubeconfig = kubeconfig
+
+		if _, _, err := connect(t.Context(), h.tr, args.AdminTarget); err != nil {
+			t.Fatal(err)
+		}
+		if got := h.tr.LastTarget.Kubeconfig; got != kubeconfig {
+			t.Fatalf("kubeconfig did not reach kube.Target: got %q", got)
+		}
+		// The rest of the target must still be carried, or a correct
+		// kubeconfig would just point at the wrong deployment.
+		if h.tr.LastTarget.Namespace != "litellm" ||
+			h.tr.LastTarget.Deployment != "litellm" ||
+			h.tr.LastTarget.Port != 4000 {
+			t.Fatalf("rest of the target was dropped: %+v", h.tr.LastTarget)
+		}
+	})
+
+	t.Run("empty when unset, meaning ambient", func(t *testing.T) {
+		h := newHarness(t, nil)
+		if _, _, err := connect(t.Context(), h.tr, baseKeyArgs().AdminTarget); err != nil {
+			t.Fatal(err)
+		}
+		if got := h.tr.LastTarget.Kubeconfig; got != "" {
+			t.Fatalf("unset kubeconfig must stay empty (ambient), got %q", got)
+		}
+	})
+}
+
+// A rotated kubeconfig has to land in state, or every later operation keeps
+// using the stale one. Both resources share AdminTarget.Changed so they cannot
+// disagree about what counts as an admin-target change.
+func TestKubeconfigChangeIsAnAdminTargetDiff(t *testing.T) {
+	old := KeyState{KeyArgs: baseKeyArgs()}
+	news := baseKeyArgs()
+	news.Kubeconfig = "apiVersion: v1\nkind: Config\n# rotated\n"
+
+	r, err := KeyRecord{}.Diff(t.Context(), infer.DiffRequest[KeyArgs, KeyState]{State: old, Inputs: news})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r.DetailedDiff["adminTarget"].Kind != p.Update {
+		t.Fatalf("a rotated kubeconfig must be an in-place adminTarget update; got %+v", r.DetailedDiff)
+	}
+	for name, d := range r.DetailedDiff {
+		if d.Kind == p.UpdateReplace {
+			t.Fatalf("a kubeconfig change must never replace a live key (%s did)", name)
+		}
+	}
+
+	// Unchanged inputs must stay a no-op — this is what keeps the six live
+	// credentials from churning on every apply.
+	r, _ = KeyRecord{}.Diff(t.Context(), infer.DiffRequest[KeyArgs, KeyState]{State: old, Inputs: baseKeyArgs()})
+	if r.HasChanges {
+		t.Fatalf("unchanged inputs must not diff; got %+v", r.DetailedDiff)
+	}
+}

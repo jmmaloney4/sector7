@@ -237,6 +237,24 @@ export interface LiteLLMGeneratedConfig {
 }
 
 export interface LiteLLMAdminTargetArgs {
+	/**
+	 * Kubeconfig YAML used to open the admin port-forward. Omit to use the
+	 * ambient default config.
+	 *
+	 * Pass this. The ambient config is whatever `kubectl` happens to point at,
+	 * which is usually NOT the identity the rest of the stack deploys with:
+	 * garden binds its `k8s.Provider` to the platform kubeconfig via
+	 * `getK8sProvider`, and `OnePasswordItem` already takes this same input for
+	 * exactly this reason. Leaving it unset is why a narrower ambient identity
+	 * gets refused:
+	 *
+	 *   deployments.apps "litellm" is forbidden: User "pulumi-zeus" cannot get
+	 *   resource "deployments" in API group "apps" in the namespace "litellm"
+	 *
+	 * Optional rather than required so resources retyped by the plugin
+	 * migration keep decoding — no existing state carries it.
+	 */
+	kubeconfig?: pulumi.Input<string>;
 	proxyNamespace: pulumi.Input<string>;
 	masterKey: pulumi.Input<string>;
 	proxyDeploymentName?: pulumi.Input<string>;

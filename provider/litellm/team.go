@@ -102,10 +102,7 @@ func (TeamRecord) Diff(_ context.Context, req infer.DiffRequest[TeamArgs, TeamSt
 	// An admin-target change does not alter the remote team, but it must still
 	// flow into stored state so a later update/delete targets the new
 	// deployment and uses the new master key rather than the stale ones.
-	if olds.ProxyNamespace != news.ProxyNamespace ||
-		olds.ProxyDeploymentName != news.ProxyDeploymentName ||
-		olds.ProxyPort != news.ProxyPort ||
-		olds.MasterKey != news.MasterKey {
+	if olds.AdminTarget.Changed(news.AdminTarget) {
 		diffs["adminTarget"] = p.PropertyDiff{Kind: p.Update}
 	}
 	if olds.TeamAlias != news.TeamAlias {

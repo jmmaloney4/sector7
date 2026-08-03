@@ -56,10 +56,19 @@ type Fake struct {
 	// Connects counts calls, so tests can assert the per-operation forward
 	// behaviour (each CRUD method opens its own).
 	Connects int
+	// LastTarget is the most recent Target received.
+	//
+	// Without it a resource can silently drop part of its connection inputs —
+	// Kubeconfig especially — and every test still passes, because the Fake
+	// ignores the Target and hands back the same BaseURL regardless. The only
+	// visible symptom is in production, as a port-forward opened against the
+	// wrong cluster identity.
+	LastTarget Target
 }
 
 func (f *Fake) Connect(_ context.Context, t Target) (*Conn, error) {
 	f.Connects++
+	f.LastTarget = t
 	host := f.HostVal
 	if host == "" {
 		host = t.Deployment + "." + t.Namespace + ".svc.cluster.local"
