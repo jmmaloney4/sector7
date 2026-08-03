@@ -498,3 +498,61 @@ func TestKubeconfigChangeIsAnAdminTargetDiff(t *testing.T) {
 		t.Fatalf("unchanged inputs must not diff; got %+v", r.DetailedDiff)
 	}
 }
+
+// An unknown upstream input must never replace a live key.
+//
+// This is the exact shape that stopped the litellm/prod kubeconfig rollout:
+// garden's keys take `teamId: personalTeam.teamId`, an OUTPUT of the team. When
+// the team itself updates — for any reason — its outputs are unknown during
+// preview, and an unknown decodes here as the zero value rather than as an
+// unknown sentinel. Before the non-empty guard, all six live production keys
+// planned as replaces:
+//
+//	~ teamId : "personal" => [unknown]
+//	+-sector7:litellm:KeyRecord: (replace)
+//
+// A key is only ever replaced for a REAL, KNOWN change of identity.
+func TestUnknownUpstreamInputNeverReplacesALiveKey(t *testing.T) {
+	old := KeyState{KeyArgs: baseKeyArgs()}
+
+	for _, tc := range []struct {
+		name   string
+		mutate func(*KeyArgs)
+	}{
+		// "" is how infer surfaces an input that is unknown at preview time.
+		{"unknown teamId (team is updating)", func(a *KeyArgs) { a.TeamID = "" }},
+		{"unknown keyValue (RandomPassword is updating)", func(a *KeyArgs) { a.KeyValue = "" }},
+		{"both unknown", func(a *KeyArgs) { a.TeamID = ""; a.KeyValue = "" }},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			news := baseKeyArgs()
+			tc.mutate(&news)
+
+			r, err := KeyRecord{}.Diff(t.Context(),
+				infer.DiffRequest[KeyArgs, KeyState]{State: old, Inputs: news})
+			if err != nil {
+				t.Fatal(err)
+			}
+			for name, d := range r.DetailedDiff {
+				if d.Kind == p.UpdateReplace {
+					t.Fatalf("an unknown upstream input must never replace a live key "+
+						"(%s planned a replace); this is six production credentials", name)
+				}
+			}
+		})
+	}
+
+	// The guard must not blunt a REAL identity change — those still replace.
+	for name, mutate := range map[string]func(*KeyArgs){
+		"teamId":   func(a *KeyArgs) { a.TeamID = "cavinsresearch" },
+		"keyValue": func(a *KeyArgs) { a.KeyValue = "sk-rotated" },
+	} {
+		news := baseKeyArgs()
+		mutate(&news)
+		r, _ := KeyRecord{}.Diff(t.Context(),
+			infer.DiffRequest[KeyArgs, KeyState]{State: old, Inputs: news})
+		if r.DetailedDiff[name].Kind != p.UpdateReplace {
+			t.Fatalf("a real %s change must still replace; got %+v", name, r.DetailedDiff)
+		}
+	}
+}

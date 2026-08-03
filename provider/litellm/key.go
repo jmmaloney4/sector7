@@ -90,10 +90,31 @@ func (KeyRecord) Diff(_ context.Context, req infer.DiffRequest[KeyArgs, KeyState
 	olds, news := req.State, req.Inputs
 	diffs := map[string]p.PropertyDiff{}
 
-	if olds.KeyValue != news.KeyValue {
+	// Both replace triggers are guarded on a NON-EMPTY new value.
+	//
+	// An input that is unknown at preview time — because the resource
+	// producing it is itself being updated — decodes to the Go zero value
+	// here, not to an unknown sentinel. Without the guard, a key whose teamId
+	// comes from a LiteLLMTeam output sees "personal" != "" and reports
+	// UpdateReplace, so ANY update to a team threatens to replace every one of
+	// its keys:
+	//
+	//	~ teamId : "personal" => [unknown]
+	//	+-sector7:litellm:KeyRecord: (replace)
+	//
+	// That is six live production credentials in litellm/prod, triggered by
+	// something as ordinary as changing a team's model list. TeamRecord.Diff
+	// has always carried this guard (`news.DesiredTeamID != "" && …`); the key
+	// side never did, and nothing exercised it until a team actually changed.
+	//
+	// The tradeoff is deliberate: deliberately clearing teamId or keyValue back
+	// to empty no longer replaces. Neither is a real operation — a LiteLLM key
+	// always belongs to a team, and Check rejects an empty keyValue — whereas
+	// an unknown upstream is routine.
+	if news.KeyValue != "" && olds.KeyValue != news.KeyValue {
 		diffs["keyValue"] = p.PropertyDiff{Kind: p.UpdateReplace}
 	}
-	if olds.TeamID != news.TeamID {
+	if news.TeamID != "" && olds.TeamID != news.TeamID {
 		diffs["teamId"] = p.PropertyDiff{Kind: p.UpdateReplace}
 	}
 
