@@ -4,8 +4,9 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
  * D1Query is now backed by the `sector7` resource plugin rather than a Pulumi
  * dynamic provider, so the CRUD semantics this file used to exercise —
  * check/diff/create/update/delete — live in `provider/d1/query.go` and are
- * tested there. Each `it(...)` string that moved is carried verbatim as a Go
- * subtest name so the two lists can be diffed mechanically:
+ * tested there. Each `it(...)` string that moved is carried verbatim into
+ * `provider/d1/query_test.go` — as a subtest name, or for the one single-case
+ * test as its doc comment — so the two lists can be diffed by grep:
  *
  *   "reports no check failures for valid inputs"              → TestCheck
  *   "reports check failures when required fields are missing" → TestCheck

@@ -65,23 +65,55 @@ func TestCreateExecutesAndDerivesID(t *testing.T) {
 	}
 }
 
+// Diff coverage inherited from the TypeScript dynamic provider. As in TestCheck,
+// the subtest names are the exact `it(...)` strings from tests/d1-query.test.ts.
 func TestDiffReplacesOnStatementIdentityButNotOnToken(t *testing.T) {
 	old := QueryState{QueryArgs: args(), SQLHash: "h"}
 
 	changed := args()
 	changed.SQL = "SELECT 1"
-	r, _ := Query{}.Diff(t.Context(), infer.DiffRequest[QueryArgs, QueryState]{State: old, Inputs: changed})
-	if r.DetailedDiff["sql"].Kind != pgo.UpdateReplace || !r.DeleteBeforeReplace {
-		t.Fatalf("a SQL change must replace, deleting first; got %+v", r)
+	sqlDiff, err := Query{}.Diff(t.Context(), infer.DiffRequest[QueryArgs, QueryState]{State: old, Inputs: changed})
+	if err != nil {
+		t.Fatal(err)
 	}
 
+	t.Run("detects changes when SQL is modified", func(t *testing.T) {
+		if !sqlDiff.HasChanges || sqlDiff.DetailedDiff["sql"].Kind != pgo.UpdateReplace {
+			t.Fatalf("a SQL change must replace; got %+v", sqlDiff)
+		}
+	})
+
+	t.Run("triggers delete-before-replace when SQL changes", func(t *testing.T) {
+		if !sqlDiff.DeleteBeforeReplace {
+			t.Fatalf("a SQL change must delete before replacing; got %+v", sqlDiff)
+		}
+	})
+
 	// A token rotation only changes the credential, so it re-executes in place.
-	rotated := args()
-	rotated.APIToken = "new"
-	r, _ = Query{}.Diff(t.Context(), infer.DiffRequest[QueryArgs, QueryState]{State: old, Inputs: rotated})
-	if !r.HasChanges || r.DetailedDiff["apiToken"].Kind == pgo.UpdateReplace {
-		t.Fatalf("a token rotation must be in-place; got %+v", r.DetailedDiff)
-	}
+	t.Run("detects changes when apiToken is rotated", func(t *testing.T) {
+		rotated := args()
+		rotated.APIToken = "new"
+		r, err := Query{}.Diff(t.Context(), infer.DiffRequest[QueryArgs, QueryState]{State: old, Inputs: rotated})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !r.HasChanges {
+			t.Fatalf("a token rotation must diff; got %+v", r)
+		}
+		// The TypeScript case asserted all three of: changes, an EMPTY
+		// replaces list, and deleteBeforeReplace false. Checking only
+		// apiToken's own kind would let a regression that marks some other
+		// property for replacement — or that sets DeleteBeforeReplace
+		// unconditionally — through untouched.
+		for prop, d := range r.DetailedDiff {
+			if d.Kind == pgo.UpdateReplace {
+				t.Fatalf("a token rotation must replace nothing; %q was marked replace: %+v", prop, r.DetailedDiff)
+			}
+		}
+		if r.DeleteBeforeReplace {
+			t.Fatalf("a token rotation must not delete before replacing; got %+v", r)
+		}
+	})
 }
 
 // Schema data outlives the resource; destroy must not try to undo it.

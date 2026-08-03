@@ -1,5 +1,5 @@
-import * as pulumi from "@pulumi/pulumi";
 import type { Input, Output } from "@pulumi/pulumi";
+import * as pulumi from "@pulumi/pulumi";
 import { PLUGIN_VERSION } from "../version.ts";
 
 // ---------------------------------------------------------------------------
