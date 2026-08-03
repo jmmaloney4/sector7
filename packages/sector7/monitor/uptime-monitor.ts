@@ -281,7 +281,7 @@ export class UptimeMonitor extends pulumi.ComponentResource {
 			}
 		}
 
-		// 1b. Apply D1 schema via dynamic provider
+		// 1b. Apply D1 schema via the sector7 resource plugin
 		this.d1Query = new D1Query(
 			`${name}-schema`,
 			{
