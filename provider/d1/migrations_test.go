@@ -2,6 +2,7 @@ package d1
 
 import (
 	"context"
+	"reflect"
 	"testing"
 
 	"github.com/blang/semver"
@@ -128,5 +129,44 @@ func TestPluginNativeStateStillDecodes(t *testing.T) {
 	}
 	if resp.HasChanges {
 		t.Fatalf("unchanged plugin-native state must diff to nothing; got %+v", resp.DetailedDiff)
+	}
+}
+
+// The `__provider` tag must stay REQUIRED, and this is a structural assertion
+// rather than a behavioural one for a specific reason.
+//
+// infer runs migrations BEFORE the normal decode, and skips a migrator only
+// when decoding into its old shape FAILS. Tagging `__provider` as `optional`
+// therefore makes queryStateV0 match plugin-native state too — state that
+// never carried the property at all — so the migration fires on EVERY read,
+// permanently, instead of only on legacy state. That is the opposite of what
+// the migration's own comment promises.
+//
+// The original version of this file shipped with `,optional` and was corrected
+// in 98643cf. The outcome was benign only because the migration is an identity
+// copy; the documented mechanism was wrong and the scope was permanent rather
+// than legacy-only.
+//
+// A behavioural test cannot catch this. All three tests above pass under BOTH
+// tags — verified by reintroducing `,optional` and re-running them — precisely
+// because an identity migration is unobservable. Distinguishing the two paths
+// requires a deliberately non-identity migration, which is not something to
+// ship in production code just to make it testable.
+//
+// So this asserts the invariant directly: the tag is load-bearing, and a
+// future "cleanup" that adds `,optional` for consistency with the other
+// optional fields silently changes when the migration runs.
+func TestProviderTagIsRequiredSoTheMigrationOnlyMatchesLegacyState(t *testing.T) {
+	f, ok := reflect.TypeOf(queryStateV0{}).FieldByName("Provider")
+	if !ok {
+		t.Fatal("queryStateV0.Provider is gone; if the field was renamed, update this guard rather than deleting it")
+	}
+
+	tag := f.Tag.Get("pulumi")
+	if tag != "__provider" {
+		t.Fatalf("queryStateV0.Provider must be tagged exactly `pulumi:\"__provider\"`, got %q.\n"+
+			"Adding ,optional makes this shape match plugin-native state as well, so the\n"+
+			"migration would run on every state read instead of only on state written by\n"+
+			"the dynamic provider.", tag)
 	}
 }
