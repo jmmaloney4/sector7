@@ -2,6 +2,7 @@ package d1
 
 import (
 	"context"
+	"reflect"
 	"testing"
 
 	"github.com/blang/semver"
@@ -128,5 +129,59 @@ func TestPluginNativeStateStillDecodes(t *testing.T) {
 	}
 	if resp.HasChanges {
 		t.Fatalf("unchanged plugin-native state must diff to nothing; got %+v", resp.DetailedDiff)
+	}
+}
+
+// The `__provider` tag must stay REQUIRED, and this is a structural assertion
+// rather than a behavioural one for a specific reason.
+//
+// infer runs migrations BEFORE the normal decode, and skips a migrator only
+// when decoding into its old shape FAILS. Tagging `__provider` as `optional`
+// therefore makes queryStateV0 match plugin-native state too — state that
+// never carried the property at all — so the migration fires on EVERY read,
+// permanently, instead of only on legacy state. That is the opposite of what
+// the migration's own comment promises.
+//
+// The original version of this file shipped with `,optional` and was corrected
+// in 98643cf. On the states exercised above the outcome was benign, because
+// there the migration is an identity copy; but the documented mechanism was
+// wrong and the scope was permanent rather than legacy-only.
+//
+// All three tests above pass under BOTH tags — verified by reintroducing
+// `,optional` and re-running them — because an identity copy is invisible from
+// outside. That is NOT the same as the two tags being indistinguishable, and
+// the difference is worth recording rather than asserting.
+//
+// `sqlHash` is optional on this shape but REQUIRED on QueryState, so
+// queryStateV0 is strictly more permissive than the type it migrates to.
+// Plugin-native state missing `sqlHash` therefore diverges: with `__provider`
+// required it fails this migrator's decode AND the normal decode, so Diff
+// errors; with `,optional` it matches this shape, migrates, and silently
+// succeeds with SQLHash "". So `,optional` did not merely mis-scope the
+// migration — it also turned a decode error into a silent empty hash.
+//
+// That divergence is still a poor thing to pin a test to. It is an accident of
+// the current field set rather than designed behaviour: it discriminates only
+// while some field is optional here and required on QueryState, it stops
+// discriminating the moment that ceases to hold, and asserting "Diff must error
+// on state with no sqlHash" enshrines an error path nobody chose as if it were
+// the point. A failure reading `expected an error, got nil` would also tell the
+// next reader nothing about `__provider`.
+//
+// So this asserts the invariant directly instead: the tag is load-bearing, and
+// a future "cleanup" that adds `,optional` for consistency with the other
+// optional fields silently changes when the migration runs.
+func TestProviderTagIsRequiredSoTheMigrationOnlyMatchesLegacyState(t *testing.T) {
+	f, ok := reflect.TypeOf(queryStateV0{}).FieldByName("Provider")
+	if !ok {
+		t.Fatal("queryStateV0.Provider is gone; if the field was renamed, update this guard rather than deleting it")
+	}
+
+	tag := f.Tag.Get("pulumi")
+	if tag != "__provider" {
+		t.Fatalf("queryStateV0.Provider must be tagged exactly `pulumi:\"__provider\"`, got %q.\n"+
+			"Adding ,optional makes this shape match plugin-native state as well, so the\n"+
+			"migration would run on every state read instead of only on state written by\n"+
+			"the dynamic provider.", tag)
 	}
 }
