@@ -24,6 +24,25 @@ import (
 // `aliases: [{ type: "pulumi-nodejs:dynamic:Resource" }]` diffs to nothing.
 // Do not "improve" these names in the retype release.
 type AdminTarget struct {
+	// Kubeconfig is YAML; empty means the ambient default config.
+	//
+	// Added after the retype, so it is genuinely new rather than
+	// state-compatible — no live resource carries it. Without it these
+	// resources fall back to whatever kubeconfig happens to be ambient, which
+	// is NOT the identity the rest of the stack deploys with: garden's litellm
+	// stack binds its k8s.Provider to the platform kubeconfig
+	// (deploy/lib/index.ts getK8sProvider), and OnePasswordItem in that same
+	// file already passes it explicitly for exactly this reason. Only the
+	// LiteLLM resources were left reading the ambient config, so on a machine
+	// whose kubeconfig is the narrower `pulumi-zeus` deploy identity every
+	// port-forward is refused:
+	//
+	//	deployments.apps "litellm" is forbidden: User "pulumi-zeus" cannot get
+	//	resource "deployments" in API group "apps" in the namespace "litellm"
+	//
+	// Secret because a kubeconfig carries client certificates and keys —
+	// matching onepassword.ItemArgs.Kubeconfig.
+	Kubeconfig     string `pulumi:"kubeconfig,optional" provider:"secret"`
 	ProxyNamespace string `pulumi:"proxyNamespace"`
 	// MasterKey is secret here even though the dynamic provider did NOT mark it
 	// so — it currently sits in plaintext in litellm/prod state on eight
@@ -34,6 +53,15 @@ type AdminTarget struct {
 	ProxyPort           int    `pulumi:"proxyPort,optional"`
 }
 
+// Changed reports whether the connection half of the inputs differs.
+//
+// Shared by KeyRecord.Diff and TeamRecord.Diff so the two can never disagree
+// about what an admin-target change is — adding Kubeconfig to one and not the
+// other would leave a rotated kubeconfig stranded in one resource's state.
+func (t AdminTarget) Changed(other AdminTarget) bool {
+	return t != other
+}
+
 // connect opens a port-forward and returns a client bound to it, plus the
 // teardown. Every CRUD method opens its own forward rather than sharing one:
 // keys `dependsOn` the proxy, so a rollout immediately precedes these calls and
@@ -41,6 +69,7 @@ type AdminTarget struct {
 // check exists to avoid.
 func connect(ctx context.Context, tr kube.Transport, t AdminTarget) (*httpx.Client, func(), error) {
 	conn, err := tr.Connect(ctx, kube.Target{
+		Kubeconfig: t.Kubeconfig,
 		Namespace:  t.ProxyNamespace,
 		Deployment: t.ProxyDeploymentName,
 		Port:       t.ProxyPort,

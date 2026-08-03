@@ -97,10 +97,7 @@ func (KeyRecord) Diff(_ context.Context, req infer.DiffRequest[KeyArgs, KeyState
 		diffs["teamId"] = p.PropertyDiff{Kind: p.UpdateReplace}
 	}
 
-	if olds.ProxyNamespace != news.ProxyNamespace ||
-		olds.ProxyDeploymentName != news.ProxyDeploymentName ||
-		olds.ProxyPort != news.ProxyPort ||
-		olds.MasterKey != news.MasterKey {
+	if olds.AdminTarget.Changed(news.AdminTarget) {
 		diffs["adminTarget"] = p.PropertyDiff{Kind: p.Update}
 	}
 	if olds.KeyAlias != news.KeyAlias {

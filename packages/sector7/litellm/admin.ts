@@ -61,6 +61,11 @@ function pluginOpts(
  */
 function teamProviderInputs(args: LiteLLMTeamArgs) {
 	return {
+		// Passed through rather than defaulted to "": undefined is omitted from
+		// the inputs entirely, so a resource that never set a kubeconfig keeps
+		// decoding to the Go zero value and diffs to nothing. Same reasoning as
+		// `maxBudget` below.
+		kubeconfig: args.kubeconfig,
 		proxyNamespace: args.proxyNamespace,
 		masterKey: args.masterKey,
 		proxyDeploymentName: pulumi.output(args.proxyDeploymentName ?? "litellm"),
@@ -130,6 +135,11 @@ function keyProviderInputs(
 	keyValue: pulumi.Output<string>,
 ) {
 	return {
+		// Passed through rather than defaulted to "": undefined is omitted from
+		// the inputs entirely, so a resource that never set a kubeconfig keeps
+		// decoding to the Go zero value and diffs to nothing. Same reasoning as
+		// `maxBudget` below.
+		kubeconfig: args.kubeconfig,
 		proxyNamespace: args.proxyNamespace,
 		masterKey: args.masterKey,
 		proxyDeploymentName: pulumi.output(args.proxyDeploymentName ?? "litellm"),
