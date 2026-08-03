@@ -61,6 +61,14 @@
         ];
 
         renovateConfigPaths = map (path: "${self.outPath}/${path}") renovateConfigFiles;
+
+        # Single source of truth for packages.pulumi-resource-sector7 AND
+        # checks.provider-version-stamped, so the two can never desync — the
+        # exact failure mode (a build path deriving the version one way, a
+        # check asserting it a different way) that let v0.20.2 ship reporting
+        # itself as "dev".
+        providerVersion =
+          (builtins.fromJSON (builtins.readFile ./packages/sector7/package.json)).version;
       in {
         jackpkgs.just.cut = {
           enable = true;
@@ -94,8 +102,7 @@
         # breakage surfaces in this repo rather than in jackpkgs.
         packages.pulumi-resource-sector7 = pkgs.buildGoModule {
           pname = "pulumi-resource-sector7";
-          version =
-            (builtins.fromJSON (builtins.readFile ./packages/sector7/package.json)).version;
+          version = providerVersion;
           src = ./.;
           modRoot = "provider";
           # Maintained hash rather than a committed provider/vendor/: vendoring
@@ -105,7 +112,59 @@
           vendorHash = "sha256-sGg1c8lDx94MqpEPIlVB1YHp/ZouJnphyz0+BWhnffI=";
           subPackages = ["cmd/pulumi-resource-sector7"];
           meta.mainProgram = "pulumi-resource-sector7";
+          # provider/version/version.go defaults Version to "dev" precisely so
+          # a build that forgets this line fails LOUDLY rather than silently
+          # shipping a plugin that reports itself as "dev" to the Pulumi
+          # engine. It does exactly that: "dev" is not valid semver, so
+          # EVERY operation against EVERY resource this provider owns fails
+          # at the provider-handshake step, before any real diffing even
+          # starts — found in production via `pulumi preview` on litellm/prod
+          # after v0.20.2 was already released and consumed downstream.
+          #
+          # checks.provider-version-stamped below asserts the built binary
+          # actually reports providerVersion, not just that this line exists.
+          ldflags = ["-X" "github.com/jmmaloney4/sector7/provider/version.Version=${providerVersion}"];
         };
+
+        # Asserts the plugin binary's SELF-REPORTED version — not just that an
+        # ldflags line exists in this file, which regressing to `dev` would
+        # leave syntactically present but silently wrong (e.g. a typo'd
+        # package path that Go accepts silently without ever linking against
+        # the real `version.Version` symbol).
+        #
+        # `pulumi package get-schema <bin>` is the right tool for this, not a
+        # `strings`/grep scan of the binary: Go's `-ldflags -X` stores the
+        # string with no guaranteed null-byte boundary before it, so a raw
+        # byte-run scanner can merge it with adjacent binary data (observed:
+        # the actually-correct value showed up as "L0.20.2", an unrelated
+        # preceding byte glued onto the front — this exact version number ALSO
+        # coincidentally collides with an unrelated vendored dependency's own
+        # pinned version string elsewhere in the binary, `go-openapi/jsonref-
+        # erence@v0.20.2`, so even a substring match would have given a false
+        # pass). `get-schema` sidesteps all of that: it drives the binary
+        # through its real plugin-info path and hands back a JSON `version`
+        # field with no ambiguity about string boundaries — confirmed this
+        # reports literally `"version": "dev"` against the broken binary that
+        # failed on litellm/prod, before this fix.
+        checks.provider-version-stamped =
+          pkgs.runCommand "provider-version-stamped" {
+            nativeBuildInputs = [pkgs.pulumi-bin pkgs.jq];
+            # Passed through the environment, not string-interpolated into the
+            # script, so nothing about the value's content — however it is
+            # ever derived in the future — is interpreted by the shell.
+            want = providerVersion;
+          } ''
+            set -euo pipefail
+            bin=${config.packages.pulumi-resource-sector7}/bin/pulumi-resource-sector7
+            got=$(pulumi package get-schema "$bin" | jq -r .version)
+            if [ "$got" != "$want" ]; then
+              echo "plugin reports version '$got' via get-schema, expected '$want' —" \
+                   "ldflags did not stamp the binary. This is exactly the bug that made" \
+                   "every operation on every sector7 resource fail on litellm/prod." >&2
+              exit 1
+            fi
+            touch $out
+          '';
 
         # `go test ./...` across every resource package.
         #
