@@ -1,31 +1,38 @@
-import { createHash } from "node:crypto";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-type D1Provider = {
-	check: (
-		olds: unknown,
-		news: Record<string, string>,
-	) => Promise<{ failures: Array<{ property: string; reason: string }> }>;
-	diff: (
-		id: string,
-		olds: Record<string, string>,
-		news: Record<string, string>,
-	) => Promise<{
-		changes: boolean;
-		replaces?: string[];
-		deleteBeforeReplace?: boolean;
-	}>;
-};
+/**
+ * D1Query is now backed by the `sector7` resource plugin rather than a Pulumi
+ * dynamic provider, so the CRUD semantics this file used to exercise —
+ * check/diff/create/update/delete — live in `provider/d1/query.go` and are
+ * tested there. Each `it(...)` string that moved is carried verbatim into
+ * `provider/d1/query_test.go` — as a subtest name, or for the one single-case
+ * test as its doc comment — so the two lists can be diffed by grep:
+ *
+ *   "reports no check failures for valid inputs"              → TestCheck
+ *   "reports check failures when required fields are missing" → TestCheck
+ *   "detects no changes when SQL is unchanged"                → TestDiffIsANoOpWhenNothingChanged
+ *   "detects changes when SQL is modified"                    → TestDiffReplacesOnStatementIdentityButNotOnToken
+ *   "triggers delete-before-replace when SQL changes"         → TestDiffReplacesOnStatementIdentityButNotOnToken
+ *   "detects changes when apiToken is rotated"                → TestDiffReplacesOnStatementIdentityButNotOnToken
+ *
+ * "rejects cloud provider options" is gone rather than moved: its premise
+ * inverts under the plugin. `provider`/`providers` used to route a dynamic
+ * resource through the wrong bridge and had to be rejected; now they are
+ * meaningful and supported, which the last case below pins.
+ *
+ * What remains TypeScript-side is the registration itself, and that is what
+ * this file covers — the properties whose loss would break the migration or the
+ * deploy in ways nothing else catches.
+ */
 
-type DynamicResourceCall = {
+type CustomResourceCall = {
+	type: string;
 	name: string;
 	args: Record<string, unknown>;
 	opts: Record<string, unknown> | undefined;
-	provider: D1Provider;
 };
 
-let provider: D1Provider | undefined;
-const dynamicResourceCalls: DynamicResourceCall[] = [];
+const customResourceCalls: CustomResourceCall[] = [];
 
 vi.mock("@pulumi/pulumi", () => {
 	const output = <T>(value: T) => ({
@@ -36,31 +43,24 @@ vi.mock("@pulumi/pulumi", () => {
 		all: <T>(value: T) => output(value),
 		output,
 		mergeOptions: (
-			left: Record<string, unknown>,
+			left: Record<string, unknown> | undefined,
 			right: Record<string, unknown>,
-		) => ({ ...left, ...right }),
-		dynamic: {
-			Resource: class {
-				constructor(
-					resourceProvider: D1Provider,
-					name: string,
-					args: Record<string, unknown>,
-					opts?: Record<string, unknown>,
-				) {
-					provider = resourceProvider;
-					dynamicResourceCalls.push({
-						name,
-						args,
-						opts,
-						provider: resourceProvider,
-					});
-				}
-			},
+		) => ({ ...(left ?? {}), ...right }),
+		CustomResource: class {
+			constructor(
+				type: string,
+				name: string,
+				args: Record<string, unknown>,
+				opts?: Record<string, unknown>,
+			) {
+				customResourceCalls.push({ type, name, args, opts });
+			}
 		},
 	};
 });
 
 import { D1Query } from "../d1/d1-query.ts";
+import { PLUGIN_VERSION } from "../version.ts";
 
 const createArgs = (sql = "CREATE TABLE t (id INTEGER);") => ({
 	accountId: "account-123",
@@ -69,93 +69,55 @@ const createArgs = (sql = "CREATE TABLE t (id INTEGER);") => ({
 	apiToken: "test-token",
 });
 
-const cloudProviderOpt = { provider: { urn: "cloudflare-provider" } };
-
-describe("D1Query provider", () => {
+describe("D1Query registration", () => {
 	beforeEach(() => {
-		provider = undefined;
-		dynamicResourceCalls.length = 0;
+		customResourceCalls.length = 0;
 		new D1Query("test", createArgs());
 	});
 
-	it("registers a dynamic resource with correct args", () => {
-		expect(dynamicResourceCalls).toHaveLength(1);
-		expect(dynamicResourceCalls[0].name).toBe("test");
-		expect(dynamicResourceCalls[0].args.accountId).toBe("account-123");
-		expect(dynamicResourceCalls[0].args.databaseId).toBe("db-456");
-		expect(dynamicResourceCalls[0].args.sql).toBe(
-			"CREATE TABLE t (id INTEGER);",
-		);
-		expect(dynamicResourceCalls[0].args.apiToken).toBe("test-token");
+	it("registers the plugin resource token, not a dynamic resource", () => {
+		expect(customResourceCalls).toHaveLength(1);
+		expect(customResourceCalls[0].type).toBe("sector7:d1:Query");
+		expect(customResourceCalls[0].name).toBe("test");
 	});
 
-	it("reports no check failures for valid inputs", async () => {
-		const result = await provider!.check({}, createArgs());
-		expect(result.failures).toHaveLength(0);
+	it("forwards every input to the plugin", () => {
+		const { args } = customResourceCalls[0];
+		expect(args.accountId).toBe("account-123");
+		expect(args.databaseId).toBe("db-456");
+		expect(args.sql).toBe("CREATE TABLE t (id INTEGER);");
+		expect(args.apiToken).toBe("test-token");
 	});
 
-	it("reports check failures when required fields are missing", async () => {
-		const result = await provider!.check({}, {} as Record<string, string>);
-		expect(result.failures.length).toBeGreaterThanOrEqual(1);
+	// Without this alias the engine sees a brand-new resource rather than a
+	// retyped one, and plans a CREATE alongside a DELETE of the dynamic
+	// resource. That would re-run the DDL and, worse, invoke the old serialized
+	// closure on delete — the very thing that is broken.
+	it("aliases the dynamic-provider type so the retype is a URN rewrite", () => {
+		expect(customResourceCalls[0].opts?.aliases).toEqual([
+			{ type: "pulumi-nodejs:dynamic:Resource" },
+		]);
 	});
 
-	it("detects no changes when SQL is unchanged", async () => {
-		const olds = {
-			...createArgs(),
-			sqlHash: createHash("sha256").update(createArgs().sql).digest("hex"),
-		};
-		const result = await provider!.diff("test-id", olds, createArgs());
-		expect(result.changes).toBe(false);
+	// The plugin is installed as resource-sector7-v<version>; a mismatch
+	// surfaces at deploy time as `no resource plugin 'sector7' found in the
+	// workspace at version vX.Y.Z`, which is why the version is derived from
+	// package.json rather than hardcoded.
+	it("pins the plugin version it was built against", () => {
+		expect(customResourceCalls[0].opts?.version).toBe(PLUGIN_VERSION);
+		expect(PLUGIN_VERSION).toMatch(/^\d+\.\d+\.\d+$/);
 	});
 
-	it("detects changes when SQL is modified", async () => {
-		const oldSql = "CREATE TABLE t (id INTEGER);";
-		const newSql = "CREATE TABLE t (id INTEGER, name TEXT);";
-		const olds = {
-			...createArgs(oldSql),
-			sqlHash: createHash("sha256").update(oldSql).digest("hex"),
-		};
-		const result = await provider!.diff("test-id", olds, {
-			...createArgs(),
-			sql: newSql,
-		});
-		expect(result.changes).toBe(true);
-		expect(result.replaces).toContain("sql");
-	});
+	// `provider` used to be rejected outright. Under the plugin it is a normal,
+	// supported option, and silently dropping it would route the resource to
+	// the default provider instead of the one the caller asked for.
+	it("passes through a caller-supplied provider instead of rejecting it", () => {
+		customResourceCalls.length = 0;
+		const provider = { urn: "some-provider" };
+		new D1Query("test", createArgs(), {
+			provider,
+		} as unknown as Record<string, unknown>);
 
-	it("triggers delete-before-replace when SQL changes", async () => {
-		const oldSql = "CREATE TABLE t (id INTEGER);";
-		const newSql = "CREATE TABLE t (id INTEGER, name TEXT);";
-		const olds = {
-			...createArgs(oldSql),
-			sqlHash: createHash("sha256").update(oldSql).digest("hex"),
-		};
-		const result = await provider!.diff("test-id", olds, {
-			...createArgs(),
-			sql: newSql,
-		});
-		expect(result.deleteBeforeReplace).toBe(true);
-	});
-
-	it("detects changes when apiToken is rotated", async () => {
-		const sql = "CREATE TABLE t (id INTEGER);";
-		const olds = {
-			...createArgs(sql),
-			sqlHash: createHash("sha256").update(sql).digest("hex"),
-		};
-		const result = await provider!.diff("test-id", olds, {
-			...createArgs(),
-			apiToken: "new-token",
-		});
-		expect(result.changes).toBe(true);
-		// Token change does not trigger replacement, just update
-		expect(result.replaces).toHaveLength(0);
-		expect(result.deleteBeforeReplace).toBe(false);
-	});
-
-	it("rejects cloud provider options", () => {
-		expect(
-			() => new D1Query("bad-opts", createArgs(), cloudProviderOpt as any),
-		).toThrow(/D1Query is a Pulumi dynamic resource/);
+		expect(customResourceCalls[0].opts?.provider).toBe(provider);
 	});
 });
