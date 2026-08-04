@@ -19,19 +19,19 @@ See also: [configuration](./configuration.md) (every default, group, and knob),
 The presets live in [`renovate/`](../../renovate/) at the repo root, one JSON
 file per concern, plus an aggregate that composes them:
 
-| Preset | Role |
-| ------ | ---- |
-| `default.json` | Base config: timezone, schedule, automerge policy, rate limits, labels, stability delay, digest pinning, dependency dashboard, and repo-wide `packageRules`. |
-| `minor-patch-automerge.json` | The per-ecosystem **PR groups** for minor/patch/digest updates, most with automerge enabled. |
-| `major-updates.json` | Forces every **major** update into its own non-automerged PR with a reviewer. |
-| `security.json` | Vulnerability-alert handling (automerged, labelled). |
-| `lock-maintenance.json` | Weekly lock-file maintenance. |
-| `nix.json` | Custom regex managers for Nix (`fetchPypi`, `mkHelmChartFromGitHub`, `nix run github:` pins). |
-| `pulumi.json` | Custom regex manager for annotated versions in `Pulumi.*.yaml`. |
-| `docker-images.json` | Custom regex manager for annotated container-image string literals in `.ts` sources. |
-| `yaml-manifests.json` | Custom regex managers for annotated container images and Helm chart versions in `.yaml`. |
-| `sector7-release-tarballs.json` | Updates `@jmmaloney4/sector7` GitHub release-tarball URLs in `package.json`. |
-| `all.json` | **Aggregate** — extends every preset above. Most consumers use only this. |
+| Preset                          | Role                                                                                                                                                         |
+| ------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `default.json`                  | Base config: timezone, schedule, automerge policy, rate limits, labels, stability delay, digest pinning, dependency dashboard, and repo-wide `packageRules`. |
+| `minor-patch-automerge.json`    | The per-ecosystem **PR groups** for minor/patch/digest updates, most with automerge enabled.                                                                 |
+| `major-updates.json`            | Forces every **major** update into its own non-automerged PR with a reviewer.                                                                                |
+| `security.json`                 | Vulnerability-alert handling (automerged, labelled).                                                                                                         |
+| `lock-maintenance.json`         | Weekly lock-file maintenance.                                                                                                                                |
+| `nix.json`                      | Custom regex managers for Nix (`fetchPypi`, `mkHelmChartFromGitHub`, `nix run github:` pins).                                                                |
+| `pulumi.json`                   | Custom regex manager for annotated versions in `Pulumi.*.yaml`.                                                                                              |
+| `docker-images.json`            | Custom regex manager for annotated container-image string literals in `.ts` sources.                                                                         |
+| `yaml-manifests.json`           | Custom regex managers for annotated container images and Helm chart versions in `.yaml`.                                                                     |
+| `sector7-release-tarballs.json` | Updates `@jmmaloney4/sector7` GitHub release-tarball URLs in `package.json`.                                                                                 |
+| `all.json`                      | **Aggregate** — extends every preset above. Most consumers use only this.                                                                                    |
 
 A consumer's own configuration file always wins: settings declared directly in
 the repo override anything inherited from a preset (Renovate merge precedence).
@@ -74,13 +74,13 @@ for the most common failure.
 
 ## Where things live
 
-| Thing | Location |
-| ----- | -------- |
-| Preset sources | [`renovate/*.json`](../../renovate/) |
-| Quick-reference for preset authors | [`renovate/README.md`](../../renovate/README.md) |
-| Local validation | `nix build .#checks.<system>.renovate-config` (runs `renovate-config-validator --strict` over every preset + `.github/renovate.json*`) |
-| Config-file flake check | defined in [`flake.nix`](../../flake.nix) (`checks.renovate-config`) |
-| Consumer example | a repo's `.github/renovate.json5` extending `github>jmmaloney4/sector7//renovate/all.json` |
+| Thing                              | Location                                                                                                                               |
+| ---------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
+| Preset sources                     | [`renovate/*.json`](../../renovate/)                                                                                                   |
+| Quick-reference for preset authors | [`renovate/README.md`](../../renovate/README.md)                                                                                       |
+| Local validation                   | `nix build .#checks.<system>.renovate-config` (runs `renovate-config-validator --strict` over every preset + `.github/renovate.json*`) |
+| Config-file flake check            | defined in [`flake.nix`](../../flake.nix) (`checks.renovate-config`)                                                                   |
+| Consumer example                   | a repo's `.github/renovate.json5` extending `github>jmmaloney4/sector7//renovate/all.json`                                             |
 
 ## Why it's built this way
 

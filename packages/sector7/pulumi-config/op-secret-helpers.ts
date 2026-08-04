@@ -6,8 +6,8 @@
  * into Kubernetes Secrets consumable by pods via secretKeyRef.
  */
 
-import type * as pulumi from "@pulumi/pulumi";
 import * as k8s from "@pulumi/kubernetes";
+import type * as pulumi from "@pulumi/pulumi";
 
 /**
  * Parse a 1Password CLI secret-reference URI (`op://`) into the CRD
@@ -123,11 +123,17 @@ function normalizeSecretKeyName(name: string): string {
  */
 export function mergeSecretRefEnvs(
 	...envMaps: (
-		| Record<string, { secretName: pulumi.Input<string>; key: pulumi.Input<string> }>
+		| Record<
+				string,
+				{ secretName: pulumi.Input<string>; key: pulumi.Input<string> }
+		  >
 		| undefined
 	)[]
 ):
-	| Record<string, { secretName: pulumi.Input<string>; key: pulumi.Input<string> }>
+	| Record<
+			string,
+			{ secretName: pulumi.Input<string>; key: pulumi.Input<string> }
+	  >
 	| undefined {
 	const merged: Record<
 		string,
@@ -203,11 +209,7 @@ export interface CreateOnePasswordSecretRefsOptions<
 	 * Optional guard to block op:// for certain item types.
 	 * Throws an error if the guard returns a message.
 	 */
-	blockRef?: (
-		item: T,
-		itemKey: string,
-		opRef: string,
-	) => string | undefined;
+	blockRef?: (item: T, itemKey: string, opRef: string) => string | undefined;
 }
 
 /**
@@ -250,7 +252,10 @@ export interface CreateOnePasswordSecretRefsOptions<
  */
 export function createOnePasswordSecretRefs<T extends Record<string, unknown>>(
 	options: CreateOnePasswordSecretRefsOptions<T>,
-): Record<string, { secretName: pulumi.Input<string>; key: pulumi.Input<string> }> {
+): Record<
+	string,
+	{ secretName: pulumi.Input<string>; key: pulumi.Input<string> }
+> {
 	const {
 		config,
 		configKey,
@@ -284,9 +289,7 @@ export function createOnePasswordSecretRefs<T extends Record<string, unknown>>(
 		);
 		// Kubernetes metadata.name must be DNS-1123 compliant: lowercase
 		// alphanumeric or hyphens, must start/end with alphanumeric.
-		const secretName = toDNS1123Name(
-			`${configKey}-${itemKey}-${fieldName}`,
-		);
+		const secretName = toDNS1123Name(`${configKey}-${itemKey}-${fieldName}`);
 		if (!secretName) {
 			throw new Error(
 				`Generated secret name is empty for item '${itemKey}'. ` +
@@ -297,7 +300,9 @@ export function createOnePasswordSecretRefs<T extends Record<string, unknown>>(
 
 		// Detect normalized secret name collisions — two different item keys can
 		// collapse to the same DNS-1123 name after sanitization.
-		if (Object.values(secretRefs).some((ref) => ref.secretName === secretName)) {
+		if (
+			Object.values(secretRefs).some((ref) => ref.secretName === secretName)
+		) {
 			throw new Error(
 				`Kubernetes secret name collision: two items produced secret '${secretName}'. ` +
 					"Ensure item keys remain unique after DNS-1123 normalization.",

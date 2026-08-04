@@ -35,10 +35,18 @@ function makeTempDir(prefix: string): string {
 }
 
 /** Write an executable `nix` stub into a fresh dir and return that dir. */
+// Resolved once, rather than hard-coding `#!/usr/bin/env bash`: the nix build
+// sandbox has no /usr/bin/env, so that shebang made the stub unexecutable and
+// the script under test exited 126 under `nix flake check` while passing in a
+// dev shell.
+const STUB_BASH = spawnSync("bash", ["-c", "command -v bash"], {
+	encoding: "utf8",
+}).stdout.trim();
+
 function stubNix(body: string): string {
 	const binDir = makeTempDir("nix-stub-");
 	const nixPath = join(binDir, "nix");
-	writeFileSync(nixPath, `#!/usr/bin/env bash\n${body}\n`);
+	writeFileSync(nixPath, `#!${STUB_BASH}\n${body}\n`);
 	chmodSync(nixPath, 0o755);
 	return binDir;
 }
