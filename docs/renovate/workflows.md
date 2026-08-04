@@ -7,6 +7,7 @@ is a single task. For what every setting means, see
 ## Adopt the presets in a new repo
 
 1. Create `.github/renovate.json5` in the consumer repo.
+
 2. Extend the aggregate preset:
 
    ```json5
@@ -17,6 +18,7 @@ is a single task. For what every setting means, see
    ```
 
 3. Ensure the Renovate (Mend) app is installed on the repo.
+
 4. The first run opens the **Renovate Dashboard 🤖** issue; updates flow from
    there.
 

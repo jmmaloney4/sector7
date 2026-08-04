@@ -8,8 +8,8 @@ export {
 } from "./mixed-config.js";
 
 export {
-	createOnePasswordSecretRefs,
 	type CreateOnePasswordSecretRefsOptions,
+	createOnePasswordSecretRefs,
 	mergeSecretRefEnvs,
 	parseOnePasswordItemReference,
 } from "./op-secret-helpers.js";

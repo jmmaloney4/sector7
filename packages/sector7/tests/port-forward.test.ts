@@ -141,7 +141,9 @@ describe("loadKubernetesClient resolution routes", () => {
 	});
 
 	it("falls back on ERR_PACKAGE_PATH_NOT_EXPORTED as well as ERR_MODULE_NOT_FOUND", async () => {
-		const err: NodeJS.ErrnoException = new Error("Package subpath not exported");
+		const err: NodeJS.ErrnoException = new Error(
+			"Package subpath not exported",
+		);
 		err.code = "ERR_PACKAGE_PATH_NOT_EXPORTED";
 		const calls: string[] = [];
 		const k8s = await loadKubernetesClient((specifier) => {
@@ -184,4 +186,3 @@ describe("isModuleResolutionError", () => {
 		expect(isModuleResolutionError(undefined)).toBe(false);
 	});
 });
-

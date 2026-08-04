@@ -16,12 +16,17 @@ const pulumiConfig = JSON.parse(
 	}>;
 };
 
-// Select by a stable property (targets Pulumi config files) rather than by
-// array position, so reordering or adding managers can't silently make these
-// tests exercise the wrong configuration.
+// Select by a stable property rather than by array position, so reordering or
+// adding managers can't silently make these tests exercise the wrong
+// configuration.
+//
+// Targeting Pulumi config files is no longer discriminating on its own: the
+// container-image manager added in 779a418 matches the same file pattern. The
+// `versionKey` capture group is unique to the version manager these tests are
+// about, and it is the thing they actually assert on.
 function selectPulumiManager() {
 	const matches = pulumiConfig.customManagers.filter((m) =>
-		m.managerFilePatterns.some((pattern) => pattern.includes("Pulumi")),
+		m.matchStrings.some((pattern) => pattern.includes("(?<versionKey>")),
 	);
 	if (matches.length !== 1) {
 		throw new Error(

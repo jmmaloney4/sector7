@@ -6,7 +6,10 @@ import {
 
 describe("parseOnePasswordItemReference", () => {
 	it("parses a standard 3-segment op:// reference", () => {
-		const result = parseOnePasswordItemReference("op://v1/i2/f3", "test-account");
+		const result = parseOnePasswordItemReference(
+			"op://v1/i2/f3",
+			"test-account",
+		);
 		expect(result).toEqual({
 			itemPath: "vaults/v1/items/i2",
 			fieldName: "f3",
@@ -15,10 +18,7 @@ describe("parseOnePasswordItemReference", () => {
 
 	it("rejects section-qualified op:// references", () => {
 		expect(() =>
-			parseOnePasswordItemReference(
-				"op://v1/i2/section/f4",
-				"test-account",
-			),
+			parseOnePasswordItemReference("op://v1/i2/section/f4", "test-account"),
 		).toThrow("Section-qualified references are not supported");
 	});
 
@@ -113,7 +113,8 @@ describe("parseOnePasswordItemReference", () => {
 			"test-account",
 		);
 		expect(result).toEqual({
-			itemPath: "vaults/550e8400-e29b-41d4-a716-446655440000/items/550e8400-e29b-41d4-a716-446655440001",
+			itemPath:
+				"vaults/550e8400-e29b-41d4-a716-446655440000/items/550e8400-e29b-41d4-a716-446655440001",
 			fieldName: "credential",
 		});
 	});
