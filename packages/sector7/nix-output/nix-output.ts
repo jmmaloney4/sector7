@@ -1,4 +1,5 @@
 import { execFileSync } from "node:child_process";
+import { readFileSync } from "node:fs";
 import * as command from "@pulumi/command";
 import * as pulumi from "@pulumi/pulumi";
 import { getScriptPath } from "../scripts/index.ts";
@@ -183,6 +184,17 @@ export class NixOutput extends pulumi.ComponentResource {
 		});
 
 		const scriptPath = getScriptPath("nix-output-resolve.sh");
+		// The script's own CONTENT is what should drive the tracked `create`
+		// input, not its resolved filesystem path. getScriptPath() returns an
+		// absolute path through node_modules, which is both checkout-location-
+		// dependent (same bug class as REPO_ROOT above) AND changes on every
+		// single sector7 version bump — pnpm encodes the resolved package
+		// version into the .pnpm store directory name. Baking that path into
+		// `create` forced a replace of this Command on every version bump
+		// regardless of whether the script itself changed. Piping the content
+		// via `stdin` with a fixed `create` command makes the tracked input
+		// depend only on what the script actually does.
+		const scriptContent = readFileSync(scriptPath, "utf8");
 		const commandLogStem = `.pulumi/command-logs/${name}`;
 		const mode = args.mode ?? "resolve";
 		const previewStrategy = args.previewStrategy ?? "resource";
@@ -239,7 +251,8 @@ export class NixOutput extends pulumi.ComponentResource {
 		const cmd = new command.local.Command(
 			`${name}-resolve`,
 			{
-				create: pulumi.interpolate`bash "${scriptPath}"`,
+				create: "bash -s",
+				stdin: scriptContent,
 				environment: env,
 				triggers: [
 					args.nixAttr,

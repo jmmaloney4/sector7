@@ -26,21 +26,21 @@ function installMocks(preview = false): void {
 			newResource: (args: pulumi.runtime.MockResourceArgs) => {
 				const state = args.inputs;
 
-				// For command.local.Command, simulate stdout with STORE_PATH_OUTPUT marker
+				// For command.local.Command, simulate stdout with STORE_PATH_OUTPUT
+				// marker. Every command:local:Command in this file's tests is the
+				// nix-output-resolve.sh one — `create` is now a fixed "bash -s"
+				// with the script piped via `stdin` (see the fix in nix-output.ts),
+				// so there's nothing script-specific left to gate on here.
 				if (args.type === "command:local:Command") {
-					const create = state.create as string | undefined;
+					const env = state.environment as Record<string, string> | undefined;
+					const subPath = env?.SUB_PATH;
+					const baseStorePath = "/nix/store/abc123-myapp-1.0.0";
+					const storePath = subPath
+						? `${baseStorePath}/${subPath}`
+						: baseStorePath;
 
-					if (create?.includes("nix-output-resolve.sh")) {
-						const env = state.environment as Record<string, string> | undefined;
-						const subPath = env?.SUB_PATH;
-						const baseStorePath = "/nix/store/abc123-myapp-1.0.0";
-						const storePath = subPath
-							? `${baseStorePath}/${subPath}`
-							: baseStorePath;
-
-						(state as Record<string, unknown>).stdout =
-							`=== Resolved: ${storePath} ===\nSTORE_PATH_OUTPUT:${storePath}\n`;
-					}
+					(state as Record<string, unknown>).stdout =
+						`=== Resolved: ${storePath} ===\nSTORE_PATH_OUTPUT:${storePath}\n`;
 				}
 
 				resources.push({
@@ -112,6 +112,15 @@ describe("NixOutput", () => {
 			SCRIPT_MODE: "resolve",
 			COMMAND_LOG_STEM: ".pulumi/command-logs/test-default",
 		});
+		// `create` must be a FIXED string — not a resolved filesystem path
+		// through node_modules, which would change on every checkout AND on
+		// every sector7 version bump. The script content is piped via `stdin`
+		// instead, so what's tracked is what the script does, not where it
+		// happens to live on disk.
+		expect(cmd.inputs.create).toBe("bash -s");
+		expect(cmd.inputs.stdin).toContain(
+			"Resolve or build a nix flake attribute",
+		);
 	});
 
 	// The spawned command always builds/resolves against the ambient
