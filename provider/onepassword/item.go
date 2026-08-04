@@ -106,9 +106,15 @@ type ItemState struct {
 }
 
 // target rebuilds the connection half of the inputs from stored state, for the
-// paths that must reach Connect using what was persisted rather than what the
-// program currently declares (Delete, and Update's removal reconciliation).
-// Fields is intentionally absent — nothing on those paths needs it.
+// one path that must reach Connect using what was persisted rather than what
+// the program currently declares: Delete, which is handed no inputs at all.
+// Fields is intentionally absent — nothing on that path needs it.
+//
+// Update is deliberately NOT a caller. It connects with the CURRENT inputs, so
+// that a token rotation or cluster move takes effect on the same apply that
+// declares it; the only thing it draws from prior state is ManagedLabels, for
+// removal reconciliation. Delete is the sole caller — keep it that way, or the
+// "what was persisted" framing above stops being true.
 func (s ItemState) target() ItemArgs {
 	return ItemArgs{
 		Kubeconfig:     s.Kubeconfig,
