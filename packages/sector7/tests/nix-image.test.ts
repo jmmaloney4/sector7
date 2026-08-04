@@ -26,16 +26,20 @@ beforeAll(() => {
 		newResource: (args) => {
 			const state = args.inputs;
 
-			// For command.local.Command, simulate stdout with appropriate markers
+			// For command.local.Command, simulate stdout with appropriate markers.
+			// `create` is now a fixed "bash -s" for every script-backed command
+			// (the script content is piped via `stdin` instead, so a spurious
+			// resolved-path change never forces a replace) — so which script
+			// this is has to be identified from stdin's content, not create.
 			if (args.type === "command:local:Command") {
-				const create = state.create as string | undefined;
+				const stdin = state.stdin as string | undefined;
 
-				if (create?.includes("nix-output-resolve.sh")) {
+				if (stdin?.includes("Resolve or build a nix flake attribute")) {
 					// NixOutput: simulate store path output
 					const storePath = "/nix/store/abc123-my-image";
 					(state as Record<string, unknown>).stdout =
 						`=== Resolved: ${storePath} ===\nSTORE_PATH_OUTPUT:${storePath}\n`;
-				} else if (create?.includes("nix-image-push.sh")) {
+				} else if (stdin?.includes("Push a nix2container image")) {
 					// Push or resolve: simulate digest output
 					(state as Record<string, unknown>).stdout =
 						"=== Pushed registry/example:dev ===\n=== Digest: sha256:abc123def456 ===\nDIGEST_OUTPUT:sha256:abc123def456\n";
@@ -137,8 +141,11 @@ describe("NixImage", () => {
 		const cmd = cmds[0];
 		expect(cmd.type).toBe("command:local:Command");
 
-		const createCmd = cmd.inputs.create as string;
-		expect(createCmd).toContain("nix-image-push.sh");
+		// The script content is piped via stdin now, not referenced by path in
+		// `create` — a fixed `create` is the whole point of the fix.
+		expect(cmd.inputs.create).toBe("bash -s");
+		const stdin = cmd.inputs.stdin as string;
+		expect(stdin).toContain("Push a nix2container image");
 		expect(cmd.inputs.environment).toMatchObject({
 			IMAGE_NAME: "my-image",
 			IMAGE_TAG: "v1.0.0",

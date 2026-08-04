@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import * as command from "@pulumi/command";
 import * as pulumi from "@pulumi/pulumi";
 import { NixOutput } from "../nix-output/nix-output.ts";
@@ -115,6 +116,14 @@ export class NixImage extends pulumi.ComponentResource {
 		});
 
 		const pushScriptPath = getScriptPath("nix-image-push.sh");
+		// The script's own CONTENT is what should drive the tracked `create`
+		// input, not its resolved filesystem path — see the matching comment in
+		// nix-output.ts. getScriptPath() returns an absolute path through
+		// node_modules, which changes on every checkout AND on every single
+		// sector7 version bump (pnpm encodes the resolved version into the
+		// .pnpm store directory name), forcing a replace of both commands below
+		// regardless of whether the script itself changed.
+		const pushScriptContent = readFileSync(pushScriptPath, "utf8");
 		const commandLogStem = `.pulumi/command-logs/${name}`;
 
 		const mode = args.mode ?? "build";
@@ -134,7 +143,8 @@ export class NixImage extends pulumi.ComponentResource {
 			const resolveCmd = new command.local.Command(
 				`${name}-resolve`,
 				{
-					create: pulumi.interpolate`bash "${pushScriptPath}"`,
+					create: "bash -s",
+					stdin: pushScriptContent,
 					environment: {
 						...baseEnv,
 						SCRIPT_MODE: "resolve",
@@ -182,7 +192,8 @@ export class NixImage extends pulumi.ComponentResource {
 			const pushCmd = new command.local.Command(
 				`${name}-push`,
 				{
-					create: pulumi.interpolate`bash "${pushScriptPath}"`,
+					create: "bash -s",
+					stdin: pushScriptContent,
 					environment: {
 						...baseEnv,
 						SCRIPT_MODE: "push",
