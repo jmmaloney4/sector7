@@ -6,7 +6,20 @@ import { getScriptPath } from "../scripts/index.ts";
 export interface NixOutputArgs {
 	/** Flake attribute path (e.g. "packages.x86_64-linux.lens-api-image") */
 	nixAttr: pulumi.Input<string>;
-	/** Absolute path to the repo root containing the flake. */
+	/**
+	 * Absolute path to the repo root containing the flake.
+	 *
+	 * Used locally (drvPath trigger resolution, eager preview resolution) —
+	 * never forwarded into the spawned command's tracked `environment` input.
+	 * That command instead reads REPO_ROOT from its own ambient environment
+	 * at execution time, falling back to FLAKE_ROOT (see
+	 * nix-output-resolve.sh). Forwarding this value would bake an absolute,
+	 * machine-specific filesystem path into a diffed Pulumi input, forcing a
+	 * spurious replace whenever the same stack is applied from a different
+	 * checkout path than whoever last applied it. In every known caller this
+	 * value is already identical to the ambient FLAKE_ROOT at runtime, so the
+	 * command sees the same path either way — it just isn't tracked.
+	 */
 	repoRoot: pulumi.Input<string>;
 	/**
 	 * Select a named output from a multi-output nix derivation.
@@ -174,15 +187,44 @@ export class NixOutput extends pulumi.ComponentResource {
 		const mode = args.mode ?? "resolve";
 		const previewStrategy = args.previewStrategy ?? "resource";
 
+		// REPO_ROOT is deliberately NOT included here. It would be a diffed
+		// input on the spawned command (directly, or via resolvePreviewStorePath
+		// below, which merges this map over the ambient process.env). The
+		// script reads it from the ambient environment at execution time
+		// instead, falling back to FLAKE_ROOT — see the doc comment on
+		// NixOutputArgs.repoRoot and nix-output-resolve.sh.
 		const env: Record<string, pulumi.Input<string>> = {
 			...(args.env ?? {}),
 			NIX_ATTR: args.nixAttr,
-			REPO_ROOT: args.repoRoot,
 			SCRIPT_MODE: mode,
 			COMMAND_LOG_STEM: commandLogStem,
 			...(args.subOutput ? { SUB_OUTPUT: args.subOutput } : {}),
 			...(args.subPath ? { SUB_PATH: args.subPath } : {}),
 		};
+
+		// The spawned command always resolves REPO_ROOT from the ambient
+		// FLAKE_ROOT (see the comment on `env` above), never from
+		// `args.repoRoot` directly. If a caller's resolved repoRoot ever
+		// diverges from the ambient FLAKE_ROOT, the drvPath trigger / eager
+		// preview computations below (which DO use args.repoRoot) and the
+		// actual spawned build (which uses $FLAKE_ROOT) would silently
+		// resolve different flake refs — the exact silent-divergence risk
+		// this fix trades the machine-path diffing bug for. Warn loudly if
+		// that ever happens; every known caller's repoRoot is already
+		// identical to FLAKE_ROOT, so this should never fire in practice.
+		pulumi.output(args.repoRoot).apply((repoRoot) => {
+			const ambientFlakeRoot = process.env.FLAKE_ROOT;
+			if (ambientFlakeRoot && repoRoot !== ambientFlakeRoot) {
+				pulumi.log.warn(
+					`NixOutput(${name}): repoRoot ("${repoRoot}") does not match the ` +
+						`ambient FLAKE_ROOT ("${ambientFlakeRoot}"). The spawned command ` +
+						"always builds/resolves against FLAKE_ROOT, not repoRoot, so " +
+						"this resource will silently use a different flake than the " +
+						"drvPath trigger and eager preview were computed against.",
+					this,
+				);
+			}
+		});
 
 		const changeDetection = args.changeDetection ?? "drv";
 		const drvPathTrigger =

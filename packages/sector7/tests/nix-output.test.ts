@@ -102,12 +102,67 @@ describe("NixOutput", () => {
 
 		const cmd = cmds[0];
 		expect(cmd.type).toBe("command:local:Command");
+		// REPO_ROOT is deliberately absent: it would be an absolute,
+		// machine-specific path baked into a diffed input, forcing a spurious
+		// replace whenever the same stack is applied from a different
+		// checkout. The spawned command reads it from its own ambient
+		// environment instead — see nix-output-resolve.sh.
 		expect(cmd.inputs.environment).toEqual({
 			NIX_ATTR: "packages.x86_64-linux.myapp",
-			REPO_ROOT: "/home/user/my-repo",
 			SCRIPT_MODE: "resolve",
 			COMMAND_LOG_STEM: ".pulumi/command-logs/test-default",
 		});
+	});
+
+	// The spawned command always builds/resolves against the ambient
+	// FLAKE_ROOT, never the repoRoot input (that's the whole fix). If a
+	// caller's repoRoot ever diverges from FLAKE_ROOT, the drvPath trigger
+	// (computed from repoRoot) and the actual build (which uses FLAKE_ROOT)
+	// would silently target different flakes with no error — this warning is
+	// the only thing that would catch it.
+	it("warns when repoRoot diverges from the ambient FLAKE_ROOT", async () => {
+		const original = process.env.FLAKE_ROOT;
+		process.env.FLAKE_ROOT = "/home/user/actual-repo";
+		const warnSpy = vi.spyOn(pulumi.log, "warn").mockImplementation(() => {
+			/* swallow */
+		});
+
+		try {
+			const output = new NixOutput("test-divergent-root", {
+				nixAttr: "packages.x86_64-linux.myapp",
+				repoRoot: "/home/user/different-repo",
+			});
+			await resolveOutput(output.storePath);
+
+			expect(warnSpy).toHaveBeenCalledWith(
+				expect.stringContaining("does not match the ambient FLAKE_ROOT"),
+				expect.anything(),
+			);
+		} finally {
+			process.env.FLAKE_ROOT = original;
+			warnSpy.mockRestore();
+		}
+	});
+
+	it("does not warn when repoRoot matches the ambient FLAKE_ROOT", async () => {
+		const original = process.env.FLAKE_ROOT;
+		process.env.FLAKE_ROOT = "/home/user/same-repo";
+		const warnSpy = vi.spyOn(pulumi.log, "warn").mockImplementation(() => {
+			/* swallow */
+		});
+
+		try {
+			const output = new NixOutput("test-matching-root", {
+				nixAttr: "packages.x86_64-linux.myapp",
+				repoRoot: "/home/user/same-repo",
+			});
+			await resolveOutput(output.storePath);
+
+			expect(warnSpy).not.toHaveBeenCalled();
+		} finally {
+			process.env.FLAKE_ROOT = original;
+			warnSpy.mockRestore();
+		}
 	});
 
 	it("creates a Command resource in build mode when specified", async () => {
@@ -126,8 +181,8 @@ describe("NixOutput", () => {
 		expect(cmd.inputs.environment).toMatchObject({
 			SCRIPT_MODE: "build",
 			NIX_ATTR: "packages.x86_64-linux.myapp",
-			REPO_ROOT: "/home/user/my-repo",
 		});
+		expect(cmd.inputs.environment).not.toHaveProperty("REPO_ROOT");
 	});
 
 	it("parses STORE_PATH_OUTPUT marker from stdout", async () => {
