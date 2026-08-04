@@ -202,6 +202,29 @@ export class NixOutput extends pulumi.ComponentResource {
 			...(args.subPath ? { SUB_PATH: args.subPath } : {}),
 		};
 
+		// The spawned command always resolves REPO_ROOT from the ambient
+		// FLAKE_ROOT (see the comment on `env` above), never from
+		// `args.repoRoot` directly. If a caller's resolved repoRoot ever
+		// diverges from the ambient FLAKE_ROOT, the drvPath trigger / eager
+		// preview computations below (which DO use args.repoRoot) and the
+		// actual spawned build (which uses $FLAKE_ROOT) would silently
+		// resolve different flake refs — the exact silent-divergence risk
+		// this fix trades the machine-path diffing bug for. Warn loudly if
+		// that ever happens; every known caller's repoRoot is already
+		// identical to FLAKE_ROOT, so this should never fire in practice.
+		pulumi.output(args.repoRoot).apply((repoRoot) => {
+			const ambientFlakeRoot = process.env.FLAKE_ROOT;
+			if (ambientFlakeRoot && repoRoot !== ambientFlakeRoot) {
+				pulumi.log.warn(
+					`NixOutput(${name}): repoRoot ("${repoRoot}") does not match the ` +
+						`ambient FLAKE_ROOT ("${ambientFlakeRoot}"). The spawned command ` +
+						"always builds/resolves against FLAKE_ROOT, not repoRoot, so " +
+						"this resource will silently use a different flake than the " +
+						"drvPath trigger and eager preview were computed against.",
+				);
+			}
+		});
+
 		const changeDetection = args.changeDetection ?? "drv";
 		const drvPathTrigger =
 			changeDetection === "drv"

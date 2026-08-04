@@ -114,6 +114,56 @@ describe("NixOutput", () => {
 		});
 	});
 
+	// The spawned command always builds/resolves against the ambient
+	// FLAKE_ROOT, never the repoRoot input (that's the whole fix). If a
+	// caller's repoRoot ever diverges from FLAKE_ROOT, the drvPath trigger
+	// (computed from repoRoot) and the actual build (which uses FLAKE_ROOT)
+	// would silently target different flakes with no error — this warning is
+	// the only thing that would catch it.
+	it("warns when repoRoot diverges from the ambient FLAKE_ROOT", async () => {
+		const original = process.env.FLAKE_ROOT;
+		process.env.FLAKE_ROOT = "/home/user/actual-repo";
+		const warnSpy = vi.spyOn(pulumi.log, "warn").mockImplementation(() => {
+			/* swallow */
+		});
+
+		try {
+			const output = new NixOutput("test-divergent-root", {
+				nixAttr: "packages.x86_64-linux.myapp",
+				repoRoot: "/home/user/different-repo",
+			});
+			await resolveOutput(output.storePath);
+		} finally {
+			process.env.FLAKE_ROOT = original;
+		}
+
+		expect(warnSpy).toHaveBeenCalledWith(
+			expect.stringContaining("does not match the ambient FLAKE_ROOT"),
+		);
+		warnSpy.mockRestore();
+	});
+
+	it("does not warn when repoRoot matches the ambient FLAKE_ROOT", async () => {
+		const original = process.env.FLAKE_ROOT;
+		process.env.FLAKE_ROOT = "/home/user/same-repo";
+		const warnSpy = vi.spyOn(pulumi.log, "warn").mockImplementation(() => {
+			/* swallow */
+		});
+
+		try {
+			const output = new NixOutput("test-matching-root", {
+				nixAttr: "packages.x86_64-linux.myapp",
+				repoRoot: "/home/user/same-repo",
+			});
+			await resolveOutput(output.storePath);
+		} finally {
+			process.env.FLAKE_ROOT = original;
+		}
+
+		expect(warnSpy).not.toHaveBeenCalled();
+		warnSpy.mockRestore();
+	});
+
 	it("creates a Command resource in build mode when specified", async () => {
 		const output = new NixOutput("test-build", {
 			nixAttr: "packages.x86_64-linux.myapp",
