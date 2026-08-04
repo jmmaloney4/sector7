@@ -102,9 +102,13 @@ describe("NixOutput", () => {
 
 		const cmd = cmds[0];
 		expect(cmd.type).toBe("command:local:Command");
+		// REPO_ROOT is deliberately absent: it would be an absolute,
+		// machine-specific path baked into a diffed input, forcing a spurious
+		// replace whenever the same stack is applied from a different
+		// checkout. The spawned command reads it from its own ambient
+		// environment instead — see nix-output-resolve.sh.
 		expect(cmd.inputs.environment).toEqual({
 			NIX_ATTR: "packages.x86_64-linux.myapp",
-			REPO_ROOT: "/home/user/my-repo",
 			SCRIPT_MODE: "resolve",
 			COMMAND_LOG_STEM: ".pulumi/command-logs/test-default",
 		});
@@ -126,8 +130,8 @@ describe("NixOutput", () => {
 		expect(cmd.inputs.environment).toMatchObject({
 			SCRIPT_MODE: "build",
 			NIX_ATTR: "packages.x86_64-linux.myapp",
-			REPO_ROOT: "/home/user/my-repo",
 		});
+		expect(cmd.inputs.environment).not.toHaveProperty("REPO_ROOT");
 	});
 
 	it("parses STORE_PATH_OUTPUT marker from stdout", async () => {

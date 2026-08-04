@@ -155,3 +155,94 @@ describe("nix-output-resolve.sh UTF-8 safety", () => {
 		expect(stderr.toString("utf8")).toContain("see");
 	});
 });
+
+// REPO_ROOT falls back to the devshell's FLAKE_ROOT when the caller doesn't
+// inject it explicitly. This is the other half of the fix for the same
+// machine-path drift bug garden#1607 fixed: forwarding an absolute,
+// machine-specific path into command.local.Command's tracked `environment`
+// input forces a spurious replace whenever the same stack is applied from a
+// different checkout than whoever last applied it. See nix-output.ts.
+describe("nix-output-resolve.sh REPO_ROOT fallback", () => {
+	/**
+	 * Stub `nix` that records the flake ref it was invoked with. SCRIPT_MODE
+	 * "build" invokes `nix build <flakeref> --no-link ...`, so the flake ref
+	 * is $2 (argv[0] is "build").
+	 */
+	function stubNixRecordingFlakeRef(recordPath: string): string {
+		return stubNix(
+			[
+				`printf '%s' "$2" > '${recordPath}'`,
+				`printf '%s\\n' '${STORE_PATH}'`,
+			].join("\n"),
+		);
+	}
+
+	it("uses FLAKE_ROOT when REPO_ROOT is not set", () => {
+		const recordPath = join(makeTempDir("nix-record-"), "flake-ref");
+		const binDir = stubNixRecordingFlakeRef(recordPath);
+		const logDir = makeTempDir("nix-logs-");
+
+		const result = spawnSync("bash", [SCRIPT_PATH], {
+			env: {
+				...process.env,
+				PATH: `${binDir}:${process.env.PATH ?? ""}`,
+				NIX_ATTR: "packages.x86_64-linux.myapp",
+				REPO_ROOT: undefined,
+				FLAKE_ROOT: "/home/user/fallback-repo",
+				SCRIPT_MODE: "build",
+				COMMAND_LOG_STEM: logDir,
+			},
+			encoding: "utf8",
+		});
+
+		expect(result.status).toBe(0);
+		expect(readFileSync(recordPath, "utf8")).toBe(
+			"/home/user/fallback-repo#packages.x86_64-linux.myapp",
+		);
+	});
+
+	it("prefers an explicit REPO_ROOT over FLAKE_ROOT when both are set", () => {
+		const recordPath = join(makeTempDir("nix-record-"), "flake-ref");
+		const binDir = stubNixRecordingFlakeRef(recordPath);
+		const logDir = makeTempDir("nix-logs-");
+
+		const result = spawnSync("bash", [SCRIPT_PATH], {
+			env: {
+				...process.env,
+				PATH: `${binDir}:${process.env.PATH ?? ""}`,
+				NIX_ATTR: "packages.x86_64-linux.myapp",
+				REPO_ROOT: "/home/user/explicit-repo",
+				FLAKE_ROOT: "/home/user/fallback-repo",
+				SCRIPT_MODE: "build",
+				COMMAND_LOG_STEM: logDir,
+			},
+			encoding: "utf8",
+		});
+
+		expect(result.status).toBe(0);
+		expect(readFileSync(recordPath, "utf8")).toBe(
+			"/home/user/explicit-repo#packages.x86_64-linux.myapp",
+		);
+	});
+
+	it("fails clearly when neither REPO_ROOT nor FLAKE_ROOT is set", () => {
+		const binDir = stubNix("printf '%s\\n' '/should/not/run'");
+		const logDir = makeTempDir("nix-logs-");
+
+		const result = spawnSync("bash", [SCRIPT_PATH], {
+			env: {
+				...process.env,
+				PATH: `${binDir}:${process.env.PATH ?? ""}`,
+				NIX_ATTR: "packages.x86_64-linux.myapp",
+				REPO_ROOT: undefined,
+				FLAKE_ROOT: undefined,
+				SCRIPT_MODE: "build",
+				COMMAND_LOG_STEM: logDir,
+			},
+			encoding: "utf8",
+		});
+
+		expect(result.status).not.toBe(0);
+		expect(result.stderr).toContain("Required env var REPO_ROOT is not set");
+	});
+});

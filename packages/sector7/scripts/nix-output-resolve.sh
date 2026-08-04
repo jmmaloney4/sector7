@@ -7,7 +7,9 @@
 #
 # Env vars:
 #   NIX_ATTR          - flake attribute path (e.g. "packages.x86_64-linux.lens-api-image")
-#   REPO_ROOT         - absolute path to repo root containing the flake
+#   REPO_ROOT         - absolute path to repo root containing the flake.
+#                       Falls back to the ambient FLAKE_ROOT when unset —
+#                       see the fallback assignment below for why.
 #   SUB_OUTPUT        - named output from a multi-output derivation (e.g. "docs", "dev")
 #   SUB_PATH          - sub-path within the resolved store path (e.g. "assets/style.css")
 #   SCRIPT_MODE       - "resolve" (default) or "build"
@@ -30,6 +32,17 @@ set -euo pipefail
 
 SCRIPT_MODE="${SCRIPT_MODE:-resolve}"
 COMMAND_LOG_STEM="${COMMAND_LOG_STEM:-.pulumi/command-logs}"
+
+# REPO_ROOT falls back to the devshell's FLAKE_ROOT (set by the flake-root
+# hook) when the caller doesn't inject it explicitly. This is deliberate: an
+# explicit REPO_ROOT would be an absolute, machine-specific filesystem path
+# baked into command.local.Command's tracked `environment` input, forcing a
+# spurious replace of this resource (and everything downstream of its output)
+# on every machine whose checkout lives at a different path than whoever last
+# applied the stack. Reading it from the ambient environment at execution time
+# instead keeps the tracked inputs identical across every machine. See
+# nix-output.ts for the corresponding half of this fix.
+REPO_ROOT="${REPO_ROOT:-${FLAKE_ROOT:-}}"
 
 # Validate required env vars
 for var in NIX_ATTR REPO_ROOT; do
