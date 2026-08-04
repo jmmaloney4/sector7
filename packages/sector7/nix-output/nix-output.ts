@@ -221,6 +221,7 @@ export class NixOutput extends pulumi.ComponentResource {
 						"always builds/resolves against FLAKE_ROOT, not repoRoot, so " +
 						"this resource will silently use a different flake than the " +
 						"drvPath trigger and eager preview were computed against.",
+					this,
 				);
 			}
 		});

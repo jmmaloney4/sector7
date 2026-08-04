@@ -133,14 +133,15 @@ describe("NixOutput", () => {
 				repoRoot: "/home/user/different-repo",
 			});
 			await resolveOutput(output.storePath);
+
+			expect(warnSpy).toHaveBeenCalledWith(
+				expect.stringContaining("does not match the ambient FLAKE_ROOT"),
+				expect.anything(),
+			);
 		} finally {
 			process.env.FLAKE_ROOT = original;
+			warnSpy.mockRestore();
 		}
-
-		expect(warnSpy).toHaveBeenCalledWith(
-			expect.stringContaining("does not match the ambient FLAKE_ROOT"),
-		);
-		warnSpy.mockRestore();
 	});
 
 	it("does not warn when repoRoot matches the ambient FLAKE_ROOT", async () => {
@@ -156,12 +157,12 @@ describe("NixOutput", () => {
 				repoRoot: "/home/user/same-repo",
 			});
 			await resolveOutput(output.storePath);
+
+			expect(warnSpy).not.toHaveBeenCalled();
 		} finally {
 			process.env.FLAKE_ROOT = original;
+			warnSpy.mockRestore();
 		}
-
-		expect(warnSpy).not.toHaveBeenCalled();
-		warnSpy.mockRestore();
 	});
 
 	it("creates a Command resource in build mode when specified", async () => {
