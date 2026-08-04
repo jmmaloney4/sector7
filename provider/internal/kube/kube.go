@@ -17,9 +17,10 @@ import "context"
 
 // Target identifies a Deployment to forward to.
 type Target struct {
-	// Kubeconfig is YAML. Empty means the ambient default config, which is
-	// what every current sector7 call site relies on (litellm and attic never
-	// pass one; only OnePasswordItem may).
+	// Kubeconfig is YAML. Empty means the ambient default config, which every
+	// call site falls back to when its resource's own Kubeconfig input is
+	// unset — see AdminTarget.Kubeconfig (litellm), CacheArgs.Kubeconfig
+	// (attic), and ItemArgs.Kubeconfig (onepassword).
 	Kubeconfig string
 	Namespace  string
 	Deployment string

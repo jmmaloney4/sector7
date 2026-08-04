@@ -38,7 +38,22 @@ type Cache struct {
 }
 
 type CacheArgs struct {
-	Namespace string `pulumi:"namespace"`
+	// Kubeconfig is YAML; empty means the ambient default config.
+	//
+	// Without it, the admin port-forward falls back to whatever kubeconfig is
+	// ambient in the process running `pulumi up`/`refresh` — which is not
+	// necessarily the identity the rest of the stack deploys with. This is the
+	// same gap that broke litellm's admin port-forward (sector7#350):
+	//
+	//	deployments.apps "litellm" is forbidden: User "pulumi-zeus" cannot get
+	//	resource "deployments" in API group "apps" in the namespace "litellm"
+	//
+	// AdminTarget.Kubeconfig in provider/litellm/client.go added the fix there;
+	// this mirrors it for attic. Secret because a kubeconfig carries client
+	// certificates and keys — matching onepassword.ItemArgs.Kubeconfig and
+	// litellm.AdminTarget.Kubeconfig.
+	Kubeconfig string `pulumi:"kubeconfig,optional" provider:"secret"`
+	Namespace  string `pulumi:"namespace"`
 	// HS256SecretBase64 is the server's signing secret; admin tokens are minted
 	// from it locally.
 	HS256SecretBase64     string   `pulumi:"hs256SecretBase64" provider:"secret"`
@@ -106,7 +121,8 @@ func (Cache) Diff(_ context.Context, req infer.DiffRequest[CacheArgs, CacheState
 	// An admin-target change does not alter the remote cache, but must flow into
 	// state so a later update/delete targets the new deployment and mints under
 	// the new secret.
-	if olds.Namespace != news.Namespace ||
+	if olds.Kubeconfig != news.Kubeconfig ||
+		olds.Namespace != news.Namespace ||
 		olds.DeploymentName != news.DeploymentName ||
 		olds.Port != news.Port ||
 		olds.HS256SecretBase64 != news.HS256SecretBase64 {
@@ -185,6 +201,7 @@ func (c Cache) connect(ctx context.Context, a CacheArgs, flags CachePermissionFl
 	}
 
 	conn, err := c.Transport.Connect(ctx, kube.Target{
+		Kubeconfig: a.Kubeconfig,
 		Namespace:  a.Namespace,
 		Deployment: a.DeploymentName,
 		Port:       a.Port,

@@ -181,6 +181,84 @@ func TestRetentionPeriodWireForm(t *testing.T) {
 	}
 }
 
+// The kubeconfig must actually reach the transport.
+//
+// The ambient default config is whatever kubectl happens to point at, which is
+// usually NOT the identity the process running `pulumi up`/`refresh` deploys
+// with — this is the exact gap that broke litellm's admin port-forward
+// (sector7#350):
+//
+//	deployments.apps "litellm" is forbidden: User "pulumi-zeus" cannot get
+//	resource "deployments" in API group "apps" in the namespace "litellm"
+//
+// Dropping this input anywhere between the resource and kube.Target is
+// invisible to every other test — the Fake ignores the Target and returns the
+// same BaseURL regardless — and shows up only in production, as a
+// port-forward refused for the wrong user.
+func TestCacheKubeconfigReachesTheTransport(t *testing.T) {
+	const kubeconfig = "apiVersion: v1\nkind: Config\n# platform identity\n"
+
+	t.Run("forwarded when set", func(t *testing.T) {
+		h := newHarness(t, nil)
+		args := baseCacheArgs()
+		args.Kubeconfig = kubeconfig
+
+		if _, _, err := (Cache{Transport: h.tr}).connect(t.Context(), args, adminCreateFlags); err != nil {
+			t.Fatal(err)
+		}
+		if got := h.tr.LastTarget.Kubeconfig; got != kubeconfig {
+			t.Fatalf("kubeconfig did not reach kube.Target: got %q", got)
+		}
+		// The rest of the target must still be carried, or a correct
+		// kubeconfig would just point at the wrong deployment.
+		if h.tr.LastTarget.Namespace != "attic" ||
+			h.tr.LastTarget.Deployment != "attic" ||
+			h.tr.LastTarget.Port != 8080 {
+			t.Fatalf("rest of the target was dropped: %+v", h.tr.LastTarget)
+		}
+	})
+
+	t.Run("empty when unset, meaning ambient", func(t *testing.T) {
+		h := newHarness(t, nil)
+		if _, _, err := (Cache{Transport: h.tr}).connect(t.Context(), baseCacheArgs(), adminCreateFlags); err != nil {
+			t.Fatal(err)
+		}
+		if got := h.tr.LastTarget.Kubeconfig; got != "" {
+			t.Fatalf("unset kubeconfig must stay empty (ambient), got %q", got)
+		}
+	})
+}
+
+// A rotated kubeconfig has to land in state, or every later operation keeps
+// using the stale one — and it must be an in-place update, never a replace,
+// which would regenerate the cache's signing keypair and break every client's
+// trusted-public-keys.
+func TestCacheKubeconfigChangeIsAnAdminTargetDiff(t *testing.T) {
+	old := CacheState{CacheArgs: baseCacheArgs(), PublicKey: "k"}
+	news := baseCacheArgs()
+	news.Kubeconfig = "apiVersion: v1\nkind: Config\n# rotated\n"
+
+	r, err := Cache{}.Diff(t.Context(), infer.DiffRequest[CacheArgs, CacheState]{State: old, Inputs: news})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r.DetailedDiff["adminTarget"].Kind != pgo.Update {
+		t.Fatalf("a rotated kubeconfig must be an in-place adminTarget update; got %+v", r.DetailedDiff)
+	}
+	for name, d := range r.DetailedDiff {
+		if d.Kind == pgo.UpdateReplace {
+			t.Fatalf("a kubeconfig change must never replace a live cache (%s did)", name)
+		}
+	}
+
+	// Unchanged inputs must stay a no-op — this is what keeps a live cache
+	// from churning (and regenerating its keypair) on every apply.
+	r, _ = Cache{}.Diff(t.Context(), infer.DiffRequest[CacheArgs, CacheState]{State: old, Inputs: baseCacheArgs()})
+	if r.HasChanges {
+		t.Fatalf("unchanged inputs must not diff; got %+v", r.DetailedDiff)
+	}
+}
+
 func TestCacheDiffReplacesOnIdentityOnly(t *testing.T) {
 	old := CacheState{CacheArgs: baseCacheArgs(), PublicKey: "k"}
 
