@@ -61,8 +61,40 @@ type ItemArgs struct {
 	Fields         []Field `pulumi:"fields"`
 }
 
+// ItemState deliberately does NOT embed ItemArgs, and so deliberately does not
+// carry Fields.
+//
+// The dynamic provider this replaces never persisted field values. Its
+// stateOuts (packages/sector7/onepassword/item.ts) listed the connection and
+// identity inputs explicitly and stopped there, keeping only `managedLabels`
+// (labels, not values) and `contentHash` (a digest over the values) — secret
+// values never entered state at all. Embedding ItemArgs here silently reversed
+// that: Create and Update both write ItemState{ItemArgs: a, …}, so every
+// managed secret would be persisted. Encrypted, since Field.Value is tagged
+// secret — but present, which is a weaker property than absent, and the reason
+// contentHash is itself marked secret is precisely to avoid handing out an
+// offline oracle over those values.
+//
+// It also matches what live state actually looks like. The five dynamic
+// OnePasswordItems in gateway/ergon/matrix/litellm have no `fields` key in
+// their outputs, so an ItemState requiring one cannot decode them and the alias
+// retype would fail before it began.
+//
+// Nothing reads persisted Fields: Diff hashes the INCOMING fields and compares
+// against the stored contentHash, and Update reconciles removals from
+// ManagedLabels. Both match the TypeScript.
 type ItemState struct {
-	ItemArgs
+	// Connection and identity inputs are echoed back, mirroring stateOuts in
+	// the TypeScript. Fields is the deliberate omission.
+	Kubeconfig     string `pulumi:"kubeconfig,optional" provider:"secret"`
+	ConnectToken   string `pulumi:"connectToken" provider:"secret"`
+	Namespace      string `pulumi:"namespace"`
+	DeploymentName string `pulumi:"deploymentName,optional"`
+	ConnectPort    int    `pulumi:"connectPort,optional"`
+	Vault          string `pulumi:"vault"`
+	Title          string `pulumi:"title"`
+	Category       string `pulumi:"category,optional"`
+
 	UUID     string `pulumi:"uuid"`
 	ItemPath string `pulumi:"itemPath"`
 	// ContentHash is secret: it is a SHA-256 over the field values, so exposing
@@ -71,6 +103,29 @@ type ItemState struct {
 	// ManagedLabels records which labels this resource owns, so a later update
 	// can remove ones dropped from input without touching unmanaged fields.
 	ManagedLabels []string `pulumi:"managedLabels"`
+}
+
+// target rebuilds the connection half of the inputs from stored state, for the
+// one path that must reach Connect using what was persisted rather than what
+// the program currently declares: Delete, which is handed no inputs at all.
+// Fields is intentionally absent — nothing on that path needs it.
+//
+// Update is deliberately NOT a caller. It connects with the CURRENT inputs, so
+// that a token rotation or cluster move takes effect on the same apply that
+// declares it; the only thing it draws from prior state is ManagedLabels, for
+// removal reconciliation. Delete is the sole caller — keep it that way, or the
+// "what was persisted" framing above stops being true.
+func (s ItemState) target() ItemArgs {
+	return ItemArgs{
+		Kubeconfig:     s.Kubeconfig,
+		ConnectToken:   s.ConnectToken,
+		Namespace:      s.Namespace,
+		DeploymentName: s.DeploymentName,
+		ConnectPort:    s.ConnectPort,
+		Vault:          s.Vault,
+		Title:          s.Title,
+		Category:       s.Category,
+	}
 }
 
 func (a *ItemArgs) Annotate(ann infer.Annotator) {
@@ -389,7 +444,7 @@ func buildMergedItemBody(existing map[string]any, a ItemArgs, id string, priorMa
 }
 
 func (i Item) Create(ctx context.Context, req infer.CreateRequest[ItemArgs]) (infer.CreateResponse[ItemState], error) {
-	out := infer.CreateResponse[ItemState]{Output: ItemState{ItemArgs: req.Inputs}}
+	out := infer.CreateResponse[ItemState]{Output: stateOuts(req.Inputs, "", "")}
 	if req.DryRun {
 		return out, nil
 	}
@@ -480,7 +535,7 @@ func (i Item) Update(ctx context.Context, req infer.UpdateRequest[ItemArgs, Item
 }
 
 func (i Item) Delete(ctx context.Context, req infer.DeleteRequest[ItemState]) (infer.DeleteResponse, error) {
-	c, done, err := i.connect(ctx, req.State.ItemArgs)
+	c, done, err := i.connect(ctx, req.State.target())
 	if err != nil {
 		return infer.DeleteResponse{}, err
 	}
@@ -526,10 +581,17 @@ func stateOuts(a ItemArgs, uuid, contentHash string) ItemState {
 		labels = append(labels, f.Label)
 	}
 	return ItemState{
-		ItemArgs:      a,
-		UUID:          uuid,
-		ItemPath:      fmt.Sprintf("vaults/%s/items/%s", a.Vault, uuid),
-		ContentHash:   contentHash,
-		ManagedLabels: labels,
+		Kubeconfig:     a.Kubeconfig,
+		ConnectToken:   a.ConnectToken,
+		Namespace:      a.Namespace,
+		DeploymentName: a.DeploymentName,
+		ConnectPort:    a.ConnectPort,
+		Vault:          a.Vault,
+		Title:          a.Title,
+		Category:       a.Category,
+		UUID:           uuid,
+		ItemPath:       fmt.Sprintf("vaults/%s/items/%s", a.Vault, uuid),
+		ContentHash:    contentHash,
+		ManagedLabels:  labels,
 	}
 }
