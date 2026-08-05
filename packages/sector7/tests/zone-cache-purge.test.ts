@@ -41,6 +41,13 @@ vi.mock("@pulumi/pulumi", () => ({
 		},
 	},
 	mergeOptions: (..._opts: unknown[]) => ({}),
+	secret: <T>(value: T) => value,
+	// r2object.ts also exports R2Object (`extends pulumi.CustomResource`) from
+	// the same module this file imports purgeZoneCache from — the class
+	// declaration is evaluated at module-load time regardless of which export
+	// this file actually uses, so CustomResource must exist here too or the
+	// import throws before any test in this file runs.
+	CustomResource: class {},
 }));
 
 import { purgeZoneCache } from "../r2/r2object.ts";
