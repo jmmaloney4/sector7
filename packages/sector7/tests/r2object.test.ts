@@ -1,29 +1,27 @@
-import { createHash } from "node:crypto";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-type R2ObjectProvider = {
-	check: (
-		olds: unknown,
-		news: Record<string, string>,
-	) => Promise<{ failures: Array<{ property: string; reason: string }> }>;
-	diff: (
-		id: string,
-		olds: Record<string, string>,
-		news: Record<string, string>,
-	) => Promise<{
-		changes: boolean;
-		replaces?: string[];
-		deleteBeforeReplace?: boolean;
-	}>;
+// R2Object's own CRUD/Diff logic (AWS Sig V4 signing, MD5 ETag comparison,
+// replace-on-key/bucket/account-change) moved to
+// provider/r2/object.go when this resource retyped onto the sector7 plugin
+// (garden ADR 163) — see object_test.go for that coverage. What's left here
+// is the TypeScript wrapper's OWN concerns: does construction reach the
+// plugin with the right token/alias/secret-wrapping, and does the
+// `uploadAssets`/`purgeZoneCache` orchestration around it still behave
+// correctly.
+
+type CustomResourceCall = {
+	type: string;
+	name: string;
+	args: Record<string, unknown>;
+	opts: Record<string, unknown> | undefined;
 };
 
 type DynamicResourceCall = {
 	name: string;
 	opts: Record<string, unknown> | undefined;
-	provider: R2ObjectProvider;
 };
 
 type AccountTokenCall = {
@@ -31,7 +29,7 @@ type AccountTokenCall = {
 	opts: Record<string, unknown> | undefined;
 };
 
-let provider: R2ObjectProvider | undefined;
+const customResourceCalls: CustomResourceCall[] = [];
 const dynamicResourceCalls: DynamicResourceCall[] = [];
 const accountTokenCalls: AccountTokenCall[] = [];
 
@@ -39,24 +37,40 @@ vi.mock("@pulumi/pulumi", () => {
 	const output = <T>(value: T) => ({
 		apply: <U>(fn: (value: T) => U) => fn(value),
 	});
+	// Spy, not a plain identity function: an identity wrapper can't
+	// distinguish "value passed through secret()" from "value passed through
+	// untouched", so a test asserting only on the resolved value would pass
+	// whether or not the constructor actually calls pulumi.secret(). Asserting
+	// on the spy's call arguments is what makes that distinction observable.
+	const secret = vi.fn(<T>(value: T) => value);
 
 	return {
 		all: <T>(value: T) => output(value),
 		output,
+		secret,
 		mergeOptions: (
-			left: Record<string, unknown>,
+			left: Record<string, unknown> | undefined,
 			right: Record<string, unknown>,
 		) => ({ ...left, ...right }),
+		CustomResource: class {
+			constructor(
+				type: string,
+				name: string,
+				args: Record<string, unknown>,
+				opts?: Record<string, unknown>,
+			) {
+				customResourceCalls.push({ type, name, args, opts });
+			}
+		},
 		dynamic: {
 			Resource: class {
 				constructor(
-					resourceProvider: R2ObjectProvider,
+					_resourceProvider: unknown,
 					name: string,
 					_args: Record<string, unknown>,
 					opts?: Record<string, unknown>,
 				) {
-					provider = resourceProvider;
-					dynamicResourceCalls.push({ name, opts, provider: resourceProvider });
+					dynamicResourceCalls.push({ name, opts });
 				}
 			},
 		},
@@ -81,6 +95,7 @@ vi.mock("@pulumi/cloudflare", () => ({
 	},
 }));
 
+import * as pulumi from "@pulumi/pulumi";
 import { purgeZoneCache, R2Object, uploadAssets } from "../r2/r2object.ts";
 
 const createArgs = (filePath: string) => ({
@@ -95,74 +110,37 @@ const createArgs = (filePath: string) => ({
 
 const cloudProviderOpt = { provider: { urn: "cloudflare-provider" } };
 
-describe("R2Object provider", () => {
+describe("R2Object construction", () => {
 	let tempDir: string;
 
 	beforeEach(() => {
 		tempDir = mkdtempSync(join(tmpdir(), "r2object-test-"));
-		provider = undefined;
-		dynamicResourceCalls.length = 0;
-		accountTokenCalls.length = 0;
-		new R2Object("asset", createArgs(join(tempDir, "bootstrap.txt")));
+		customResourceCalls.length = 0;
 	});
 
 	afterEach(() => {
 		rmSync(tempDir, { recursive: true, force: true });
 	});
 
-	it("reports a check failure when the file path no longer exists", async () => {
-		const missingPath = join(tempDir, "missing.txt");
+	it("registers under the sector7:r2:Object token with the dynamic-provider alias", () => {
+		new R2Object("asset", createArgs(join(tempDir, "index.html")));
 
-		const result = await provider!.check({}, createArgs(missingPath));
-
-		expect(result.failures).toEqual([
-			{
-				property: "filePath",
-				reason: `file not found: ${missingPath}`,
-			},
+		expect(customResourceCalls).toHaveLength(1);
+		const call = customResourceCalls[0];
+		expect(call.type).toBe("sector7:r2:Object");
+		// This is what makes the cutover a no-op: the engine matches this
+		// resource against state written by the old dynamic provider and
+		// rewrites the URN in place, instead of planning a delete+create.
+		expect(call.opts?.aliases).toEqual([
+			{ type: "pulumi-nodejs:dynamic:Resource" },
 		]);
 	});
 
-	it("treats a missing file as a diff instead of throwing ENOENT", async () => {
-		const missingPath = join(tempDir, "missing.txt");
-		const olds = {
-			...createArgs(missingPath),
-			etag: createHash("md5").update("previous contents").digest("hex"),
-		};
-
-		const result = await provider!.diff("bucket-123/index.html", olds, {
-			...createArgs(missingPath),
-		});
-
-		expect(result).toMatchObject({
-			changes: true,
-			replaces: [],
-			deleteBeforeReplace: true,
-		});
-	});
-
-	it("keeps unchanged files stable during diff", async () => {
-		const filePath = join(tempDir, "index.html");
-		const body = "<h1>hello</h1>";
-		writeFileSync(filePath, body);
-
-		const result = await provider!.diff(
-			"bucket-123/index.html",
-			{
-				...createArgs(filePath),
-				etag: createHash("md5").update(body).digest("hex"),
-			},
-			createArgs(filePath),
-		);
-
-		expect(result).toMatchObject({
-			changes: false,
-			replaces: [],
-			deleteBeforeReplace: true,
-		});
-	});
-
-	it("rejects cloud provider options when R2Object is constructed directly", () => {
+	it("accepts provider/providers, unlike the dynamic provider it replaces", () => {
+		// The old R2Object threw on provider/providers (it was a JS dynamic
+		// resource; routing it through a cloud provider bridge failed with a
+		// misleading unknown-token error). The plugin-backed resource has no
+		// such constraint — provider/providers are ordinary supported options.
 		expect(
 			() =>
 				new R2Object(
@@ -170,20 +148,28 @@ describe("R2Object provider", () => {
 					createArgs(join(tempDir, "index.html")),
 					cloudProviderOpt,
 				),
-		).toThrow(
-			/R2Object is a Pulumi dynamic resource; do not pass provider\/providers/,
-		);
+		).not.toThrow();
+
+		expect(customResourceCalls[0].opts).toMatchObject(cloudProviderOpt);
+	});
+
+	it("marks accessKeyId and secretAccessKey secret on the input side", () => {
+		vi.mocked(pulumi.secret).mockClear();
+
+		new R2Object("asset", createArgs(join(tempDir, "index.html")));
+
+		expect(pulumi.secret).toHaveBeenCalledWith("access-key");
+		expect(pulumi.secret).toHaveBeenCalledWith("secret-key");
 	});
 });
 
 describe("uploadAssets", () => {
 	beforeEach(() => {
-		provider = undefined;
-		dynamicResourceCalls.length = 0;
+		customResourceCalls.length = 0;
 		accountTokenCalls.length = 0;
 	});
 
-	it("keeps provider options on the Cloudflare token but strips them from dynamic R2 objects", () => {
+	it("keeps provider options on the Cloudflare token but strips them from R2 objects", () => {
 		uploadAssets(
 			"site",
 			{
@@ -202,15 +188,14 @@ describe("uploadAssets", () => {
 
 		expect(accountTokenCalls).toHaveLength(1);
 		expect(accountTokenCalls[0].opts).toMatchObject(cloudProviderOpt);
-		expect(dynamicResourceCalls).toHaveLength(1);
-		expect(dynamicResourceCalls[0].opts).not.toHaveProperty("provider");
-		expect(dynamicResourceCalls[0].opts).not.toHaveProperty("providers");
+		expect(customResourceCalls).toHaveLength(1);
+		expect(customResourceCalls[0].opts).not.toHaveProperty("provider");
+		expect(customResourceCalls[0].opts).not.toHaveProperty("providers");
 	});
 });
 
 describe("purgeZoneCache", () => {
 	beforeEach(() => {
-		provider = undefined;
 		dynamicResourceCalls.length = 0;
 		accountTokenCalls.length = 0;
 	});
