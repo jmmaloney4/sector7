@@ -20,6 +20,16 @@ import (
 // to remove.
 type Token struct{}
 
+// Annotate overrides Token's derived token, for the same reason as
+// Cache.Annotate in cache.go: the package-derived default
+// "sector7:attic:Token" collides with the OLD TypeScript AtticToken
+// ComponentResource's own type token, and that coincidental identity match
+// would silently defeat the TypeScript-side alias to the real child
+// resource. See Cache.Annotate for the full explanation.
+func (Token) Annotate(a infer.Annotator) {
+	a.SetToken("atticprovider", "Token")
+}
+
 type TokenArgs struct {
 	HS256SecretBase64 string `pulumi:"hs256SecretBase64" provider:"secret"`
 	Sub               string `pulumi:"sub"`
