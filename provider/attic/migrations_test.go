@@ -98,9 +98,14 @@ func testServer(t *testing.T) integration.Server {
 	return srv
 }
 
+// Cache/Token.Annotate (cache.go, token_resource.go) override the
+// package-derived token to "sector7:atticprovider:{Cache,Token}", precisely
+// to avoid colliding with the OLD ComponentResource's own
+// "sector7:attic:{Cache,Token}" token — see those methods for why. These
+// URNs use the overridden token accordingly.
 const (
-	cacheURN = "urn:pulumi:prod::attic::sector7:attic:Cache::attic-cache-jmmaloney4"
-	tokenURN = "urn:pulumi:prod::attic::sector7:attic:Token::attic-host-token-itachi"
+	cacheURN = "urn:pulumi:prod::attic::sector7:atticprovider:Cache::attic-cache-jmmaloney4"
+	tokenURN = "urn:pulumi:prod::attic::sector7:atticprovider:Token::attic-host-token-itachi"
 )
 
 // THE migration gate for Cache: the exact call the engine makes during the

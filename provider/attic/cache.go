@@ -37,6 +37,26 @@ type Cache struct {
 	Transport kube.Transport
 }
 
+// Annotate overrides Cache's derived token. Left at the package-derived
+// default it would be "sector7:attic:Cache" — which is exactly the type
+// token the OLD TypeScript AtticCache ComponentResource
+// (packages/sector7/attic/admin.ts) already used, before this plugin
+// existed. The retyped resource's own identity would then coincidentally
+// collide with that now-defunct component's URN, and empirically (verified
+// against a real nested old state) the engine treats a coincidental direct
+// identity match as authoritative and never falls back to consulting the
+// declared TypeScript-side alias at all — silently deleting the real child
+// resource (which holds the actual state) and replacing it from the
+// component's near-empty bookkeeping state instead of adopting it. Using a
+// distinct module name here sidesteps the collision entirely: nothing in
+// old state matches this token directly, so the child is adopted purely via
+// its declared alias, and the old component's stateless bookkeeping entry
+// is dropped as harmless cleanup (custom:false, no id — no provider Delete
+// RPC is ever issued for it).
+func (Cache) Annotate(a infer.Annotator) {
+	a.SetToken("atticprovider", "Cache")
+}
+
 type CacheArgs struct {
 	// Kubeconfig is YAML; empty means the ambient default config.
 	//

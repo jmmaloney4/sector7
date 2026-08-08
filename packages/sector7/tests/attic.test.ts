@@ -1,179 +1,68 @@
-import * as crypto from "node:crypto";
-import { EventEmitter } from "node:events";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-// ---------------------------------------------------------------------------
-// Mocks (same capture pattern as litellm-admin.test.ts)
+// AtticCache / AtticToken's own CRUD/Diff logic (cache-config HTTP calls,
+// JWT minting) moved to provider/attic/cache.go and
+// provider/attic/token_resource.go when these resources retyped onto the
+// sector7 plugin (garden ADR 163) — see cache_test.go / token_resource_test.go
+// for that coverage. What's left here is the TypeScript wrapper's OWN
+// concerns: does construction reach the plugin with the right
+// token/alias/secret-wrapping.
 //
-// AtticCache / AtticToken are ComponentResources that each construct an inner
-// `dynamic.Resource`. We mock @pulumi/pulumi to (a) make the component
-// constructors inert and (b) capture the ResourceProvider passed to
-// dynamic.Resource's super(), then exercise the provider directly.
-//
-// The cache provider opens a port-forward and calls the cache-config API over
-// `node:http`; we stub @kubernetes/client-node and node:net so it yields a local
-// base URL without a real cluster, and mock `node:http` to capture the requests
-// (the provider uses node:http rather than fetch because Attic validates the Host
-// header and undici drops a caller-supplied Host override). The token provider
-// needs neither — it mints a JWT in-process via the real node:crypto.
-// ---------------------------------------------------------------------------
+// The alias here is more involved than a flat dynamic-provider cutover
+// (compare matrix/r2): the OLD shape was a ComponentResource wrapping an
+// inner dynamic.Resource CHILD, so the alias must target the CHILD's exact
+// nested URN (type, name suffix, AND parent) — see admin.ts's class docs for
+// why the token itself also had to change to avoid a coincidental identity
+// collision with the old component.
 
-type Provider = {
-	check: (
-		olds: Record<string, unknown>,
-		news: Record<string, unknown>,
-	) => Promise<{
-		inputs: Record<string, unknown>;
-		failures: Array<{ property: string; reason: string }>;
-	}>;
-	diff: (
-		id: string,
-		olds: Record<string, unknown>,
-		news: Record<string, unknown>,
-	) => Promise<{ changes: boolean; replaces?: string[] }>;
-	create: (inputs: Record<string, unknown>) => Promise<{
-		id: string;
-		outs: Record<string, unknown>;
-	}>;
-	update: (
-		id: string,
-		olds: Record<string, unknown>,
-		news: Record<string, unknown>,
-	) => Promise<{ outs: Record<string, unknown> }>;
-	delete: (id: string, props: Record<string, unknown>) => Promise<void>;
+type CustomResourceCall = {
+	type: string;
+	name: string;
+	args: Record<string, unknown>;
+	opts: Record<string, unknown> | undefined;
 };
 
-const capturedProviders: Provider[] = [];
+const customResourceCalls: CustomResourceCall[] = [];
 
 vi.mock("@pulumi/pulumi", () => {
-	// biome-ignore lint/suspicious/noExplicitAny: minimal Output stand-in for tests
-	const output = (value: any): any => ({
-		// biome-ignore lint/suspicious/noExplicitAny: identity apply for tests
-		apply: (fn: (v: any) => any) => output(fn(value)),
+	const output = <T>(value: T) => ({
+		apply: <U>(fn: (value: T) => U) => fn(value),
 	});
+	// Spy, not a plain identity function: an identity wrapper can't
+	// distinguish "value passed through secret()" from "value passed through
+	// untouched", so a test asserting only on the resolved value would pass
+	// whether or not the constructor actually calls pulumi.secret(). Asserting
+	// on the spy's call arguments is what makes that distinction observable.
+	const secret = vi.fn(<T>(value: T) => value);
+	// Mirrors the real SDK's format (createUrn.ts): a stable, inspectable
+	// stand-in good enough to assert the alias's parent targets the OLD
+	// component's URN and not this resource's own (different) type.
+	const createUrn = vi.fn(
+		(name: string, type: string) => `urn:mock:${type}::${name}`,
+	);
+
 	return {
-		ComponentResource: class {
-			registerOutputs() {}
-		},
-		dynamic: {
-			Resource: class {
-				constructor(provider: Provider) {
-					capturedProviders.push(provider);
-				}
-			},
-		},
 		output,
-		// biome-ignore lint/suspicious/noExplicitAny: identity for tests
-		secret: (v: any) => v,
+		secret,
+		createUrn,
+		mergeOptions: (
+			left: Record<string, unknown> | undefined,
+			right: Record<string, unknown>,
+		) => ({ ...left, ...right }),
+		CustomResource: class {
+			constructor(
+				type: string,
+				name: string,
+				args: Record<string, unknown>,
+				opts?: Record<string, unknown>,
+			) {
+				customResourceCalls.push({ type, name, args, opts });
+			}
+		},
 	};
 });
 
-const apiStubs = {
-	readNamespacedDeployment: vi.fn().mockResolvedValue({
-		spec: { selector: { matchLabels: { app: "attic" } } },
-	}),
-	listNamespacedPod: vi.fn().mockResolvedValue({
-		items: [
-			{
-				metadata: { name: "attic-pod-1" },
-				status: {
-					phase: "Running",
-					conditions: [{ type: "Ready", status: "True" }],
-				},
-			},
-		],
-	}),
-};
-
-vi.mock("@kubernetes/client-node", () => ({
-	KubeConfig: class {
-		loadFromDefault() {}
-		makeApiClient(_ctor: { name: string }) {
-			return apiStubs;
-		}
-	},
-	AppsV1Api: class AppsV1Api {},
-	CoreV1Api: class CoreV1Api {},
-	PortForward: class {
-		portForward() {
-			return Promise.resolve();
-		}
-	},
-}));
-
-vi.mock("node:net", () => ({
-	createServer: () => {
-		const server = {
-			// biome-ignore lint/suspicious/noExplicitAny: minimal EventEmitter-ish stub
-			once: (_event: string, _cb: any) => server,
-			listen: (_port: number, _host: string, cb: () => void) => {
-				cb();
-				return server;
-			},
-			address: () => ({ port: 41000 }),
-			close: (cb?: () => void) => {
-				cb?.();
-				return server;
-			},
-		};
-		return server;
-	},
-}));
-
-// `node:http` mock. `atticFetch` reaches the cache-config API through
-// `await import("node:http")`; this intercepts it and routes every request to the
-// responder installed by `installFetch`, recording each call (including the Host
-// header the provider sets, so a test can assert it matches Attic's allowed-hosts).
-type HttpCall = {
-	path: string;
-	method: string;
-	body: unknown;
-	host: string | undefined;
-};
-const httpState: {
-	responder: (
-		path: string,
-		method: string,
-		body: unknown,
-	) => { status?: number; body?: unknown } | undefined;
-	calls: HttpCall[];
-} = { responder: () => ({}), calls: [] };
-
-// biome-ignore lint/suspicious/noExplicitAny: minimal http.request stand-in
-function mockHttpRequest(url: any, options: any, cb: any): any {
-	const req: any = new EventEmitter();
-	let bodyStr = "";
-	req.write = (chunk: string) => {
-		bodyStr += chunk;
-		return true;
-	};
-	req.end = () => {
-		const path = String(url).replace(/^http:\/\/127\.0\.0\.1:\d+/, "");
-		const method = options?.method ?? "GET";
-		const body = bodyStr ? JSON.parse(bodyStr) : undefined;
-		const host = options?.headers?.Host;
-		httpState.calls.push({ path, method, body, host });
-		const r = httpState.responder(path, method, body) ?? {};
-		const status = r.status ?? 200;
-		const payload = r.body ?? {};
-		const text =
-			typeof payload === "string" ? payload : JSON.stringify(payload);
-		const res: any = new EventEmitter();
-		res.statusCode = status;
-		queueMicrotask(() => {
-			cb(res);
-			res.emit("data", Buffer.from(text, "utf8"));
-			res.emit("end");
-		});
-	};
-	return req;
-}
-
-vi.mock("node:http", () => ({
-	default: { request: mockHttpRequest },
-	request: mockHttpRequest,
-}));
-
+import * as pulumi from "@pulumi/pulumi";
 import { AtticCache, AtticToken } from "../attic/admin.ts";
 import {
 	ATTIC_CLAIM_NAMESPACE,
@@ -183,395 +72,129 @@ import {
 
 const SECRET_B64 = Buffer.from("attic-test-signing-secret").toString("base64");
 
-const cacheTarget = {
+const cacheArgs = {
 	namespace: "attic-prod",
 	hs256SecretBase64: SECRET_B64,
 	deploymentName: "attic",
 	port: 8080,
+	cacheName: "mycache",
+	isPublic: true,
 };
 
-function cacheInputs(overrides: Record<string, unknown> = {}) {
-	return {
-		...cacheTarget,
-		cacheName: "mycache",
-		isPublic: true,
-		priority: 0,
-		storeDir: "/nix/store",
-		upstreamCacheKeyNames: [] as string[],
-		retentionPeriodSeconds: "" as number | "",
-		...overrides,
-	};
-}
+const tokenArgs = {
+	hs256SecretBase64: SECRET_B64,
+	sub: "github-actions-ci",
+	validity: "1y",
+	caches: { mycache: { pull: true, push: true } },
+};
 
-// Install a responder for the mocked `node:http` transport, returning canned
-// cache-config responses; responder may set a status (defaults 200) and a body
-// (object → JSON, string → raw text). Returns the recorded call log.
-function installFetch(
-	responder: (
-		path: string,
-		method: string,
-		body: unknown,
-	) => { status?: number; body?: unknown } | undefined,
-) {
-	httpState.responder = responder;
-	httpState.calls = [];
-	return httpState.calls;
-}
-
-let cacheProvider: Provider;
-let tokenProvider: Provider;
-
-beforeEach(() => {
-	capturedProviders.length = 0;
-	new AtticCache("c", {
-		...cacheTarget,
-		cacheName: "mycache",
-	});
-	new AtticToken("t", {
-		hs256SecretBase64: SECRET_B64,
-		sub: "github-actions-ci",
-		validity: "1y",
-		caches: { mycache: { pull: true, push: true } },
-	});
-	[cacheProvider, tokenProvider] = capturedProviders;
-	vi.unstubAllGlobals();
-});
-
-describe("AtticCache provider — diff", () => {
-	it("treats a config change as an in-place update (no replacement)", async () => {
-		const olds = { ...cacheInputs(), publicKey: "pk:1" };
-		const result = await cacheProvider.diff("mycache", olds, {
-			...cacheInputs(),
-			priority: 41,
-		});
-		expect(result.changes).toBe(true);
-		expect(result.replaces ?? []).toEqual([]);
+describe("AtticCache construction", () => {
+	beforeEach(() => {
+		customResourceCalls.length = 0;
+		vi.mocked(pulumi.createUrn).mockClear();
 	});
 
-	it("ignores upstream-key ordering", async () => {
-		const olds = {
-			...cacheInputs({ upstreamCacheKeyNames: ["a", "b", "c"] }),
-			publicKey: "pk:1",
-		};
-		const result = await cacheProvider.diff("mycache", olds, {
-			...cacheInputs({ upstreamCacheKeyNames: ["c", "a", "b"] }),
-		});
-		expect(result.changes).toBe(false);
+	it("registers under sector7:atticprovider:Cache, not sector7:attic:Cache", () => {
+		new AtticCache("attic-cache-mycache", cacheArgs);
+
+		expect(customResourceCalls).toHaveLength(1);
+		// Deliberately NOT "sector7:attic:Cache" — that token is what the OLD
+		// ComponentResource already used live; reusing it here would collide.
+		// See admin.ts's class doc for the full reasoning.
+		expect(customResourceCalls[0].type).toBe("sector7:atticprovider:Cache");
 	});
 
-	it("replaces when the cache name changes", async () => {
-		const olds = { ...cacheInputs(), publicKey: "pk:1" };
-		const result = await cacheProvider.diff("mycache", olds, {
-			...cacheInputs(),
-			cacheName: "othercache",
-		});
-		expect(result.replaces).toEqual(["cacheName"]);
+	it("aliases to the OLD nested child's exact URN: type, name suffix, and parent", () => {
+		new AtticCache("attic-cache-mycache", cacheArgs);
+
+		const call = customResourceCalls[0];
+		expect(call.opts?.aliases).toEqual([
+			{
+				type: "pulumi-nodejs:dynamic:Resource",
+				name: "attic-cache-mycache-cache",
+				parent: "urn:mock:sector7:attic:Cache::attic-cache-mycache",
+			},
+		]);
+		// The parent URN is built from the OLD component's token
+		// ("sector7:attic:Cache"), never this resource's own
+		// ("sector7:atticprovider:Cache") — a mixup here would target an alias
+		// no old state actually has.
+		expect(pulumi.createUrn).toHaveBeenCalledWith(
+			"attic-cache-mycache",
+			"sector7:attic:Cache",
+		);
 	});
 
-	it("replaces when the store dir changes", async () => {
-		const olds = { ...cacheInputs(), publicKey: "pk:1" };
-		const result = await cacheProvider.diff("mycache", olds, {
-			...cacheInputs(),
-			storeDir: "/alt/store",
-		});
-		expect(result.replaces).toEqual(["storeDir"]);
+	it("marks hs256SecretBase64 secret on the input side", () => {
+		vi.mocked(pulumi.secret).mockClear();
+
+		new AtticCache("attic-cache-mycache", cacheArgs);
+
+		expect(pulumi.secret).toHaveBeenCalledWith(SECRET_B64);
 	});
 
-	it("treats an admin-target change as an in-place update", async () => {
-		const olds = { ...cacheInputs(), publicKey: "pk:1" };
-		const result = await cacheProvider.diff("mycache", olds, {
-			...cacheInputs(),
-			hs256SecretBase64: Buffer.from("rotated").toString("base64"),
-			deploymentName: "attic-canary",
-		});
-		expect(result.changes).toBe(true);
-		expect(result.replaces ?? []).toEqual([]);
+	it("passes cacheName and isPublic straight through as inputs", () => {
+		new AtticCache("attic-cache-mycache", cacheArgs);
+
+		const call = customResourceCalls[0];
+		expect(call.args.cacheName).toBe("mycache");
+		expect(call.args.isPublic).toBe(true);
 	});
 });
 
-describe("AtticCache provider — lifecycle", () => {
-	it("creates a fresh cache and reads back its public key", async () => {
-		const calls = installFetch((_path, method) => {
-			if (method === "POST")
-				return { status: 200, body: { public_key: "pk:new" } };
-			if (method === "GET") return { body: { public_key: "pk:new" } };
-			return {};
-		});
-		const result = await cacheProvider.create(cacheInputs());
-		expect(result.id).toBe("mycache");
-		expect(result.outs.publicKey).toBe("pk:new");
-		const methods = calls.map((c) => c.method);
-		expect(methods).toEqual(["POST", "GET"]);
-		expect(calls[0].path).toBe("/_api/v1/cache-config/mycache");
-		expect(calls[0].body).toMatchObject({
-			keypair: "Generate",
-			is_public: true,
-		});
+describe("AtticToken construction", () => {
+	beforeEach(() => {
+		customResourceCalls.length = 0;
+		vi.mocked(pulumi.createUrn).mockClear();
 	});
 
-	it("sends the in-cluster Service FQDN as the Host header (allowed-hosts match)", async () => {
-		// Regression guard: the provider port-forwards to 127.0.0.1, but Attic
-		// validates Host against allowed-hosts. Every request must carry the
-		// <deployment>.<namespace>.svc.cluster.local Host so it is accepted — never
-		// the 127.0.0.1 the transport actually connects to.
-		const calls = installFetch((_path, method) => {
-			if (method === "POST")
-				return { status: 200, body: { public_key: "pk:new" } };
-			if (method === "GET") return { body: { public_key: "pk:new" } };
-			return {};
-		});
-		await cacheProvider.create(cacheInputs());
-		expect(calls.length).toBeGreaterThan(0);
-		for (const c of calls) {
-			expect(c.host).toBe("attic.attic-prod.svc.cluster.local");
-		}
+	it("registers under sector7:atticprovider:Token, not sector7:attic:Token", () => {
+		new AtticToken("attic-ci-token-mycache", tokenArgs);
+
+		expect(customResourceCalls).toHaveLength(1);
+		expect(customResourceCalls[0].type).toBe("sector7:atticprovider:Token");
 	});
 
-	it("adopts an existing cache via PATCH on CacheAlreadyExists", async () => {
-		const calls = installFetch((_path, method) => {
-			if (method === "POST")
-				return { status: 400, body: "Error: CacheAlreadyExists" };
-			if (method === "PATCH") return { body: {} };
-			if (method === "GET")
-				return { body: { public_key: "pk:existing", store_dir: "/nix/store" } };
-			return {};
-		});
-		const result = await cacheProvider.create(cacheInputs());
-		expect(result.outs.publicKey).toBe("pk:existing");
-		const methods = calls.map((c) => c.method);
-		// Adoption GETs to verify the immutable store_dir, then reconciles via PATCH
-		// (never re-POST, which would regenerate the keypair), then re-reads the key.
-		expect(methods).toEqual(["POST", "GET", "PATCH", "GET"]);
-		const patch = calls.find((c) => c.method === "PATCH");
-		expect(patch?.body).toMatchObject({ is_public: true, priority: 0 });
-	});
+	it("aliases to the OLD nested child's exact URN: type, name suffix, and parent", () => {
+		new AtticToken("attic-ci-token-mycache", tokenArgs);
 
-	it("refuses to adopt a cache whose immutable store_dir differs", async () => {
-		installFetch((_path, method) => {
-			if (method === "POST")
-				return { status: 400, body: "Error: CacheAlreadyExists" };
-			if (method === "GET")
-				return { body: { public_key: "pk", store_dir: "/alt/store" } };
-			return {};
-		});
-		await expect(cacheProvider.create(cacheInputs())).rejects.toThrow(
-			/store_dir/,
+		const call = customResourceCalls[0];
+		expect(call.opts?.aliases).toEqual([
+			{
+				type: "pulumi-nodejs:dynamic:Resource",
+				name: "attic-ci-token-mycache-token",
+				parent: "urn:mock:sector7:attic:Token::attic-ci-token-mycache",
+			},
+		]);
+		expect(pulumi.createUrn).toHaveBeenCalledWith(
+			"attic-ci-token-mycache",
+			"sector7:attic:Token",
 		);
 	});
 
-	it("refuses to adopt when the existing store_dir is unverifiable", async () => {
-		installFetch((_path, method) => {
-			if (method === "POST")
-				return { status: 400, body: "Error: CacheAlreadyExists" };
-			if (method === "GET") return { body: { public_key: "pk" } }; // no store_dir
-			return {};
-		});
-		await expect(cacheProvider.create(cacheInputs())).rejects.toThrow(
-			/store_dir/,
-		);
+	it("marks hs256SecretBase64 secret on the input side", () => {
+		vi.mocked(pulumi.secret).mockClear();
+
+		new AtticToken("attic-ci-token-mycache", tokenArgs);
+
+		expect(pulumi.secret).toHaveBeenCalledWith(SECRET_B64);
 	});
 
-	it("PATCHes a fresh cache's retention when requested", async () => {
-		const calls = installFetch((_path, method) => {
-			if (method === "POST") return { status: 200, body: { public_key: "pk" } };
-			if (method === "PATCH") return { body: {} };
-			if (method === "GET") return { body: { public_key: "pk" } };
-			return {};
-		});
-		await cacheProvider.create(cacheInputs({ retentionPeriodSeconds: 86400 }));
-		const patch = calls.find((c) => c.method === "PATCH");
-		expect(patch?.body).toMatchObject({ retention_period: { Period: 86400 } });
+	it("parses the public validity string/number into validitySeconds for the plugin", () => {
+		new AtticToken("attic-ci-token-mycache", tokenArgs);
+		expect(customResourceCalls[0].args.validitySeconds).toBe(31536000); // "1y"
+
+		customResourceCalls.length = 0;
+		new AtticToken("attic-ci-token-mycache", { ...tokenArgs, validity: 3600 });
+		expect(customResourceCalls[0].args.validitySeconds).toBe(3600);
 	});
 
-	it("updates a cache via PATCH and re-reads the public key", async () => {
-		const calls = installFetch((_path, method) => {
-			if (method === "PATCH") return { body: {} };
-			if (method === "GET") return { body: { public_key: "pk:2" } };
-			return {};
-		});
-		const olds = { ...cacheInputs(), publicKey: "pk:1" };
-		const result = await cacheProvider.update("mycache", olds, {
-			...cacheInputs(),
-			priority: 10,
-		});
-		expect(result.outs.publicKey).toBe("pk:2");
-		const methods = calls.map((c) => c.method);
-		expect(methods).toEqual(["PATCH", "GET"]);
-		expect(calls[0].body).toMatchObject({ priority: 10 });
-	});
+	it("passes sub and caches straight through as inputs", () => {
+		new AtticToken("attic-ci-token-mycache", tokenArgs);
 
-	it("deletes a cache via DELETE", async () => {
-		const calls = installFetch(() => ({ body: {} }));
-		await cacheProvider.delete("mycache", {
-			...cacheInputs(),
-			publicKey: "pk:1",
-		});
-		expect(calls).toHaveLength(1);
-		expect(calls[0].method).toBe("DELETE");
-		expect(calls[0].path).toBe("/_api/v1/cache-config/mycache");
-	});
-
-	it("treats a 404 on delete as success (idempotent under drift)", async () => {
-		const calls = installFetch(() => ({ status: 404, body: "NoSuchCache" }));
-		await expect(
-			cacheProvider.delete("mycache", { ...cacheInputs(), publicKey: "pk:1" }),
-		).resolves.toBeUndefined();
-		expect(calls[0].method).toBe("DELETE");
-	});
-
-	it("fails fast when the cache config has no public_key", async () => {
-		installFetch((_path, method) => {
-			if (method === "POST") return { status: 200, body: {} };
-			if (method === "GET") return { body: {} }; // missing public_key
-			return {};
-		});
-		await expect(cacheProvider.create(cacheInputs())).rejects.toThrow(
-			/public_key/,
-		);
-	});
-});
-
-describe("AtticCache provider — check", () => {
-	it("rejects a non-positive retention period", async () => {
-		const res = await cacheProvider.check(
-			{},
-			{ ...cacheInputs(), retentionPeriodSeconds: 0 },
-		);
-		expect(res.failures.map((f) => f.property)).toContain(
-			"retentionPeriodSeconds",
-		);
-	});
-
-	it("accepts an unset or positive retention period", async () => {
-		const unset = await cacheProvider.check({}, cacheInputs());
-		expect(unset.failures).toEqual([]);
-		const positive = await cacheProvider.check(
-			{},
-			{ ...cacheInputs(), retentionPeriodSeconds: 86400 },
-		);
-		expect(positive.failures).toEqual([]);
-	});
-
-	it("flags missing required fields", async () => {
-		const res = await cacheProvider.check(
-			{},
-			{ ...cacheInputs(), namespace: "", cacheName: "" },
-		);
-		const props = res.failures.map((f) => f.property);
-		expect(props).toContain("namespace");
-		expect(props).toContain("cacheName");
-	});
-});
-
-describe("AtticToken provider", () => {
-	const tokenInputs = {
-		hs256SecretBase64: SECRET_B64,
-		sub: "github-actions-ci",
-		validitySeconds: 3600,
-		caches: { mycache: { pull: true, push: true } },
-	};
-
-	function decodeSegment(seg: string): Record<string, unknown> {
-		return JSON.parse(Buffer.from(seg, "base64url").toString("utf8"));
-	}
-
-	it("mints a verifiable JWT with the Attic claim shape, not leaking it into the id", async () => {
-		const result = await tokenProvider.create(tokenInputs);
-		const token = result.outs.token as string;
-		const [headerSeg, payloadSeg, signatureSeg] = token.split(".");
-
-		// id is an opaque uuid, never the token itself.
-		expect(result.id).not.toContain(token);
-		expect(result.id).toMatch(/^[0-9a-f-]{36}$/);
-
-		// Signature verifies against the base64-decoded secret.
-		const expected = crypto
-			.createHmac("sha256", Buffer.from(SECRET_B64, "base64"))
-			.update(`${headerSeg}.${payloadSeg}`)
-			.digest("base64url");
-		expect(signatureSeg).toBe(expected);
-
-		expect(decodeSegment(headerSeg)).toMatchObject({
-			alg: "HS256",
-			typ: "JWT",
-		});
-		const payload = decodeSegment(payloadSeg);
-		expect(payload.sub).toBe("github-actions-ci");
-		expect(payload.exp).toBe((payload.nbf as number) + 3600);
-		expect(result.outs.expiresAt).toBe(
-			(result.outs.notBefore as number) + 3600,
-		);
-		// Permission short-keys under the Attic namespace claim. Values MUST be the
-		// integer 1, not boolean true — Attic deserializes them as integers and 401s
-		// on a JSON boolean (matches `atticadm make-token --dump-claims`).
-		expect(payload[ATTIC_CLAIM_NAMESPACE]).toEqual({
-			caches: { mycache: { r: 1, w: 1 } },
-		});
-	});
-
-	it("emits granted permission flags as the integer 1, never booleans", async () => {
-		const result = await tokenProvider.create({
-			...tokenInputs,
-			caches: { "team-*": { pull: true, createCache: true } },
-		});
-		const payload = decodeSegment((result.outs.token as string).split(".")[1]);
-		const grants = (
-			payload[ATTIC_CLAIM_NAMESPACE] as {
-				caches: Record<string, Record<string, unknown>>;
-			}
-		).caches["team-*"];
-		// Only granted flags present, each strictly the integer 1 (not `true`).
-		expect(grants).toEqual({ r: 1, cc: 1 });
-		for (const v of Object.values(grants)) {
-			expect(v).toBe(1);
-			expect(typeof v).toBe("number");
-		}
-	});
-
-	it("replaces on any claim-affecting input change", async () => {
-		const olds = {
-			...tokenInputs,
-			token: "old",
-			expiresAt: 1,
-			notBefore: 0,
-		};
-		expect((await tokenProvider.diff("id", olds, tokenInputs)).changes).toBe(
-			false,
-		);
-		expect(
-			(await tokenProvider.diff("id", olds, { ...tokenInputs, sub: "other" }))
-				.replaces,
-		).toEqual(["sub"]);
-		expect(
-			(
-				await tokenProvider.diff("id", olds, {
-					...tokenInputs,
-					validitySeconds: 7200,
-				})
-			).replaces,
-		).toEqual(["validitySeconds"]);
-		expect(
-			(
-				await tokenProvider.diff("id", olds, {
-					...tokenInputs,
-					caches: { mycache: { pull: true } },
-				})
-			).replaces,
-		).toEqual(["caches"]);
-	});
-
-	it("delete is a no-op (stateless JWT cannot be revoked)", async () => {
-		await expect(
-			tokenProvider.delete("id", { ...tokenInputs, token: "x" }),
-		).resolves.toBeUndefined();
-	});
-
-	it("rejects a non-finite validity in check (would serialize exp as null)", async () => {
-		const res = await tokenProvider.check(
-			{},
-			{ ...tokenInputs, validitySeconds: Number.POSITIVE_INFINITY },
-		);
-		expect(res.failures.map((f) => f.property)).toContain("validitySeconds");
+		const call = customResourceCalls[0];
+		expect(call.args.sub).toBe("github-actions-ci");
+		expect(call.args.caches).toEqual({ mycache: { pull: true, push: true } });
 	});
 });
 
@@ -586,6 +209,30 @@ describe("mintAtticToken", () => {
 				caches: {},
 			}),
 		).rejects.toThrow(/hs256 secret/);
+	});
+
+	it("mints a verifiable JWT with the Attic claim shape", async () => {
+		const token = await mintAtticToken({
+			secretBase64: SECRET_B64,
+			sub: "github-actions-ci",
+			issuedAtSeconds: 1000,
+			expiresAtSeconds: 4600,
+			caches: { mycache: { pull: true, push: true } },
+		});
+		const [headerSeg, payloadSeg] = token.split(".");
+		const payload = JSON.parse(
+			Buffer.from(payloadSeg, "base64url").toString("utf8"),
+		);
+		expect(
+			JSON.parse(Buffer.from(headerSeg, "base64url").toString("utf8")),
+		).toMatchObject({
+			alg: "HS256",
+			typ: "JWT",
+		});
+		expect(payload.sub).toBe("github-actions-ci");
+		expect(payload[ATTIC_CLAIM_NAMESPACE]).toEqual({
+			caches: { mycache: { r: 1, w: 1 } },
+		});
 	});
 });
 
