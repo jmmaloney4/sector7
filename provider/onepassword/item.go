@@ -20,6 +20,7 @@ import (
 	p "github.com/pulumi/pulumi-go-provider"
 	"github.com/pulumi/pulumi-go-provider/infer"
 
+	"github.com/jmmaloney4/sector7/provider/internal/checkutil"
 	"github.com/jmmaloney4/sector7/provider/internal/httpx"
 	"github.com/jmmaloney4/sector7/provider/internal/kube"
 )
@@ -142,15 +143,11 @@ func (Item) Check(ctx context.Context, req infer.CheckRequest) (infer.CheckRespo
 	fail := func(prop, reason string) {
 		failures = append(failures, p.CheckFailure{Property: prop, Reason: reason})
 	}
-	if args.ConnectToken == "" {
-		fail("connectToken", "connectToken is required")
-	}
-	if args.Namespace == "" {
-		fail("namespace", "namespace is required")
-	}
-	if args.Vault == "" {
-		fail("vault", "vault is required")
-	}
+	checkutil.RequireNonEmpty(&failures,
+		checkutil.NamedField{Name: "connectToken", Value: args.ConnectToken},
+		checkutil.NamedField{Name: "namespace", Value: args.Namespace},
+		checkutil.NamedField{Name: "vault", Value: args.Vault},
+	)
 	if strings.TrimSpace(args.Title) == "" {
 		fail("title", "title must be a non-empty string")
 	}

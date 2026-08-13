@@ -19,6 +19,7 @@ import (
 	p "github.com/pulumi/pulumi-go-provider"
 	"github.com/pulumi/pulumi-go-provider/infer"
 
+	"github.com/jmmaloney4/sector7/provider/internal/checkutil"
 	"github.com/jmmaloney4/sector7/provider/internal/httpx"
 )
 
@@ -71,16 +72,12 @@ func (BotAccount) Check(ctx context.Context, req infer.CheckRequest) (infer.Chec
 	}
 	// The original provider validated nothing. These are the fields whose
 	// absence produces a confusing homeserver error rather than a clear one.
-	for _, f := range []struct{ name, val string }{
-		{"homeserverUrl", args.HomeserverURL},
-		{"username", args.Username},
-		{"registrationToken", args.RegistrationToken},
-		{"password", args.Password},
-	} {
-		if f.val == "" {
-			failures = append(failures, p.CheckFailure{Property: f.name, Reason: f.name + " is required"})
-		}
-	}
+	checkutil.RequireNonEmpty(&failures,
+		checkutil.NamedField{Name: "homeserverUrl", Value: args.HomeserverURL},
+		checkutil.NamedField{Name: "username", Value: args.Username},
+		checkutil.NamedField{Name: "registrationToken", Value: args.RegistrationToken},
+		checkutil.NamedField{Name: "password", Value: args.Password},
+	)
 	return infer.CheckResponse[BotAccountArgs]{Inputs: args, Failures: failures}, nil
 }
 

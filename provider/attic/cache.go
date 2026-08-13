@@ -11,6 +11,7 @@ import (
 	p "github.com/pulumi/pulumi-go-provider"
 	"github.com/pulumi/pulumi-go-provider/infer"
 
+	"github.com/jmmaloney4/sector7/provider/internal/checkutil"
 	"github.com/jmmaloney4/sector7/provider/internal/diffutil"
 	"github.com/jmmaloney4/sector7/provider/internal/httpx"
 	"github.com/jmmaloney4/sector7/provider/internal/kube"
@@ -111,15 +112,11 @@ func (Cache) Check(ctx context.Context, req infer.CheckRequest) (infer.CheckResp
 	fail := func(prop, reason string) {
 		failures = append(failures, p.CheckFailure{Property: prop, Reason: reason})
 	}
-	if args.Namespace == "" {
-		fail("namespace", "namespace is required")
-	}
-	if args.HS256SecretBase64 == "" {
-		fail("hs256SecretBase64", "hs256SecretBase64 is required")
-	}
-	if args.CacheName == "" {
-		fail("cacheName", "cacheName is required")
-	}
+	checkutil.RequireNonEmpty(&failures,
+		checkutil.NamedField{Name: "namespace", Value: args.Namespace},
+		checkutil.NamedField{Name: "hs256SecretBase64", Value: args.HS256SecretBase64},
+		checkutil.NamedField{Name: "cacheName", Value: args.CacheName},
+	)
 	if args.RetentionPeriodSeconds != nil && *args.RetentionPeriodSeconds <= 0 {
 		fail("retentionPeriodSeconds", "retentionPeriodSeconds must be a positive number of seconds")
 	}

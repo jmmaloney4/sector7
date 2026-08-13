@@ -11,6 +11,7 @@ import (
 	p "github.com/pulumi/pulumi-go-provider"
 	"github.com/pulumi/pulumi-go-provider/infer"
 
+	"github.com/jmmaloney4/sector7/provider/internal/checkutil"
 	"github.com/jmmaloney4/sector7/provider/internal/diffutil"
 	"github.com/jmmaloney4/sector7/provider/internal/httpx"
 )
@@ -49,13 +50,11 @@ func (ZoneCachePurge) Check(ctx context.Context, req infer.CheckRequest) (infer.
 		failures = append(failures, p.CheckFailure{Property: prop, Reason: reason})
 	}
 
-	for _, f := range []struct{ name, val string }{
-		{"zoneId", args.ZoneID}, {"apiToken", args.APIToken}, {"trigger", args.Trigger},
-	} {
-		if f.val == "" {
-			fail(f.name, f.name+" is required and must be a non-empty string")
-		}
-	}
+	checkutil.RequireNonEmpty(&failures,
+		checkutil.NamedField{Name: "zoneId", Value: args.ZoneID},
+		checkutil.NamedField{Name: "apiToken", Value: args.APIToken},
+		checkutil.NamedField{Name: "trigger", Value: args.Trigger},
+	)
 
 	// An explicitly empty list is rejected rather than silently treated as
 	// "purge everything" — that would be a destructive surprise. Omit the
