@@ -16,6 +16,8 @@ import (
 
 	p "github.com/pulumi/pulumi-go-provider"
 	"github.com/pulumi/pulumi-go-provider/infer"
+
+	"github.com/jmmaloney4/sector7/provider/internal/checkutil"
 )
 
 // Object uploads a local file to an R2 bucket.
@@ -51,15 +53,14 @@ func (Object) Check(ctx context.Context, req infer.CheckRequest) (infer.CheckRes
 		failures = append(failures, p.CheckFailure{Property: prop, Reason: reason})
 	}
 
-	for _, f := range []struct{ name, val string }{
-		{"accountId", args.AccountID}, {"bucketName", args.BucketName},
-		{"key", args.Key}, {"filePath", args.FilePath},
-		{"accessKeyId", args.AccessKeyID}, {"secretAccessKey", args.SecretAccessKey},
-	} {
-		if f.val == "" {
-			fail(f.name, f.name+" is required")
-		}
-	}
+	checkutil.RequireNonEmpty(&failures,
+		checkutil.NamedField{Name: "accountId", Value: args.AccountID},
+		checkutil.NamedField{Name: "bucketName", Value: args.BucketName},
+		checkutil.NamedField{Name: "key", Value: args.Key},
+		checkutil.NamedField{Name: "filePath", Value: args.FilePath},
+		checkutil.NamedField{Name: "accessKeyId", Value: args.AccessKeyID},
+		checkutil.NamedField{Name: "secretAccessKey", Value: args.SecretAccessKey},
+	)
 
 	if args.FilePath != "" {
 		// A relative path is rejected outright, which the dynamic provider did

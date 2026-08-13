@@ -9,6 +9,7 @@ import (
 	p "github.com/pulumi/pulumi-go-provider"
 	"github.com/pulumi/pulumi-go-provider/infer"
 
+	"github.com/jmmaloney4/sector7/provider/internal/checkutil"
 	"github.com/jmmaloney4/sector7/provider/internal/diffutil"
 	"github.com/jmmaloney4/sector7/provider/internal/kube"
 )
@@ -66,17 +67,13 @@ func (KeyRecord) Check(ctx context.Context, req infer.CheckRequest) (infer.Check
 	if err != nil {
 		return infer.CheckResponse[KeyArgs]{Inputs: args, Failures: failures}, err
 	}
-	for _, f := range []struct{ name, val string }{
-		{"proxyNamespace", args.ProxyNamespace},
-		{"masterKey", args.MasterKey},
-		{"proxyDeploymentName", args.ProxyDeploymentName},
-		{"keyAlias", args.KeyAlias},
-		{"keyValue", args.KeyValue},
-	} {
-		if f.val == "" {
-			failures = append(failures, p.CheckFailure{Property: f.name, Reason: f.name + " is required"})
-		}
-	}
+	checkutil.RequireNonEmpty(&failures,
+		checkutil.NamedField{Name: "proxyNamespace", Value: args.ProxyNamespace},
+		checkutil.NamedField{Name: "masterKey", Value: args.MasterKey},
+		checkutil.NamedField{Name: "proxyDeploymentName", Value: args.ProxyDeploymentName},
+		checkutil.NamedField{Name: "keyAlias", Value: args.KeyAlias},
+		checkutil.NamedField{Name: "keyValue", Value: args.KeyValue},
+	)
 	return infer.CheckResponse[KeyArgs]{Inputs: args, Failures: failures}, nil
 }
 

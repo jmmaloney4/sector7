@@ -10,6 +10,7 @@ import (
 	p "github.com/pulumi/pulumi-go-provider"
 	"github.com/pulumi/pulumi-go-provider/infer"
 
+	"github.com/jmmaloney4/sector7/provider/internal/checkutil"
 	"github.com/jmmaloney4/sector7/provider/internal/diffutil"
 	"github.com/jmmaloney4/sector7/provider/internal/httpx"
 )
@@ -48,15 +49,11 @@ func (Room) Check(ctx context.Context, req infer.CheckRequest) (infer.CheckRespo
 	if err != nil {
 		return infer.CheckResponse[RoomArgs]{Inputs: args, Failures: failures}, err
 	}
-	for _, f := range []struct{ name, val string }{
-		{"homeserverUrl", args.HomeserverURL},
-		{"accessToken", args.AccessToken},
-		{"name", args.Name},
-	} {
-		if f.val == "" {
-			failures = append(failures, p.CheckFailure{Property: f.name, Reason: f.name + " is required"})
-		}
-	}
+	checkutil.RequireNonEmpty(&failures,
+		checkutil.NamedField{Name: "homeserverUrl", Value: args.HomeserverURL},
+		checkutil.NamedField{Name: "accessToken", Value: args.AccessToken},
+		checkutil.NamedField{Name: "name", Value: args.Name},
+	)
 	switch args.Preset {
 	case "", "private_chat", "trusted_private_chat", "public_chat":
 	default:
