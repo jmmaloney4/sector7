@@ -197,7 +197,7 @@ Why dlt over custom scripts:
 # Operational Notes
 
 - **Observability:** Worker logs via `console.log` appear in Cloudflare Workers real-time logs. D1 query metrics (rows_read, rows_written, duration) are returned in every query's `meta` object and available via Cloudflare dashboard and GraphQL Analytics API.
-- **Cost:** Free tier for up to ~10 monitors at 2-minute intervals. Workers Paid ($5/mo) for 1-minute intervals or higher monitor counts. D1 storage at 5 GB free, then $0.75/GB-month. KV writes at \$5/million on paid. dlt and BigQuery costs are separate and depend on destination.
+- **Cost:** Free tier for up to ~10 monitors at 2-minute intervals. Workers Paid (\$5/mo) for 1-minute intervals or higher monitor counts. D1 storage at 5 GB free, then \$0.75/GB-month. KV writes at \$5/million on paid. dlt and BigQuery costs are separate and depend on destination.
 - **Quotas/Limits:**
   - Workers Free: 5 cron triggers per account, 10ms CPU per invocation.
   - Workers Paid: 250 cron triggers per account, 30s CPU per cron invocation (< 1hr interval).
