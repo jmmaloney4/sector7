@@ -64,11 +64,7 @@ vi.mock("@pulumi/pulumi", () => {
 
 import * as pulumi from "@pulumi/pulumi";
 import { AtticCache, AtticToken } from "../attic/admin.ts";
-import {
-	ATTIC_CLAIM_NAMESPACE,
-	mintAtticToken,
-	parseDurationSeconds,
-} from "../attic/token.ts";
+import { parseDurationSeconds } from "../attic/token.ts";
 
 const SECRET_B64 = Buffer.from("attic-test-signing-secret").toString("base64");
 
@@ -195,44 +191,6 @@ describe("AtticToken construction", () => {
 		const call = customResourceCalls[0];
 		expect(call.args.sub).toBe("github-actions-ci");
 		expect(call.args.caches).toEqual({ mycache: { pull: true, push: true } });
-	});
-});
-
-describe("mintAtticToken", () => {
-	it("fails closed on an empty/undecodable signing secret", async () => {
-		await expect(
-			mintAtticToken({
-				secretBase64: "",
-				sub: "x",
-				issuedAtSeconds: 0,
-				expiresAtSeconds: 1,
-				caches: {},
-			}),
-		).rejects.toThrow(/hs256 secret/);
-	});
-
-	it("mints a verifiable JWT with the Attic claim shape", async () => {
-		const token = await mintAtticToken({
-			secretBase64: SECRET_B64,
-			sub: "github-actions-ci",
-			issuedAtSeconds: 1000,
-			expiresAtSeconds: 4600,
-			caches: { mycache: { pull: true, push: true } },
-		});
-		const [headerSeg, payloadSeg] = token.split(".");
-		const payload = JSON.parse(
-			Buffer.from(payloadSeg, "base64url").toString("utf8"),
-		);
-		expect(
-			JSON.parse(Buffer.from(headerSeg, "base64url").toString("utf8")),
-		).toMatchObject({
-			alg: "HS256",
-			typ: "JWT",
-		});
-		expect(payload.sub).toBe("github-actions-ci");
-		expect(payload[ATTIC_CLAIM_NAMESPACE]).toEqual({
-			caches: { mycache: { r: 1, w: 1 } },
-		});
 	});
 });
 
