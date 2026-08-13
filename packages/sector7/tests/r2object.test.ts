@@ -6,9 +6,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 // R2Object's own CRUD/Diff logic (AWS Sig V4 signing, MD5 ETag comparison,
 // replace-on-key/bucket/account-change) moved to
 // provider/r2/object.go when this resource retyped onto the sector7 plugin
-// (garden ADR 163) — see object_test.go for that coverage. What's left here
-// is the TypeScript wrapper's OWN concerns: does construction reach the
-// plugin with the right token/alias/secret-wrapping, and does the
+// (garden ADR 163) — see object_test.go for that coverage. ZoneCachePurge's
+// own CRUD/Diff logic (check validation, trigger-based re-purge, zoneId
+// replace) moved to provider/r2/zonecachepurge.go the same way — see
+// zonecachepurge_test.go for that coverage. What's left here is the
+// TypeScript wrapper's OWN concerns: does construction reach the plugin with
+// the right token/alias/secret-wrapping, and does the
 // `uploadAssets`/`purgeZoneCache` orchestration around it still behave
 // correctly.
 
@@ -19,18 +22,12 @@ type CustomResourceCall = {
 	opts: Record<string, unknown> | undefined;
 };
 
-type DynamicResourceCall = {
-	name: string;
-	opts: Record<string, unknown> | undefined;
-};
-
 type AccountTokenCall = {
 	name: string;
 	opts: Record<string, unknown> | undefined;
 };
 
 const customResourceCalls: CustomResourceCall[] = [];
-const dynamicResourceCalls: DynamicResourceCall[] = [];
 const accountTokenCalls: AccountTokenCall[] = [];
 
 vi.mock("@pulumi/pulumi", () => {
@@ -62,18 +59,6 @@ vi.mock("@pulumi/pulumi", () => {
 				customResourceCalls.push({ type, name, args, opts });
 			}
 		},
-		dynamic: {
-			Resource: class {
-				constructor(
-					_resourceProvider: unknown,
-					name: string,
-					_args: Record<string, unknown>,
-					opts?: Record<string, unknown>,
-				) {
-					dynamicResourceCalls.push({ name, opts });
-				}
-			},
-		},
 	};
 });
 
@@ -97,6 +82,12 @@ vi.mock("@pulumi/cloudflare", () => ({
 
 import * as pulumi from "@pulumi/pulumi";
 import { purgeZoneCache, R2Object, uploadAssets } from "../r2/r2object.ts";
+
+const purgeArgs = {
+	zoneId: "zone-123",
+	apiToken: "token",
+	trigger: "asset-hash",
+};
 
 const createArgs = (filePath: string) => ({
 	accountId: "account-123",
@@ -196,23 +187,49 @@ describe("uploadAssets", () => {
 
 describe("purgeZoneCache", () => {
 	beforeEach(() => {
-		dynamicResourceCalls.length = 0;
-		accountTokenCalls.length = 0;
+		customResourceCalls.length = 0;
 	});
 
-	it("rejects cloud provider options with a clear dynamic-resource error", () => {
+	it("registers under the sector7:r2:ZoneCachePurge token with the dynamic-provider alias", () => {
+		purgeZoneCache("purge", purgeArgs);
+
+		expect(customResourceCalls).toHaveLength(1);
+		const call = customResourceCalls[0];
+		expect(call.type).toBe("sector7:r2:ZoneCachePurge");
+		// This is what makes the cutover a no-op: the engine matches this
+		// resource against state written by the old dynamic provider and
+		// rewrites the URN in place, instead of planning a delete+create.
+		expect(call.opts?.aliases).toEqual([
+			{ type: "pulumi-nodejs:dynamic:Resource" },
+		]);
+	});
+
+	it("accepts provider/providers, unlike the dynamic provider it replaces", () => {
+		// The old ZoneCachePurge threw on provider/providers (it was a JS
+		// dynamic resource; routing it through a cloud provider bridge failed
+		// with a misleading unknown-token error). The plugin-backed resource
+		// has no such constraint — provider/providers are ordinary supported
+		// options.
 		expect(() =>
-			purgeZoneCache(
-				"purge",
-				{
-					zoneId: "zone-123",
-					apiToken: "token",
-					trigger: "asset-hash",
-				},
-				cloudProviderOpt,
-			),
-		).toThrow(
-			/purgeZoneCache is a Pulumi dynamic resource; do not pass provider\/providers/,
-		);
+			purgeZoneCache("purge", purgeArgs, cloudProviderOpt),
+		).not.toThrow();
+
+		expect(customResourceCalls[0].opts).toMatchObject(cloudProviderOpt);
+	});
+
+	it("marks apiToken secret on the input side", () => {
+		vi.mocked(pulumi.secret).mockClear();
+
+		purgeZoneCache("purge", purgeArgs);
+
+		expect(pulumi.secret).toHaveBeenCalledWith("token");
+	});
+
+	it("merges dependsOn from args into the resource options", () => {
+		const dep = { urn: "some-resource" };
+
+		purgeZoneCache("purge", { ...purgeArgs, dependsOn: [dep] });
+
+		expect(customResourceCalls[0].opts).toMatchObject({ dependsOn: [dep] });
 	});
 });
