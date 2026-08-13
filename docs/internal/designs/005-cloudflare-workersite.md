@@ -109,7 +109,7 @@ We adopt the **R2-backed Worker pattern** for static site hosting with Zero Trus
 
 # Operational Notes
 
-- **Cost**: Workers and R2 pricing apply; cache effectiveness impacts egress. R2 Class A operations (PUT, GET) cost $0.36/million requests. Edge cache with long TTLs (1 year for immutable assets) minimizes R2 requests.
+- **Cost**: Workers and R2 pricing apply; cache effectiveness impacts egress. R2 Class A operations (PUT, GET) cost \$0.36/million requests. Edge cache with long TTLs (1 year for immutable assets) minimizes R2 requests.
 - **Limits**: Worker CPU time (50ms free tier, 30s paid), Worker memory (128MB), and R2 request rates. Size large assets appropriately or use streaming for files exceeding memory limits.
 - **Cache API requirement**: Cache API only works with custom domains (not `*.workers.dev`). Phase 1 MVP uses WorkerRoute without caching; Phase 2+ adds caching with custom domains.
 - **Observability**: Use CF-Ray IDs from request headers, Cloudflare Access logs for authorization events, and add `X-Cache-Status` headers (HIT/MISS) in the Worker for cache debugging.
@@ -625,7 +625,7 @@ Phase 1 script focuses on basic R2 fetch, directory index, and response headers.
 ### Performance
 
 - **Workers CPU limits**: 50ms CPU time for free tier, 30s for paid (mainly impacts first request)
-- **R2 request costs**: $0.36 per million Class A operations; cache aggressively
+- **R2 request costs**: \$0.36 per million Class A operations; cache aggressively
 - **Edge cache effectiveness**: Long cache TTLs (1 year for immutable assets) minimize R2 requests
 
 ______________________________________________________________________
