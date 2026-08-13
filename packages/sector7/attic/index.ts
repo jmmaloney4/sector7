@@ -6,8 +6,4 @@ export type {
 	AtticCachePermissionFlags,
 	AtticTokenArgs,
 } from "./config-types.ts";
-export {
-	ATTIC_CLAIM_NAMESPACE,
-	mintAtticToken,
-	parseDurationSeconds,
-} from "./token.ts";
+export { parseDurationSeconds } from "./token.ts";
