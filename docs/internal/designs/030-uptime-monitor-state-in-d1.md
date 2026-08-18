@@ -37,7 +37,7 @@ ADR-020 anticipated this and recommended batching all monitor state into one KV
 key. But the math does not save us: one batched write per minute is still
 1,440 writes/day — over the 1,000/day cap on its own. The shipped implementation
 also never batched; it used per-monitor keys, so the problem worsens linearly
-with monitor count. Avoiding it would have required Workers Paid ($5/mo), purely
+with monitor count. Avoiding it would have required Workers Paid (\$5/mo), purely
 to keep an ephemeral state machine alive.
 
 D1's free tier allows **100,000 rows written/day** and **5,000,000 rows
@@ -158,9 +158,9 @@ only "loss" is in-flight streak counters, which re-accumulate within
 
 - **Batch all state into one KV key (ADR-020's suggestion):** still 1,440
   writes/day at 1-minute cadence — over the 1,000/day free cap. Rejected.
-- **Workers Paid ($5/mo) for KV:** pays recurring money to keep an ephemeral
+- **Workers Paid (\$5/mo) for KV:** pays recurring money to keep an ephemeral
   state machine that D1 already stores for free. Rejected.
-- **Durable Objects for state:** ~$0.50/mo per instance, solves a consistency
+- **Durable Objects for state:** ~\$0.50/mo per instance, solves a consistency
   problem the serial cron execution does not have. Rejected (consistent with
   ADR-020).
 

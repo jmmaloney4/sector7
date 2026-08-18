@@ -22,7 +22,7 @@ links:
 
 - We need uptime monitoring for public HTTP endpoints behind Cloudflare (services exposed via tunnels, Cloudflare-routed zones, etc.).
 - Existing options have tradeoffs:
-  - **Cloudflare Health Checks** require Pro plan ($20-25/mo per zone), limited to 10 checks on Pro, no custom alerting logic, no data warehouse integration.
+  - **Cloudflare Health Checks** require Pro plan (\$20-25/mo per zone), limited to 10 checks on Pro, no custom alerting logic, no data warehouse integration.
   - **Managed services** (Better Stack, UptimeRobot, Pingdom) are external SaaS dependencies with their own pricing, data residency, and feature constraints.
   - **Self-hosted** (Uptime Kuma) monitors inside the same infrastructure it monitors, creating a shared-fate problem when the cluster goes down.
 - We want a lightweight, open-sourceable uptime monitor that:
@@ -121,7 +121,7 @@ Why KV over D1 for state:
 - KV does not add row-count pressure to D1's daily write quota.
 - KV TTLs provide automatic cleanup if the monitor stops running.
 
-KV free-tier consideration: Free tier allows 1,000 writes/day. At 1-minute intervals, per-monitor keys would produce 1,440 writes/day (over the limit). The implementation SHOULD batch all monitor state into one KV key, bringing it to one write per run. For sub-2-minute intervals with per-monitor keys, Workers Paid ($5/mo) is required, which provides 1M writes/month.
+KV free-tier consideration: Free tier allows 1,000 writes/day. At 1-minute intervals, per-monitor keys would produce 1,440 writes/day (over the limit). The implementation SHOULD batch all monitor state into one KV key, bringing it to one write per run. For sub-2-minute intervals with per-monitor keys, Workers Paid (\$5/mo) is required, which provides 1M writes/month.
 
 ## Alerting: webhook on state transition
 
@@ -161,7 +161,7 @@ Why dlt over custom scripts:
 
 ## Positive
 
-- Near-zero cost at personal scale (free tier for 10 monitors at 2+ minute intervals, $5/mo Workers Paid for 1-minute intervals).
+- Near-zero cost at personal scale (free tier for 10 monitors at 2+ minute intervals, \$5/mo Workers Paid for 1-minute intervals).
 - Runs on Cloudflare's edge, outside the infrastructure it monitors.
 - Open-sourceable with zero external dependencies beyond a Cloudflare account.
 - Clean separation: Worker does monitoring, dlt does data movement.
@@ -180,9 +180,9 @@ Why dlt over custom scripts:
 
 - **Direct Worker -> BigQuery (no D1):** Worker writes directly to BigQuery via `tabledata.insertAll`. Rejected as default because it requires GCP credentials, BigQuery project setup, JWT auth in the Worker, and a GCP billing account. These are all barriers to adoption for an open-source tool. Available as a custom sink for users who want it.
 
-- **Durable Objects for state:** Use Durable Objects for failure streak tracking. Provides strong consistency and exactly-once semantics. Rejected because DOs cost ~$0.50/mo per instance, the monitor has no concurrency problem (serial cron execution), and KV is sufficient. DOs solve a problem that does not exist at this scale.
+- **Durable Objects for state:** Use Durable Objects for failure streak tracking. Provides strong consistency and exactly-once semantics. Rejected because DOs cost ~\$0.50/mo per instance, the monitor has no concurrency problem (serial cron execution), and KV is sufficient. DOs solve a problem that does not exist at this scale.
 
-- **Cloudflare Health Checks (Pro plan):** Use Cloudflare's built-in Health Checks. Rejected because it requires Pro plan ($20-25/mo per zone), is limited to 10 checks on Pro, has no custom alerting logic, no D1/warehouse integration, and is not open-sourceable. The Worker approach is free-tier-compatible and fully customizable.
+- **Cloudflare Health Checks (Pro plan):** Use Cloudflare's built-in Health Checks. Rejected because it requires Pro plan (\$20-25/mo per zone), is limited to 10 checks on Pro, has no custom alerting logic, no D1/warehouse integration, and is not open-sourceable. The Worker approach is free-tier-compatible and fully customizable.
 
 - **Managed service (Better Stack / UptimeRobot):** Use an existing managed uptime monitor. Not rejected outright -- we SHOULD still use one for the 2-3 most critical endpoints as an independent external check. But a managed service does not provide custom probe logic, D1 storage, or warehouse integration. It is complementary, not a replacement.
 
@@ -197,7 +197,7 @@ Why dlt over custom scripts:
 # Operational Notes
 
 - **Observability:** Worker logs via `console.log` appear in Cloudflare Workers real-time logs. D1 query metrics (rows_read, rows_written, duration) are returned in every query's `meta` object and available via Cloudflare dashboard and GraphQL Analytics API.
-- **Cost:** Free tier for up to ~10 monitors at 2-minute intervals. Workers Paid ($5/mo) for 1-minute intervals or higher monitor counts. D1 storage at 5 GB free, then $0.75/GB-month. KV writes at $5/million on paid. dlt and BigQuery costs are separate and depend on destination.
+- **Cost:** Free tier for up to ~10 monitors at 2-minute intervals. Workers Paid (\$5/mo) for 1-minute intervals or higher monitor counts. D1 storage at 5 GB free, then \$0.75/GB-month. KV writes at \$5/million on paid. dlt and BigQuery costs are separate and depend on destination.
 - **Quotas/Limits:**
   - Workers Free: 5 cron triggers per account, 10ms CPU per invocation.
   - Workers Paid: 250 cron triggers per account, 30s CPU per cron invocation (< 1hr interval).

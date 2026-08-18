@@ -29,7 +29,7 @@
       jackpkgs.projectRoot = ./.;
       jackpkgs.nodejs = {
         enable = true;
-        pnpmDepsHash = "sha256-QkhFw4knCylOpGSpYoCd2Na14c/eeXM+q8J/id5fo+U=";
+        pnpmDepsHash = "sha256-LeFkdfR+2ilF+O2PnAHUY9vjAdn3JB41RIifDabMxao=";
         projectRoot = ./.;
       };
       jackpkgs.checks.typescript.tsc.enable = true;
@@ -84,6 +84,10 @@
           ];
           commitMessage = "release: bump sector7 to {version}";
         };
+
+        # jackpkgs' adr-conflict-check hook defaults to docs/internal/decisions;
+        # this repo has always kept its ADRs in docs/internal/designs.
+        jackpkgs.pre-commit.adr.directory = "docs/internal/designs";
 
         pre-commit.settings.hooks.mypy.enable = lib.mkForce false;
         pre-commit.settings.hooks.tsc.enable = lib.mkForce false;
