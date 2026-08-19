@@ -49,6 +49,18 @@ type Field struct {
 	Purpose string `pulumi:"purpose,optional"`
 }
 
+// URL is one website URL on the item. 1Password's browser extension matches
+// autofill candidates against these, so a LOGIN item without one never
+// surfaces on the site it belongs to.
+type URL struct {
+	Href string `pulumi:"href"`
+	// Label is the display name shown beside the URL (e.g. "tailnet").
+	Label string `pulumi:"label,optional"`
+	// Primary marks the URL used for "Open and fill". At most one URL may set
+	// it; Check rejects more.
+	Primary bool `pulumi:"primary,optional"`
+}
+
 type ItemArgs struct {
 	// Kubeconfig is YAML; empty means the ambient default config.
 	Kubeconfig     string  `pulumi:"kubeconfig,optional" provider:"secret"`
@@ -60,6 +72,14 @@ type ItemArgs struct {
 	Title          string  `pulumi:"title"`
 	Category       string  `pulumi:"category,optional"`
 	Fields         []Field `pulumi:"fields"`
+	// URLs are the item's website URLs. Unlike Fields these are replace-or-
+	// preserve rather than reconciled: declaring them overwrites the item's url
+	// list, omitting them leaves whatever is there alone. There is no
+	// ManagedLabels equivalent to tell "I removed the url I used to manage"
+	// apart from "this resource never managed urls", and silently dropping a
+	// hand-added URL the first time an existing resource applies is the worse
+	// of the two failures.
+	URLs []URL `pulumi:"urls,optional"`
 }
 
 // ItemState deliberately does NOT embed ItemArgs, and so deliberately does not
@@ -201,6 +221,37 @@ func (Item) Check(ctx context.Context, req infer.CheckRequest) (infer.CheckRespo
 			}
 		}
 	}
+
+	primaries := 0
+	for i, u := range args.URLs {
+		href := strings.TrimSpace(u.Href)
+		if href == "" {
+			fail(fmt.Sprintf("urls[%d].href", i), "url href is required")
+			continue
+		}
+		// A bare host ("qbittorrent-a.example.ts.net") parses fine as a
+		// scheme-less URL but the browser extension will not match it, so the
+		// item silently fails to autofill — the exact symptom urls exist to
+		// prevent. Rejecting at Check turns that into a plan-time error.
+		parsed, err := url.Parse(href)
+		switch {
+		case err != nil:
+			fail(fmt.Sprintf("urls[%d].href", i), fmt.Sprintf("url href is not a valid URL: %v", err))
+		case parsed.Scheme == "":
+			fail(fmt.Sprintf("urls[%d].href", i), fmt.Sprintf(
+				"url href must include a scheme (got %q; use https://%s)", href, href))
+		case parsed.Host == "":
+			fail(fmt.Sprintf("urls[%d].href", i), fmt.Sprintf("url href has no host (got %q)", href))
+		}
+		if u.Primary {
+			primaries++
+		}
+	}
+	if primaries > 1 {
+		fail("urls", fmt.Sprintf(
+			"at most one url may be primary (got %d); 1Password opens exactly one for \"Open and fill\"", primaries))
+	}
+
 	return infer.CheckResponse[ItemArgs]{Inputs: args, Failures: failures}, nil
 }
 
@@ -222,7 +273,7 @@ func (Item) Diff(_ context.Context, req infer.DiffRequest[ItemArgs, ItemState]) 
 		diffs["title"] = p.PropertyDiff{Kind: p.UpdateReplace}
 	}
 
-	hash, err := ContentHash(news.Category, news.Fields)
+	hash, err := ContentHash(news.Category, news.Fields, news.URLs)
 	if err != nil {
 		return p.DiffResponse{}, err
 	}
@@ -267,16 +318,27 @@ func (Item) Diff(_ context.Context, req infer.DiffRequest[ItemArgs, ItemState]) 
 // Sorting note: the TS sorts labels with localeCompare, which is not byte order
 // for non-ASCII labels. Every label in use today is ASCII, where the two agree.
 // A golden test pins the exact digest.
-func ContentHash(category string, fields []Field) (string, error) {
+func ContentHash(category string, fields []Field, urls []URL) (string, error) {
 	type canonicalField struct {
 		Label   string  `json:"label"`
 		Value   string  `json:"value"`
 		Type    string  `json:"type"`
 		Purpose *string `json:"purpose"`
 	}
+	type canonicalURL struct {
+		Href    string `json:"href"`
+		Label   string `json:"label"`
+		Primary bool   `json:"primary"`
+	}
+	// `urls,omitempty` is load-bearing for backward compatibility, not style:
+	// with no urls declared the key is omitted entirely, so the canonical JSON
+	// — and therefore the digest — is byte-identical to what the pre-urls
+	// implementation produced. Every item already in state hashes unchanged and
+	// shows no diff. Only items that actually declare urls get a new shape.
 	type canonical struct {
 		Category string           `json:"category"`
 		Fields   []canonicalField `json:"fields"`
+		URLs     []canonicalURL   `json:"urls,omitempty"`
 	}
 
 	if category == "" {
@@ -300,6 +362,16 @@ func ContentHash(category string, fields []Field) (string, error) {
 	sort.SliceStable(out.Fields, func(i, j int) bool {
 		return out.Fields[i].Label < out.Fields[j].Label
 	})
+
+	// URLs are NOT sorted: unlike fields (a label-keyed map on the item, where
+	// declaration order carries no meaning) the url list is ordered, and
+	// reordering it is a real change the operator asked for. Hashing the
+	// declared order makes that a diff instead of a silent no-op.
+	for _, u := range urls {
+		out.URLs = append(out.URLs, canonicalURL{
+			Href: u.Href, Label: u.Label, Primary: u.Primary,
+		})
+	}
 
 	var buf bytes.Buffer
 	enc := json.NewEncoder(&buf)
@@ -437,7 +509,35 @@ func buildMergedItemBody(existing map[string]any, a ItemArgs, id string, priorMa
 	body["title"] = a.Title
 	body["category"] = a.Category
 	body["fields"] = fields
+	// Replace-or-preserve, per ItemArgs.URLs: only overwrite when the program
+	// declares urls. The `existing` copy above already carried the item's
+	// current list through, so omitting them leaves it untouched.
+	if len(a.URLs) > 0 {
+		body["urls"] = urlsToAny(a.URLs)
+	}
 	return body
+}
+
+func managedURL(u URL) map[string]any {
+	m := map[string]any{"href": u.Href}
+	if u.Label != "" {
+		m["label"] = u.Label
+	}
+	// Only sent when true: Connect treats primary as an at-most-one flag across
+	// the list, and writing `false` explicitly on every entry is how you end up
+	// clearing a primary the operator did want.
+	if u.Primary {
+		m["primary"] = true
+	}
+	return m
+}
+
+func urlsToAny(urls []URL) []any {
+	out := make([]any, 0, len(urls))
+	for _, u := range urls {
+		out = append(out, managedURL(u))
+	}
+	return out
 }
 
 func (i Item) Create(ctx context.Context, req infer.CreateRequest[ItemArgs]) (infer.CreateResponse[ItemState], error) {
@@ -479,6 +579,9 @@ func (i Item) Create(ctx context.Context, req infer.CreateRequest[ItemArgs]) (in
 			"category": a.Category,
 			"fields":   fieldsToAny(a.Fields),
 		}
+		if len(a.URLs) > 0 {
+			body["urls"] = urlsToAny(a.URLs)
+		}
 		var created map[string]any
 		// Never retried: a retried create after a timeout that actually
 		// succeeded would leave a duplicate item, which findItemIDByTitle would
@@ -492,7 +595,7 @@ func (i Item) Create(ctx context.Context, req infer.CreateRequest[ItemArgs]) (in
 		}
 	}
 
-	hash, err := ContentHash(a.Category, a.Fields)
+	hash, err := ContentHash(a.Category, a.Fields, a.URLs)
 	if err != nil {
 		return out, err
 	}
@@ -503,7 +606,7 @@ func (i Item) Create(ctx context.Context, req infer.CreateRequest[ItemArgs]) (in
 
 func (i Item) Update(ctx context.Context, req infer.UpdateRequest[ItemArgs, ItemState]) (infer.UpdateResponse[ItemState], error) {
 	a := req.Inputs
-	hash, err := ContentHash(a.Category, a.Fields)
+	hash, err := ContentHash(a.Category, a.Fields, a.URLs)
 	if err != nil {
 		return infer.UpdateResponse[ItemState]{}, err
 	}

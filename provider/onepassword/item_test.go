@@ -41,7 +41,7 @@ func TestContentHashMatchesTypeScript(t *testing.T) {
 		{Label: "alpha", Value: "p1", Type: "STRING", Purpose: "USERNAME"},
 		{Label: "mid", Value: `"quoted"`},
 	}
-	got, err := ContentHash("API_CREDENTIAL", fields)
+	got, err := ContentHash("API_CREDENTIAL", fields, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -51,11 +51,11 @@ func TestContentHashMatchesTypeScript(t *testing.T) {
 }
 
 func TestContentHashIsOrderInsensitive(t *testing.T) {
-	a, err := ContentHash("PASSWORD", []Field{{Label: "x", Value: "1"}, {Label: "y", Value: "2"}})
+	a, err := ContentHash("PASSWORD", []Field{{Label: "x", Value: "1"}, {Label: "y", Value: "2"}}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	b, err := ContentHash("PASSWORD", []Field{{Label: "y", Value: "2"}, {Label: "x", Value: "1"}})
+	b, err := ContentHash("PASSWORD", []Field{{Label: "y", Value: "2"}, {Label: "x", Value: "1"}}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -65,16 +65,148 @@ func TestContentHashIsOrderInsensitive(t *testing.T) {
 }
 
 func TestContentHashDefaultsCategory(t *testing.T) {
-	withDefault, err := ContentHash("", []Field{{Label: "x", Value: "1"}})
+	withDefault, err := ContentHash("", []Field{{Label: "x", Value: "1"}}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	explicit, err := ContentHash("PASSWORD", []Field{{Label: "x", Value: "1"}})
+	explicit, err := ContentHash("PASSWORD", []Field{{Label: "x", Value: "1"}}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if withDefault != explicit {
 		t.Fatal("an empty category must hash as the PASSWORD default")
+	}
+}
+
+// The whole reason `urls` is `omitempty` in the canonical struct: every item
+// created before urls existed must keep hashing to exactly what it hashed
+// before, or the first apply after this release rewrites every live secret.
+// An empty slice and a nil slice must both be indistinguishable from "the
+// pre-urls implementation ran".
+func TestContentHashIgnoresEmptyURLs(t *testing.T) {
+	fields := []Field{{Label: "x", Value: "1"}}
+	base, err := ContentHash("PASSWORD", fields, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	empty, err := ContentHash("PASSWORD", fields, []URL{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if base != empty {
+		t.Fatal("an empty urls slice must hash identically to no urls at all")
+	}
+	// And the golden digest — pinned before urls existed — must still hold.
+	golden, err := ContentHash("API_CREDENTIAL", []Field{
+		{Label: "zebra", Value: "a&b<c>d"},
+		{Label: "alpha", Value: "p1", Type: "STRING", Purpose: "USERNAME"},
+		{Label: "mid", Value: `"quoted"`},
+	}, []URL{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if golden != goldenHash {
+		t.Fatalf("declaring an empty urls slice changed the pre-urls golden hash:\n got  %s\n want %s", golden, goldenHash)
+	}
+}
+
+func TestContentHashDetectsURLChanges(t *testing.T) {
+	fields := []Field{{Label: "x", Value: "1"}}
+	none, err := ContentHash("LOGIN", fields, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	one, err := ContentHash("LOGIN", fields, []URL{{Href: "https://a.example.com"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if none == one {
+		t.Fatal("adding a url must change the content hash, or Diff never triggers an update")
+	}
+
+	relabeled, err := ContentHash("LOGIN", fields, []URL{{Href: "https://a.example.com", Label: "tailnet"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if one == relabeled {
+		t.Fatal("changing a url label must change the content hash")
+	}
+
+	primary, err := ContentHash("LOGIN", fields, []URL{{Href: "https://a.example.com", Primary: true}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if one == primary {
+		t.Fatal("flipping primary must change the content hash")
+	}
+}
+
+// URLs are an ordered list on the item, unlike fields (label-keyed), so
+// reordering is a real change rather than a no-op.
+func TestContentHashIsURLOrderSensitive(t *testing.T) {
+	fields := []Field{{Label: "x", Value: "1"}}
+	a, err := ContentHash("LOGIN", fields, []URL{
+		{Href: "https://a.example.com"}, {Href: "https://b.example.com"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, err := ContentHash("LOGIN", fields, []URL{
+		{Href: "https://b.example.com"}, {Href: "https://a.example.com"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if a == b {
+		t.Fatal("reordering urls must change the content hash")
+	}
+}
+
+// Declared urls replace the item's list; omitted urls leave it alone. The
+// second half is what protects a hand-added URL on an item whose managing
+// resource never declared any.
+func TestMergedBodyURLSemantics(t *testing.T) {
+	existing := map[string]any{
+		"id":   "abc",
+		"urls": []any{map[string]any{"href": "https://hand-added.example.com"}},
+		"fields": []any{
+			map[string]any{"label": "managed", "value": "old", "type": "CONCEALED"},
+		},
+	}
+	base := ItemArgs{Vault: "v1", Title: "t", Category: "LOGIN",
+		Fields: []Field{{Label: "managed", Value: "new"}}}
+
+	preserved := buildMergedItemBody(existing, base, "abc", []string{"managed"})
+	urls, _ := preserved["urls"].([]any)
+	if len(urls) != 1 {
+		t.Fatalf("undeclared urls must be preserved, got %v", preserved["urls"])
+	}
+	if got := urls[0].(map[string]any)["href"]; got != "https://hand-added.example.com" {
+		t.Fatalf("preserved the wrong url: %v", got)
+	}
+
+	withURLs := base
+	withURLs.URLs = []URL{{Href: "https://declared.example.com", Label: "tailnet", Primary: true}}
+	replaced := buildMergedItemBody(existing, withURLs, "abc", []string{"managed"})
+	got, _ := replaced["urls"].([]any)
+	if len(got) != 1 {
+		t.Fatalf("declared urls must replace the list, got %v", replaced["urls"])
+	}
+	u := got[0].(map[string]any)
+	if u["href"] != "https://declared.example.com" || u["label"] != "tailnet" || u["primary"] != true {
+		t.Fatalf("declared url not written through: %v", u)
+	}
+}
+
+// primary is omitted rather than written false, so a non-primary entry cannot
+// clear a primary flag the operator set elsewhere on the item.
+func TestManagedURLOmitsFalsePrimary(t *testing.T) {
+	m := managedURL(URL{Href: "https://a.example.com"})
+	if _, present := m["primary"]; present {
+		t.Fatalf("primary must be omitted when false, got %v", m)
+	}
+	if _, present := m["label"]; present {
+		t.Fatalf("label must be omitted when empty, got %v", m)
 	}
 }
 
