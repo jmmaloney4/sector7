@@ -245,6 +245,11 @@ func (Item) Check(ctx context.Context, req infer.CheckRequest) (infer.CheckRespo
 		// scheme-less URL but the browser extension will not match it, so the
 		// item silently fails to autofill — the exact symptom urls exist to
 		// prevent. Rejecting at Check turns that into a plan-time error.
+		//
+		// The scheme must further be http/https, not merely present: the
+		// extension matches web origins, so "ftp://host" or "mailto:…" fails
+		// to autofill exactly like a bare host does, and "javascript:…" has no
+		// business in a URL field at all.
 		parsed, err := url.Parse(href)
 		switch {
 		case err != nil:
@@ -252,6 +257,11 @@ func (Item) Check(ctx context.Context, req infer.CheckRequest) (infer.CheckRespo
 		case parsed.Scheme == "":
 			fail(fmt.Sprintf("urls[%d].href", i), fmt.Sprintf(
 				"url href must include a scheme (got %q; use https://%s)", href, href))
+		case parsed.Scheme != "http" && parsed.Scheme != "https":
+			fail(fmt.Sprintf("urls[%d].href", i), fmt.Sprintf(
+				"url href scheme must be http or https (got %q); 1Password's browser "+
+					"extension only matches web origins, so any other scheme silently "+
+					"fails to autofill", parsed.Scheme))
 		case parsed.Host == "":
 			fail(fmt.Sprintf("urls[%d].href", i), fmt.Sprintf("url href has no host (got %q)", href))
 		}

@@ -26,10 +26,11 @@ export interface OnePasswordItemFieldArgs {
  */
 export interface OnePasswordItemUrlArgs {
 	/**
-	 * Full URL including scheme (`https://…`). A bare host is rejected at
-	 * check time: it parses, but the extension will not match it, so the item
-	 * would silently fail to autofill — the exact failure `urls` exists to
-	 * prevent.
+	 * Full URL including scheme, which must be `http` or `https`. Both a bare
+	 * host and a non-web scheme (`ftp://`, `mailto:`) are rejected at check
+	 * time: they parse, but the extension only matches web origins, so the
+	 * item would silently fail to autofill — the exact failure `urls` exists
+	 * to prevent.
 	 */
 	href: Input<string>;
 	/** Display name shown beside the URL (e.g. `tailnet`). */

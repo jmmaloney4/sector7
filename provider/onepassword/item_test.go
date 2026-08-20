@@ -214,6 +214,58 @@ func TestMergedBodyURLSemantics(t *testing.T) {
 	}
 }
 
+// The url guard exists so an item that cannot autofill fails at plan time
+// rather than silently. A scheme that is merely PRESENT is not enough:
+// 1Password's extension matches web origins, so ftp/mailto fail exactly like a
+// bare host, and javascript: has no business in a URL field.
+func TestCheckRejectsNonWebURLSchemes(t *testing.T) {
+	urlFailures := func(href string) []string {
+		resp, err := Item{}.Check(t.Context(), infer.CheckRequest{
+			NewInputs: property.NewMap(map[string]property.Value{
+				"connectToken": property.New("t"),
+				"namespace":    property.New("1password"),
+				"vault":        property.New("v"),
+				"title":        property.New("item"),
+				"fields": property.New([]property.Value{
+					property.New(map[string]property.Value{
+						"label": property.New("password"), "value": property.New("p"),
+					}),
+				}),
+				"urls": property.New([]property.Value{
+					property.New(map[string]property.Value{"href": property.New(href)}),
+				}),
+			}),
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		var out []string
+		for _, f := range resp.Failures {
+			if strings.Contains(string(f.Property), "urls[") {
+				out = append(out, string(f.Reason))
+			}
+		}
+		return out
+	}
+
+	for _, ok := range []string{"https://a.example.com", "http://a.example.com:8080/path"} {
+		if got := urlFailures(ok); len(got) != 0 {
+			t.Fatalf("%q must be accepted; got %v", ok, got)
+		}
+	}
+	for _, bad := range []string{
+		"ftp://a.example.com",
+		"mailto:someone@example.com",
+		"javascript:alert(1)",
+		"a.example.com",
+		"https://",
+	} {
+		if got := urlFailures(bad); len(got) == 0 {
+			t.Fatalf("%q must be rejected at check time", bad)
+		}
+	}
+}
+
 // Check validates the trimmed href, so it must also normalize it — otherwise a
 // href with stray whitespace passes validation and is written through
 // untrimmed, and feeds contentHash as a different value.
