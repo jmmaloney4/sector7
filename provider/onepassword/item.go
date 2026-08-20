@@ -73,12 +73,17 @@ type ItemArgs struct {
 	Category       string  `pulumi:"category,optional"`
 	Fields         []Field `pulumi:"fields"`
 	// URLs are the item's website URLs. Unlike Fields these are replace-or-
-	// preserve rather than reconciled: declaring them overwrites the item's url
-	// list, omitting them leaves whatever is there alone. There is no
-	// ManagedLabels equivalent to tell "I removed the url I used to manage"
-	// apart from "this resource never managed urls", and silently dropping a
+	// preserve rather than reconciled, and nil is distinct from empty:
+	//
+	//   omitted (nil) -> PRESERVE whatever is on the item.
+	//   []            -> CLEAR the url list.
+	//   [...]         -> REPLACE the url list.
+	//
+	// Preserve-on-omit rather than remove-on-omit because there is no
+	// ManagedLabels equivalent for urls to tell "I removed the url I used to
+	// manage" from "this resource never managed urls", and silently dropping a
 	// hand-added URL the first time an existing resource applies is the worse
-	// of the two failures.
+	// failure. Declaring `[]` is the explicit way to say "remove them".
 	URLs []URL `pulumi:"urls,optional"`
 }
 
@@ -222,9 +227,16 @@ func (Item) Check(ctx context.Context, req infer.CheckRequest) (infer.CheckRespo
 		}
 	}
 
+	// Normalize before validating. Check validates the TRIMMED value, so
+	// without writing it back a href with stray whitespace would pass
+	// validation and then be written to 1Password untrimmed — and it feeds
+	// contentHash, so " https://x" and "https://x" would be two different
+	// digests for an item the operator considers unchanged.
+	args.URLs = normalizeURLs(args.URLs)
+
 	primaries := 0
 	for i, u := range args.URLs {
-		href := strings.TrimSpace(u.Href)
+		href := u.Href
 		if href == "" {
 			fail(fmt.Sprintf("urls[%d].href", i), "url href is required")
 			continue
@@ -253,6 +265,20 @@ func (Item) Check(ctx context.Context, req infer.CheckRequest) (infer.CheckRespo
 	}
 
 	return infer.CheckResponse[ItemArgs]{Inputs: args, Failures: failures}, nil
+}
+
+// normalizeURLs trims each href, preserving the nil-vs-empty distinction that
+// ItemArgs.URLs depends on (nil = preserve, [] = clear).
+func normalizeURLs(urls []URL) []URL {
+	if urls == nil {
+		return nil
+	}
+	out := make([]URL, len(urls))
+	copy(out, urls)
+	for i := range out {
+		out[i].Href = strings.TrimSpace(out[i].Href)
+	}
+	return out
 }
 
 // kebabLabel is the collation-safe label domain: lowercase alphanumerics and
@@ -330,15 +356,25 @@ func ContentHash(category string, fields []Field, urls []URL) (string, error) {
 		Label   string `json:"label"`
 		Primary bool   `json:"primary"`
 	}
-	// `urls,omitempty` is load-bearing for backward compatibility, not style:
-	// with no urls declared the key is omitted entirely, so the canonical JSON
-	// — and therefore the digest — is byte-identical to what the pre-urls
-	// implementation produced. Every item already in state hashes unchanged and
-	// shows no diff. Only items that actually declare urls get a new shape.
+	// A POINTER with `omitempty`, so the three states stay distinguishable —
+	// this is the whole backward-compatibility mechanism, not style:
+	//
+	//   nil   (urls omitted)      -> key absent  -> digest byte-identical to
+	//                                              the pre-urls implementation,
+	//                                              so every item already in
+	//                                              state hashes unchanged.
+	//   &[]   (urls: [] declared) -> "urls":[]   -> a DIFFERENT digest, which
+	//                                              is correct: clearing the
+	//                                              list is a real change.
+	//   &[..] (urls declared)     -> "urls":[..]
+	//
+	// A plain slice would collapse the first two (both encode as absent under
+	// omitempty), making "clear all urls" indistinguishable from "don't manage
+	// urls" and therefore impossible to express.
 	type canonical struct {
 		Category string           `json:"category"`
 		Fields   []canonicalField `json:"fields"`
-		URLs     []canonicalURL   `json:"urls,omitempty"`
+		URLs     *[]canonicalURL  `json:"urls,omitempty"`
 	}
 
 	if category == "" {
@@ -367,10 +403,17 @@ func ContentHash(category string, fields []Field, urls []URL) (string, error) {
 	// declaration order carries no meaning) the url list is ordered, and
 	// reordering it is a real change the operator asked for. Hashing the
 	// declared order makes that a diff instead of a silent no-op.
-	for _, u := range urls {
-		out.URLs = append(out.URLs, canonicalURL{
-			Href: u.Href, Label: u.Label, Primary: u.Primary,
-		})
+	//
+	// `urls != nil` rather than `len(urls) > 0`: a declared-but-empty list must
+	// hash differently from an omitted one (see the canonical struct above).
+	if urls != nil {
+		canonicalURLs := make([]canonicalURL, 0, len(urls))
+		for _, u := range urls {
+			canonicalURLs = append(canonicalURLs, canonicalURL{
+				Href: u.Href, Label: u.Label, Primary: u.Primary,
+			})
+		}
+		out.URLs = &canonicalURLs
 	}
 
 	var buf bytes.Buffer
@@ -510,9 +553,13 @@ func buildMergedItemBody(existing map[string]any, a ItemArgs, id string, priorMa
 	body["category"] = a.Category
 	body["fields"] = fields
 	// Replace-or-preserve, per ItemArgs.URLs: only overwrite when the program
-	// declares urls. The `existing` copy above already carried the item's
+	// DECLARES urls. The `existing` copy above already carried the item's
 	// current list through, so omitting them leaves it untouched.
-	if len(a.URLs) > 0 {
+	//
+	// `!= nil`, not `len() > 0`: a declared-but-empty list means "clear the
+	// urls" and must write an empty array, which `len() > 0` would silently
+	// swallow as if urls had been omitted.
+	if a.URLs != nil {
 		body["urls"] = urlsToAny(a.URLs)
 	}
 	return body
@@ -579,7 +626,9 @@ func (i Item) Create(ctx context.Context, req infer.CreateRequest[ItemArgs]) (in
 			"category": a.Category,
 			"fields":   fieldsToAny(a.Fields),
 		}
-		if len(a.URLs) > 0 {
+		// `!= nil` for the same reason as buildMergedItemBody: a declared
+		// empty list is a real, expressible state.
+		if a.URLs != nil {
 			body["urls"] = urlsToAny(a.URLs)
 		}
 		var created map[string]any

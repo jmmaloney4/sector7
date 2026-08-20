@@ -62,13 +62,18 @@ export interface OnePasswordItemArgs {
 	/** Fields to write. At least one is required. */
 	fields: OnePasswordItemFieldArgs[];
 	/**
-	 * Website URLs for the item. Optional, and — unlike `fields` — these are
-	 * replace-or-preserve rather than reconciled: declaring them overwrites the
-	 * item's url list, omitting them leaves whatever is on the item alone. There
-	 * is no `managedLabels` equivalent to distinguish "I removed the url I used
-	 * to manage" from "this resource never managed urls", and silently dropping
-	 * a hand-added URL the first time an existing resource applies is the worse
-	 * of the two failures.
+	 * Website URLs for the item. Unlike `fields` these are replace-or-preserve
+	 * rather than reconciled, and omitted is distinct from empty:
+	 *
+	 * - omitted — **preserve** whatever urls are on the item.
+	 * - `[]` — **clear** the url list.
+	 * - `[…]` — **replace** the url list.
+	 *
+	 * Preserve-on-omit rather than remove-on-omit because there is no
+	 * `managedLabels` equivalent for urls to distinguish "I removed the url I
+	 * used to manage" from "this resource never managed urls", and silently
+	 * dropping a hand-added URL the first time an existing resource applies is
+	 * the worse failure. Pass `[]` to explicitly remove them.
 	 */
 	urls?: OnePasswordItemUrlArgs[];
 }

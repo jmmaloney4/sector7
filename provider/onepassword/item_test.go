@@ -78,35 +78,38 @@ func TestContentHashDefaultsCategory(t *testing.T) {
 	}
 }
 
-// The whole reason `urls` is `omitempty` in the canonical struct: every item
-// created before urls existed must keep hashing to exactly what it hashed
-// before, or the first apply after this release rewrites every live secret.
-// An empty slice and a nil slice must both be indistinguishable from "the
-// pre-urls implementation ran".
-func TestContentHashIgnoresEmptyURLs(t *testing.T) {
-	fields := []Field{{Label: "x", Value: "1"}}
-	base, err := ContentHash("PASSWORD", fields, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	empty, err := ContentHash("PASSWORD", fields, []URL{})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if base != empty {
-		t.Fatal("an empty urls slice must hash identically to no urls at all")
-	}
-	// And the golden digest — pinned before urls existed — must still hold.
+// Backward compatibility: an item that declares NO urls (nil) must keep
+// hashing to exactly what it hashed before urls existed, or the first apply
+// after this release rewrites every live secret.
+func TestContentHashOmitsNilURLs(t *testing.T) {
 	golden, err := ContentHash("API_CREDENTIAL", []Field{
 		{Label: "zebra", Value: "a&b<c>d"},
 		{Label: "alpha", Value: "p1", Type: "STRING", Purpose: "USERNAME"},
 		{Label: "mid", Value: `"quoted"`},
-	}, []URL{})
+	}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if golden != goldenHash {
-		t.Fatalf("declaring an empty urls slice changed the pre-urls golden hash:\n got  %s\n want %s", golden, goldenHash)
+		t.Fatalf("nil urls changed the pre-urls golden hash:\n got  %s\n want %s", golden, goldenHash)
+	}
+}
+
+// nil (preserve) and []  (clear) are DIFFERENT declarations, so they must be
+// different digests — otherwise "remove every url from this item" is
+// indistinguishable from "don't manage urls" and Diff never fires.
+func TestContentHashDistinguishesNilFromEmptyURLs(t *testing.T) {
+	fields := []Field{{Label: "x", Value: "1"}}
+	omitted, err := ContentHash("PASSWORD", fields, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cleared, err := ContentHash("PASSWORD", fields, []URL{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if omitted == cleared {
+		t.Fatal("an explicitly empty urls list must hash differently from an omitted one")
 	}
 }
 
@@ -195,6 +198,34 @@ func TestMergedBodyURLSemantics(t *testing.T) {
 	u := got[0].(map[string]any)
 	if u["href"] != "https://declared.example.com" || u["label"] != "tailnet" || u["primary"] != true {
 		t.Fatalf("declared url not written through: %v", u)
+	}
+
+	// The third state: an explicitly empty list clears the item's urls. A
+	// `len() > 0` guard would swallow this and preserve them instead.
+	cleared := base
+	cleared.URLs = []URL{}
+	body := buildMergedItemBody(existing, cleared, "abc", []string{"managed"})
+	urlsOut, present := body["urls"].([]any)
+	if !present {
+		t.Fatalf("an explicitly empty urls list must write an empty array, got %v", body["urls"])
+	}
+	if len(urlsOut) != 0 {
+		t.Fatalf("an explicitly empty urls list must clear the list, got %v", urlsOut)
+	}
+}
+
+// Check validates the trimmed href, so it must also normalize it — otherwise a
+// href with stray whitespace passes validation and is written through
+// untrimmed, and feeds contentHash as a different value.
+func TestCheckTrimsURLHref(t *testing.T) {
+	args := ItemArgs{
+		ConnectToken: "t", Namespace: "ns", Vault: "v", Title: "title",
+		Fields: []Field{{Label: "password", Value: "p"}},
+		URLs:   []URL{{Href: "  https://spaced.example.com  "}},
+	}
+	normalized := normalizeURLs(args.URLs)
+	if normalized[0].Href != "https://spaced.example.com" {
+		t.Fatalf("href must be trimmed in place, got %q", normalized[0].Href)
 	}
 }
 
