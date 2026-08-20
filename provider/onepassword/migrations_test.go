@@ -48,7 +48,7 @@ func fieldsProperty(fs []Field) property.Value {
 
 func mustContentHash(t *testing.T, category string, fs []Field) string {
 	t.Helper()
-	h, err := ContentHash(category, fs)
+	h, err := ContentHash(category, fs, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

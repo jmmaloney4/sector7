@@ -19,6 +19,26 @@ export interface OnePasswordItemFieldArgs {
 	purpose?: Input<string>;
 }
 
+/**
+ * A website URL on the item. 1Password's browser extension matches autofill
+ * candidates against these, so a LOGIN item without one never surfaces on the
+ * site it belongs to.
+ */
+export interface OnePasswordItemUrlArgs {
+	/**
+	 * Full URL including scheme, which must be `http` or `https`. Both a bare
+	 * host and a non-web scheme (`ftp://`, `mailto:`) are rejected at check
+	 * time: they parse, but the extension only matches web origins, so the
+	 * item would silently fail to autofill — the exact failure `urls` exists
+	 * to prevent.
+	 */
+	href: Input<string>;
+	/** Display name shown beside the URL (e.g. `tailnet`). */
+	label?: Input<string>;
+	/** Marks the URL used for "Open and fill". At most one may set it. */
+	primary?: Input<boolean>;
+}
+
 export interface OnePasswordItemArgs {
 	/**
 	 * Kubeconfig (YAML) used to open the port-forward to Connect. Falls back to
@@ -42,6 +62,21 @@ export interface OnePasswordItemArgs {
 	category?: Input<string>;
 	/** Fields to write. At least one is required. */
 	fields: OnePasswordItemFieldArgs[];
+	/**
+	 * Website URLs for the item. Unlike `fields` these are replace-or-preserve
+	 * rather than reconciled, and omitted is distinct from empty:
+	 *
+	 * - omitted — **preserve** whatever urls are on the item.
+	 * - `[]` — **clear** the url list.
+	 * - `[…]` — **replace** the url list.
+	 *
+	 * Preserve-on-omit rather than remove-on-omit because there is no
+	 * `managedLabels` equivalent for urls to distinguish "I removed the url I
+	 * used to manage" from "this resource never managed urls", and silently
+	 * dropping a hand-added URL the first time an existing resource applies is
+	 * the worse failure. Pass `[]` to explicitly remove them.
+	 */
+	urls?: OnePasswordItemUrlArgs[];
 }
 
 /**
