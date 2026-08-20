@@ -269,15 +269,41 @@ func TestCheckRejectsNonWebURLSchemes(t *testing.T) {
 // Check validates the trimmed href, so it must also normalize it — otherwise a
 // href with stray whitespace passes validation and is written through
 // untrimmed, and feeds contentHash as a different value.
+//
+// Drives Check rather than normalizeURLs directly: the helper being correct in
+// isolation says nothing about it being WIRED IN, and deleting the
+// `args.URLs = normalizeURLs(args.URLs)` line is exactly the regression this
+// guards against.
 func TestCheckTrimsURLHref(t *testing.T) {
-	args := ItemArgs{
-		ConnectToken: "t", Namespace: "ns", Vault: "v", Title: "title",
-		Fields: []Field{{Label: "password", Value: "p"}},
-		URLs:   []URL{{Href: "  https://spaced.example.com  "}},
+	resp, err := Item{}.Check(t.Context(), infer.CheckRequest{
+		NewInputs: property.NewMap(map[string]property.Value{
+			"connectToken": property.New("t"),
+			"namespace":    property.New("ns"),
+			"vault":        property.New("v"),
+			"title":        property.New("title"),
+			"fields": property.New([]property.Value{
+				property.New(map[string]property.Value{
+					"label": property.New("password"), "value": property.New("p"),
+				}),
+			}),
+			"urls": property.New([]property.Value{
+				property.New(map[string]property.Value{
+					"href": property.New("  https://spaced.example.com  "),
+				}),
+			}),
+		}),
+	})
+	if err != nil {
+		t.Fatal(err)
 	}
-	normalized := normalizeURLs(args.URLs)
-	if normalized[0].Href != "https://spaced.example.com" {
-		t.Fatalf("href must be trimmed in place, got %q", normalized[0].Href)
+	if len(resp.Failures) > 0 {
+		t.Fatalf("a well-formed href with surrounding whitespace must pass check, got %v", resp.Failures)
+	}
+	if len(resp.Inputs.URLs) != 1 {
+		t.Fatalf("expected one url back from check, got %d", len(resp.Inputs.URLs))
+	}
+	if got := resp.Inputs.URLs[0].Href; got != "https://spaced.example.com" {
+		t.Fatalf("Check must return the trimmed href, got %q", got)
 	}
 }
 
