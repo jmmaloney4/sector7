@@ -262,7 +262,10 @@ func (Item) Check(ctx context.Context, req infer.CheckRequest) (infer.CheckRespo
 				"url href scheme must be http or https (got %q); 1Password's browser "+
 					"extension only matches web origins, so any other scheme silently "+
 					"fails to autofill", parsed.Scheme))
-		case parsed.Host == "":
+		// Hostname(), not Host: Host keeps the ":port" suffix, so "https://:8080"
+		// has a non-empty Host ("`:8080`") and an empty Hostname. Checking Host
+		// would let a port-only URL through.
+		case parsed.Hostname() == "":
 			fail(fmt.Sprintf("urls[%d].href", i), fmt.Sprintf("url href has no host (got %q)", href))
 		}
 		if u.Primary {

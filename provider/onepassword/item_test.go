@@ -259,6 +259,9 @@ func TestCheckRejectsNonWebURLSchemes(t *testing.T) {
 		"javascript:alert(1)",
 		"a.example.com",
 		"https://",
+		// Host is ":8080" (non-empty) but Hostname() is "" — a port with no
+		// host. `parsed.Host == ""` misses it.
+		"https://:8080",
 	} {
 		if got := urlFailures(bad); len(got) == 0 {
 			t.Fatalf("%q must be rejected at check time", bad)
