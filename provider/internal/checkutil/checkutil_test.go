@@ -54,6 +54,23 @@ func TestRequireNonEmptyNoFieldsIsNoop(t *testing.T) {
 	}
 }
 
+// property.Map is a value type, so the zero value is a legal empty map rather
+// than something that can be nil — reading it is safe and every field simply
+// misses. Pinned as a test because "can this map be nil?" is the obvious
+// question to ask of the GetOk guard, and the answer should not have to be
+// rediscovered by compiling something.
+func TestRequireNonEmptyToleratesAZeroValueInputMap(t *testing.T) {
+	var zero property.Map
+	var failures []p.CheckFailure
+	RequireNonEmpty(&failures, zero,
+		NamedField{Name: "a", Value: ""},
+		NamedField{Name: "b", Value: "present"},
+	)
+	if len(failures) != 1 || failures[0].Property != "a" {
+		t.Fatalf("expected only the empty field to fail, got %+v", failures)
+	}
+}
+
 // RequireNonEmpty must append to an already-populated slice (as callers pass
 // the failures collected by infer.DefaultCheck), not replace it.
 func TestRequireNonEmptyAppendsToExistingFailures(t *testing.T) {
