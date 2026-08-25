@@ -168,7 +168,7 @@ func (Item) Check(ctx context.Context, req infer.CheckRequest) (infer.CheckRespo
 	fail := func(prop, reason string) {
 		failures = append(failures, p.CheckFailure{Property: prop, Reason: reason})
 	}
-	checkutil.RequireNonEmpty(&failures,
+	checkutil.RequireNonEmpty(&failures, req.NewInputs,
 		checkutil.NamedField{Name: "connectToken", Value: args.ConnectToken},
 		checkutil.NamedField{Name: "namespace", Value: args.Namespace},
 		checkutil.NamedField{Name: "vault", Value: args.Vault},

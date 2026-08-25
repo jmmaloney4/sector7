@@ -50,7 +50,7 @@ func (ZoneCachePurge) Check(ctx context.Context, req infer.CheckRequest) (infer.
 		failures = append(failures, p.CheckFailure{Property: prop, Reason: reason})
 	}
 
-	checkutil.RequireNonEmpty(&failures,
+	checkutil.RequireNonEmpty(&failures, req.NewInputs,
 		checkutil.NamedField{Name: "zoneId", Value: args.ZoneID},
 		checkutil.NamedField{Name: "apiToken", Value: args.APIToken},
 		checkutil.NamedField{Name: "trigger", Value: args.Trigger},

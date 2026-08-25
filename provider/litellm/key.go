@@ -67,7 +67,7 @@ func (KeyRecord) Check(ctx context.Context, req infer.CheckRequest) (infer.Check
 	if err != nil {
 		return infer.CheckResponse[KeyArgs]{Inputs: args, Failures: failures}, err
 	}
-	checkutil.RequireNonEmpty(&failures,
+	checkutil.RequireNonEmpty(&failures, req.NewInputs,
 		checkutil.NamedField{Name: "proxyNamespace", Value: args.ProxyNamespace},
 		checkutil.NamedField{Name: "masterKey", Value: args.MasterKey},
 		checkutil.NamedField{Name: "proxyDeploymentName", Value: args.ProxyDeploymentName},

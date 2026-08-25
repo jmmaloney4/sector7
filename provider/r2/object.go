@@ -53,7 +53,7 @@ func (Object) Check(ctx context.Context, req infer.CheckRequest) (infer.CheckRes
 		failures = append(failures, p.CheckFailure{Property: prop, Reason: reason})
 	}
 
-	checkutil.RequireNonEmpty(&failures,
+	checkutil.RequireNonEmpty(&failures, req.NewInputs,
 		checkutil.NamedField{Name: "accountId", Value: args.AccountID},
 		checkutil.NamedField{Name: "bucketName", Value: args.BucketName},
 		checkutil.NamedField{Name: "key", Value: args.Key},

@@ -72,7 +72,7 @@ func (BotAccount) Check(ctx context.Context, req infer.CheckRequest) (infer.Chec
 	}
 	// The original provider validated nothing. These are the fields whose
 	// absence produces a confusing homeserver error rather than a clear one.
-	checkutil.RequireNonEmpty(&failures,
+	checkutil.RequireNonEmpty(&failures, req.NewInputs,
 		checkutil.NamedField{Name: "homeserverUrl", Value: args.HomeserverURL},
 		checkutil.NamedField{Name: "username", Value: args.Username},
 		checkutil.NamedField{Name: "registrationToken", Value: args.RegistrationToken},
