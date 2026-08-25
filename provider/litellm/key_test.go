@@ -10,6 +10,7 @@ import (
 
 	p "github.com/pulumi/pulumi-go-provider"
 	"github.com/pulumi/pulumi-go-provider/infer"
+	"github.com/pulumi/pulumi/sdk/v3/go/property"
 
 	"github.com/jmmaloney4/sector7/provider/internal/kube"
 )
@@ -555,4 +556,59 @@ func TestUnknownUpstreamInputNeverReplacesALiveKey(t *testing.T) {
 			t.Fatalf("a real %s change must still replace; got %+v", name, r.DetailedDiff)
 		}
 	}
+}
+
+// ---------------------------------------------------------------------------
+// Check
+// ---------------------------------------------------------------------------
+
+// The Check-side twin of TestUnknownUpstreamInputNeverReplacesALiveKey, and the
+// same root cause: an unknown input decodes to the zero value, so Check saw a
+// not-yet-computed keyValue as a missing one and refused to plan the resource:
+//
+//	sector7:litellm:KeyRecord resource 'charles-key-key': property keyValue
+//	value output<string>{} has a problem: keyValue is required
+//
+// That is every NEW key, unconditionally — the component always derives
+// keyValue from a RandomPassword it creates in the same update — so adding a
+// key to a stack could not be previewed at all (#378).
+func TestUnknownKeyValueIsNotAMissingKeyValue(t *testing.T) {
+	newKeyInputs := func() map[string]property.Value {
+		return map[string]property.Value{
+			"proxyNamespace": property.New("litellm"),
+			"masterKey":      property.New("sk-master").WithSecret(true),
+			"keyAlias":       property.New("prod-charles"),
+			"teamId":         property.New("personal"),
+			// secret(computed), not bare computed: keyValue is
+			// `provider:"secret"`, so the unknown arrives wrapped.
+			"keyValue": property.New(property.Computed).WithSecret(true),
+		}
+	}
+
+	t.Run("an unknown keyValue previews cleanly", func(t *testing.T) {
+		resp, err := KeyRecord{}.Check(t.Context(),
+			infer.CheckRequest{NewInputs: property.NewMap(newKeyInputs())})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(resp.Failures) != 0 {
+			t.Fatalf("a new key must be previewable; got %+v", resp.Failures)
+		}
+	})
+
+	// The guard must not blunt real misconfiguration. An input the user
+	// genuinely left empty is still rejected, at preview and at up-time alike.
+	t.Run("a genuinely empty keyValue is still rejected", func(t *testing.T) {
+		inputs := newKeyInputs()
+		inputs["keyValue"] = property.New("").WithSecret(true)
+
+		resp, err := KeyRecord{}.Check(t.Context(),
+			infer.CheckRequest{NewInputs: property.NewMap(inputs)})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(resp.Failures) != 1 || resp.Failures[0].Property != "keyValue" {
+			t.Fatalf("expected keyValue to be reported missing; got %+v", resp.Failures)
+		}
+	})
 }

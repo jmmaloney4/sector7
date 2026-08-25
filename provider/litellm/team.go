@@ -7,6 +7,7 @@ import (
 	p "github.com/pulumi/pulumi-go-provider"
 	"github.com/pulumi/pulumi-go-provider/infer"
 
+	"github.com/jmmaloney4/sector7/provider/internal/checkutil"
 	"github.com/jmmaloney4/sector7/provider/internal/diffutil"
 	"github.com/jmmaloney4/sector7/provider/internal/kube"
 )
@@ -66,18 +67,17 @@ func (TeamRecord) Check(ctx context.Context, req infer.CheckRequest) (infer.Chec
 	if err != nil {
 		return infer.CheckResponse[TeamArgs]{Inputs: args, Failures: failures}, err
 	}
-	for _, f := range []struct {
-		name, val string
-	}{
-		{"proxyNamespace", args.ProxyNamespace},
-		{"masterKey", args.MasterKey},
-		{"proxyDeploymentName", args.ProxyDeploymentName},
-		{"teamAlias", args.TeamAlias},
-	} {
-		if f.val == "" {
-			failures = append(failures, p.CheckFailure{Property: f.name, Reason: f.name + " is required"})
-		}
-	}
+	// This was the last hand-rolled copy of the idiom checkutil exists to own.
+	// Sharing the helper is not just deduplication: the local loop had no way
+	// to tell an unknown input from a missing one, so a TeamRecord whose
+	// masterKey or proxyNamespace comes from a resource created in the same
+	// update failed preview with a spurious "is required" (#378).
+	checkutil.RequireNonEmpty(&failures, req.NewInputs,
+		checkutil.NamedField{Name: "proxyNamespace", Value: args.ProxyNamespace},
+		checkutil.NamedField{Name: "masterKey", Value: args.MasterKey},
+		checkutil.NamedField{Name: "proxyDeploymentName", Value: args.ProxyDeploymentName},
+		checkutil.NamedField{Name: "teamAlias", Value: args.TeamAlias},
+	)
 	return infer.CheckResponse[TeamArgs]{Inputs: args, Failures: failures}, nil
 }
 

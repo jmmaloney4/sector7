@@ -49,7 +49,7 @@ func (Room) Check(ctx context.Context, req infer.CheckRequest) (infer.CheckRespo
 	if err != nil {
 		return infer.CheckResponse[RoomArgs]{Inputs: args, Failures: failures}, err
 	}
-	checkutil.RequireNonEmpty(&failures,
+	checkutil.RequireNonEmpty(&failures, req.NewInputs,
 		checkutil.NamedField{Name: "homeserverUrl", Value: args.HomeserverURL},
 		checkutil.NamedField{Name: "accessToken", Value: args.AccessToken},
 		checkutil.NamedField{Name: "name", Value: args.Name},

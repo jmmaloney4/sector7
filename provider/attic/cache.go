@@ -112,7 +112,7 @@ func (Cache) Check(ctx context.Context, req infer.CheckRequest) (infer.CheckResp
 	fail := func(prop, reason string) {
 		failures = append(failures, p.CheckFailure{Property: prop, Reason: reason})
 	}
-	checkutil.RequireNonEmpty(&failures,
+	checkutil.RequireNonEmpty(&failures, req.NewInputs,
 		checkutil.NamedField{Name: "namespace", Value: args.Namespace},
 		checkutil.NamedField{Name: "hs256SecretBase64", Value: args.HS256SecretBase64},
 		checkutil.NamedField{Name: "cacheName", Value: args.CacheName},
