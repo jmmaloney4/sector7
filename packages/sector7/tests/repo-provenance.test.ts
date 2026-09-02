@@ -14,6 +14,23 @@ import {
 // under test IS the git reading, so mocking would assert our idea of git's
 // exit codes rather than git's.
 
+// Those tests therefore need a real `git` on PATH. It is there in the devshell
+// and in the pre-push hook, but NOT inside jackpkgs' `checks.vitest`
+// derivation, whose sandbox is built with `buildInputs = [nodejs]` and nothing
+// else — `git init` fails there with ENOENT. Skip rather than fail the flake
+// check, and rather than mock git to make the check pass on a fiction. The
+// degradation test below deliberately does NOT skip: it is the one case that
+// is still meaningful without git, and it is the behaviour a missing git
+// actually exercises. Tracked in jmmaloney4/sector7#386.
+const hasGit = (() => {
+	try {
+		execFileSync("git", ["--version"], { stdio: "ignore" });
+		return true;
+	} catch {
+		return false;
+	}
+})();
+
 const roots: string[] = [];
 
 function git(cwd: string, ...args: string[]): string {
@@ -40,20 +57,20 @@ afterAll(() => {
 });
 
 describe("resolveRepoProvenance", () => {
-	it("reads sha, branch and clean state", () => {
+	it.skipIf(!hasGit)("reads sha, branch and clean state", () => {
 		const p = resolveRepoProvenance(makeRepo());
 		expect(p.gitSha).toMatch(/^[0-9a-f]{40}$/);
 		expect(p.branch).toBe("main");
 		expect(p.dirty).toBe(false);
 	});
 
-	it("reports a modified tracked file as dirty", () => {
+	it.skipIf(!hasGit)("reports a modified tracked file as dirty", () => {
 		const root = makeRepo();
 		writeFileSync(join(root, "flake.nix"), "{ changed = true; }\n");
 		expect(resolveRepoProvenance(root).dirty).toBe(true);
 	});
 
-	it("does not report an untracked file as dirty", () => {
+	it.skipIf(!hasGit)("does not report an untracked file as dirty", () => {
 		// nix excludes untracked files from a bare-path flake build, so they
 		// cannot affect the artifact.
 		const root = makeRepo();
@@ -61,7 +78,7 @@ describe("resolveRepoProvenance", () => {
 		expect(resolveRepoProvenance(root).dirty).toBe(false);
 	});
 
-	it("names a detached HEAD rather than failing", () => {
+	it.skipIf(!hasGit)("names a detached HEAD rather than failing", () => {
 		const root = makeRepo();
 		git(root, "checkout", "-q", "--detach", "HEAD");
 		expect(resolveRepoProvenance(root).branch).toBe("(detached)");
