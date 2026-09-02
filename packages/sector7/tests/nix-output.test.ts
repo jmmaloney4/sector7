@@ -1,10 +1,22 @@
 import { execFileSync } from "node:child_process";
+import { mkdtempSync, rmSync, symlinkSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import * as pulumi from "@pulumi/pulumi";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+	afterAll,
+	afterEach,
+	beforeEach,
+	describe,
+	expect,
+	it,
+	vi,
+} from "vitest";
 import {
 	NixOutput,
 	resolveDrvPathTrigger,
 	resolvePreviewStorePath,
+	sameBuildRoot,
 } from "../nix-output/nix-output";
 
 vi.mock("node:child_process", () => ({
@@ -74,7 +86,18 @@ const TEST_REPO_ROOT = "/home/user/my-repo";
 let savedRepoRoot: string | undefined;
 let savedFlakeRoot: string | undefined;
 
-afterEach(() => {
+afterEach(async () => {
+	// `beforeEach` installs a FRESH mock monitor for every test. A resource
+	// registration still in flight when that happens lands on a monitor that
+	// has never heard of its URN, and Pulumi surfaces that as an unhandled
+	// rejection — which vitest reports as an error and exits non-zero even
+	// though every assertion passed. Tests that construct a NixOutput and then
+	// await one of its outputs drain themselves; the ones that assert
+	// synchronously (a constructor that throws has no output to await) do not.
+	// Drain here rather than in each test, so the invariant is "no test leaks
+	// registrations into the next one" instead of a rule to remember.
+	await new Promise((resolve) => setTimeout(resolve, 0));
+
 	if (savedRepoRoot === undefined) delete process.env.REPO_ROOT;
 	else process.env.REPO_ROOT = savedRepoRoot;
 	if (savedFlakeRoot === undefined) delete process.env.FLAKE_ROOT;
@@ -226,6 +249,19 @@ describe("NixOutput", () => {
 		process.env.FLAKE_ROOT = "/home/user/same-repo";
 
 		const output = new NixOutput("test-matching-root", {
+			nixAttr: "packages.x86_64-linux.myapp",
+			repoRoot: "/home/user/same-repo",
+		});
+		await expect(resolveOutput(output.storePath)).resolves.toBeDefined();
+	});
+
+	// A refusal has to be about the tree, not about how it was spelled. A
+	// devshell that exports a trailing slash names the same directory, and
+	// blocking a deploy over that would be a false refusal.
+	it("accepts a repoRoot that differs from the ambient root only in spelling", async () => {
+		process.env.REPO_ROOT = "/home/user/same-repo/";
+
+		const output = new NixOutput("test-trailing-slash-root", {
 			nixAttr: "packages.x86_64-linux.myapp",
 			repoRoot: "/home/user/same-repo",
 		});
@@ -551,5 +587,51 @@ describe("NixOutput", () => {
 
 		expect(storePath).toBeUndefined();
 		expect(execSpy).not.toHaveBeenCalled();
+	});
+});
+
+// Real directories and a real symlink rather than a mocked `realpathSync`:
+// the unit under test IS the path resolution, so mocking it would assert our
+// idea of how symlinks resolve instead of the filesystem's.
+describe("sameBuildRoot", () => {
+	const roots: string[] = [];
+
+	afterAll(() => {
+		for (const r of roots) rmSync(r, { recursive: true, force: true });
+	});
+
+	function tempDir(prefix: string): string {
+		const dir = mkdtempSync(join(tmpdir(), prefix));
+		roots.push(dir);
+		return dir;
+	}
+
+	it("accepts a trailing slash on either side", () => {
+		const root = tempDir("s7-root-");
+		expect(sameBuildRoot(root, `${root}/`)).toBe(true);
+		expect(sameBuildRoot(`${root}/`, root)).toBe(true);
+	});
+
+	it("resolves a symlinked build root to the tree it points at", () => {
+		// The shape that bites in practice: a devshell exports the real path
+		// while the caller passes the symlink it stood in (or the reverse).
+		const real = tempDir("s7-real-");
+		const parent = tempDir("s7-link-");
+		const link = join(parent, "checkout");
+		symlinkSync(real, link, "dir");
+
+		expect(sameBuildRoot(link, real)).toBe(true);
+	});
+
+	it("still refuses two genuinely different trees", () => {
+		expect(sameBuildRoot(tempDir("s7-a-"), tempDir("s7-b-"))).toBe(false);
+	});
+
+	it("compares unresolvable roots literally rather than collapsing them", () => {
+		// A repoRoot that does not exist is its own problem; it must not be
+		// silently equal to some other nonexistent path.
+		expect(sameBuildRoot("/nope/one", "/nope/two")).toBe(false);
+		expect(sameBuildRoot("/nope/one", "/nope/one")).toBe(true);
+		expect(sameBuildRoot("/nope/one/", "/nope/one")).toBe(true);
 	});
 });

@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { readFileSync } from "node:fs";
+import { readFileSync, realpathSync } from "node:fs";
 import * as command from "@pulumi/command";
 import * as pulumi from "@pulumi/pulumi";
 import { getScriptPath } from "../scripts/index.ts";
@@ -143,6 +143,37 @@ export function resolveDrvPathTrigger(
 	}
 }
 
+/**
+ * Resolve a build root to the directory it actually names: symlinks followed,
+ * trailing slashes dropped. Falls back to the literal spelling when the path
+ * cannot be resolved — a `repoRoot` that does not exist is its own problem,
+ * and must not be quietly made equal to anything.
+ */
+function canonicalBuildRoot(repoRoot: string): string {
+	try {
+		return realpathSync(repoRoot);
+	} catch {
+		return repoRoot.replace(/(.)\/+$/, "$1");
+	}
+}
+
+/**
+ * Whether two build roots name the same tree.
+ *
+ * Compared as trees rather than as strings, because the ambient variable and
+ * a caller's `repoRoot` routinely spell one directory two ways: a trailing
+ * slash, a symlinked checkout parent, `/tmp` vs `/private/tmp` on macOS. That
+ * was harmless while a divergence only warned; now that it refuses, a spelling
+ * difference would block a deploy that was never wrong. `realpathSync` is the
+ * same resolution nix performs on a bare-path flake ref, so agreeing here
+ * means agreeing about the artifact.
+ *
+ * Exported for testing.
+ */
+export function sameBuildRoot(a: string, b: string): boolean {
+	return a === b || canonicalBuildRoot(a) === canonicalBuildRoot(b);
+}
+
 function isStringRecord(
 	value: Record<string, pulumi.Input<string>>,
 ): value is Record<string, string> {
@@ -242,7 +273,7 @@ export class NixOutput extends pulumi.ComponentResource {
 			// to FLAKE_ROOT here, or this check would validate a different tree
 			// than the one the script then builds.
 			const ambient = process.env.REPO_ROOT || process.env.FLAKE_ROOT;
-			if (ambient && repoRoot !== ambient) {
+			if (ambient && !sameBuildRoot(repoRoot, ambient)) {
 				// This was a warn, on the reasoning that it "should never fire in
 				// practice". It fired: cavinsresearch/zeus#3162, where a deploy
 				// built an image from a branch nobody named and a prod deploy came
