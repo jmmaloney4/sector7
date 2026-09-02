@@ -1,6 +1,6 @@
 import { execFileSync } from "node:child_process";
 import * as pulumi from "@pulumi/pulumi";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
 	NixOutput,
 	resolveDrvPathTrigger,
@@ -65,7 +65,27 @@ function installMocks(preview = false): void {
 
 const MOCK_DRV_PATH = "/nix/store/drvhash123-myapp-1.0.0.drv";
 
+// NixOutput now refuses when `repoRoot` disagrees with the ambient
+// REPO_ROOT/FLAKE_ROOT, because the ambient value is what actually gets built
+// (#384). These tests pass a synthetic repoRoot, so they must declare the
+// matching ambient root rather than inheriting the developer's real devshell
+// — which previously only produced a warning and now, correctly, refuses.
+const TEST_REPO_ROOT = "/home/user/my-repo";
+let savedRepoRoot: string | undefined;
+let savedFlakeRoot: string | undefined;
+
+afterEach(() => {
+	if (savedRepoRoot === undefined) delete process.env.REPO_ROOT;
+	else process.env.REPO_ROOT = savedRepoRoot;
+	if (savedFlakeRoot === undefined) delete process.env.FLAKE_ROOT;
+	else process.env.FLAKE_ROOT = savedFlakeRoot;
+});
+
 beforeEach(() => {
+	savedRepoRoot = process.env.REPO_ROOT;
+	savedFlakeRoot = process.env.FLAKE_ROOT;
+	process.env.REPO_ROOT = TEST_REPO_ROOT;
+	delete process.env.FLAKE_ROOT;
 	resources.length = 0;
 	vi.clearAllMocks();
 	vi.restoreAllMocks();
@@ -124,54 +144,68 @@ describe("NixOutput", () => {
 	});
 
 	// The spawned command always builds/resolves against the ambient
-	// FLAKE_ROOT, never the repoRoot input (that's the whole fix). If a
-	// caller's repoRoot ever diverges from FLAKE_ROOT, the drvPath trigger
-	// (computed from repoRoot) and the actual build (which uses FLAKE_ROOT)
-	// would silently target different flakes with no error — this warning is
-	// the only thing that would catch it.
-	it("warns when repoRoot diverges from the ambient FLAKE_ROOT", async () => {
+	// REPO_ROOT/FLAKE_ROOT, never the repoRoot input (that's the whole fix).
+	// When they diverge, the drvPath trigger (computed from repoRoot) and the
+	// actual build target different flakes. This was a warning until #384,
+	// where exactly that shipped an image from an unintended branch in a
+	// downstream repo; it is now a refusal, because a warning is the wrong
+	// severity for "this will build something other than you asked for".
+	it("refuses when repoRoot diverges from the ambient build root", () => {
 		const original = process.env.FLAKE_ROOT;
+		const originalRepo = process.env.REPO_ROOT;
 		process.env.FLAKE_ROOT = "/home/user/actual-repo";
-		const warnSpy = vi.spyOn(pulumi.log, "warn").mockImplementation(() => {
-			/* swallow */
-		});
+		delete process.env.REPO_ROOT;
 
 		try {
-			const output = new NixOutput("test-divergent-root", {
-				nixAttr: "packages.x86_64-linux.myapp",
-				repoRoot: "/home/user/different-repo",
-			});
-			await resolveOutput(output.storePath);
-
-			expect(warnSpy).toHaveBeenCalledWith(
-				expect.stringContaining("does not match the ambient FLAKE_ROOT"),
-				expect.anything(),
-			);
+			expect(
+				() =>
+					new NixOutput("test-divergent-root", {
+						nixAttr: "packages.x86_64-linux.myapp",
+						repoRoot: "/home/user/different-repo",
+					}),
+			).toThrow(/does not match the ambient REPO_ROOT\/FLAKE_ROOT/);
 		} finally {
 			process.env.FLAKE_ROOT = original;
-			warnSpy.mockRestore();
+			if (originalRepo === undefined) delete process.env.REPO_ROOT;
+			else process.env.REPO_ROOT = originalRepo;
 		}
 	});
 
-	it("does not warn when repoRoot matches the ambient FLAKE_ROOT", async () => {
-		const original = process.env.FLAKE_ROOT;
-		process.env.FLAKE_ROOT = "/home/user/same-repo";
-		const warnSpy = vi.spyOn(pulumi.log, "warn").mockImplementation(() => {
-			/* swallow */
-		});
+	// The script's own precedence is ${REPO_ROOT:-${FLAKE_ROOT:-}}, so an
+	// explicit REPO_ROOT must win over FLAKE_ROOT here too — otherwise pinning
+	// the build with REPO_ROOT would be rejected by a stale FLAKE_ROOT.
+	it("prefers ambient REPO_ROOT over FLAKE_ROOT when both are set", () => {
+		const originalFlake = process.env.FLAKE_ROOT;
+		const originalRepo = process.env.REPO_ROOT;
+		process.env.FLAKE_ROOT = "/home/user/stale-devshell-root";
+		process.env.REPO_ROOT = "/home/user/pinned-repo";
 
 		try {
-			const output = new NixOutput("test-matching-root", {
-				nixAttr: "packages.x86_64-linux.myapp",
-				repoRoot: "/home/user/same-repo",
-			});
-			await resolveOutput(output.storePath);
-
-			expect(warnSpy).not.toHaveBeenCalled();
+			expect(
+				() =>
+					new NixOutput("test-repo-root-wins", {
+						nixAttr: "packages.x86_64-linux.myapp",
+						repoRoot: "/home/user/pinned-repo",
+					}),
+			).not.toThrow(); // REPO_ROOT won; no divergence against FLAKE_ROOT
 		} finally {
-			process.env.FLAKE_ROOT = original;
-			warnSpy.mockRestore();
+			process.env.FLAKE_ROOT = originalFlake;
+			if (originalRepo === undefined) delete process.env.REPO_ROOT;
+			else process.env.REPO_ROOT = originalRepo;
 		}
+	});
+
+	// FLAKE_ROOT alone is still a valid way to declare the build root — the
+	// script falls back to it when REPO_ROOT is unset, so this must not refuse.
+	it("accepts a repoRoot matching the ambient FLAKE_ROOT", async () => {
+		delete process.env.REPO_ROOT;
+		process.env.FLAKE_ROOT = "/home/user/same-repo";
+
+		const output = new NixOutput("test-matching-root", {
+			nixAttr: "packages.x86_64-linux.myapp",
+			repoRoot: "/home/user/same-repo",
+		});
+		await expect(resolveOutput(output.storePath)).resolves.toBeDefined();
 	});
 
 	it("creates a Command resource in build mode when specified", async () => {
@@ -287,7 +321,17 @@ describe("NixOutput", () => {
 
 		const triggers = cmds[0].inputs.triggers as string[];
 		expect(triggers).toEqual(["packages.x86_64-linux.myapp"]);
-		expect(execFileSync).not.toHaveBeenCalled();
+
+		// The point of `changeDetection: "none"` is to skip the flake
+		// evaluation, so assert on that specifically rather than on
+		// execFileSync being untouched at all. Provenance (#384) does shell out
+		// to `git`, which is cheap — and precisely because "none" leaves no
+		// content signal whatsoever, it is the only thing that will say what
+		// tree this built from.
+		const nixCalls = vi
+			.mocked(execFileSync)
+			.mock.calls.filter(([bin]) => bin === "nix");
+		expect(nixCalls).toHaveLength(0);
 	});
 
 	it("appends custom triggers after nixAttr and the drvPath trigger", async () => {

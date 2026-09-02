@@ -1,7 +1,15 @@
 import { execFileSync } from "node:child_process";
 import * as command from "@pulumi/command";
 import * as pulumi from "@pulumi/pulumi";
-import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+	afterEach,
+	beforeAll,
+	beforeEach,
+	describe,
+	expect,
+	it,
+	vi,
+} from "vitest";
 import { NixImage } from "../nix-image/nix-image";
 import { NixImagePushGroup } from "../nix-image/push-group";
 
@@ -61,7 +69,25 @@ beforeAll(() => {
 	});
 });
 
+// See the note in nix-output.test.ts: NixOutput now refuses when `repoRoot`
+// disagrees with the ambient REPO_ROOT/FLAKE_ROOT (#384), so a synthetic
+// repoRoot has to declare its matching ambient root.
+const TEST_REPO_ROOT = "/home/user/my-repo";
+let savedRepoRoot: string | undefined;
+let savedFlakeRoot: string | undefined;
+
+afterEach(() => {
+	if (savedRepoRoot === undefined) delete process.env.REPO_ROOT;
+	else process.env.REPO_ROOT = savedRepoRoot;
+	if (savedFlakeRoot === undefined) delete process.env.FLAKE_ROOT;
+	else process.env.FLAKE_ROOT = savedFlakeRoot;
+});
+
 beforeEach(() => {
+	savedRepoRoot = process.env.REPO_ROOT;
+	savedFlakeRoot = process.env.FLAKE_ROOT;
+	process.env.REPO_ROOT = TEST_REPO_ROOT;
+	delete process.env.FLAKE_ROOT;
 	resources.length = 0;
 	vi.mocked(execFileSync).mockReturnValue(`${MOCK_DRV_PATH}\n`);
 });
