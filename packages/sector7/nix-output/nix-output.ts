@@ -1,8 +1,12 @@
 import { execFileSync } from "node:child_process";
-import { readFileSync } from "node:fs";
+import { readFileSync, realpathSync } from "node:fs";
 import * as command from "@pulumi/command";
 import * as pulumi from "@pulumi/pulumi";
 import { getScriptPath } from "../scripts/index.ts";
+import {
+	describeRepoProvenance,
+	resolveRepoProvenance,
+} from "./repo-provenance.ts";
 
 export interface NixOutputArgs {
 	/** Flake attribute path (e.g. "packages.x86_64-linux.lens-api-image") */
@@ -17,9 +21,15 @@ export interface NixOutputArgs {
 	 * nix-output-resolve.sh). Forwarding this value would bake an absolute,
 	 * machine-specific filesystem path into a diffed Pulumi input, forcing a
 	 * spurious replace whenever the same stack is applied from a different
-	 * checkout path than whoever last applied it. In every known caller this
-	 * value is already identical to the ambient FLAKE_ROOT at runtime, so the
-	 * command sees the same path either way — it just isn't tracked.
+	 * checkout path than whoever last applied it.
+	 *
+	 * Because of that, this value does **not** choose the tree that gets
+	 * compiled — the ambient variable does. Passing a path here that differs
+	 * from the ambient one is refused at construction rather than silently
+	 * ignored (#384): it would describe one flake in the drvPath trigger and
+	 * preview while building another. To choose the tree, export the variable:
+	 *
+	 *     REPO_ROOT=/path/to/checkout pulumi up
 	 */
 	repoRoot: pulumi.Input<string>;
 	/**
@@ -133,6 +143,37 @@ export function resolveDrvPathTrigger(
 	}
 }
 
+/**
+ * Resolve a build root to the directory it actually names: symlinks followed,
+ * trailing slashes dropped. Falls back to the literal spelling when the path
+ * cannot be resolved — a `repoRoot` that does not exist is its own problem,
+ * and must not be quietly made equal to anything.
+ */
+function canonicalBuildRoot(repoRoot: string): string {
+	try {
+		return realpathSync(repoRoot);
+	} catch {
+		return repoRoot.replace(/(.)\/+$/, "$1");
+	}
+}
+
+/**
+ * Whether two build roots name the same tree.
+ *
+ * Compared as trees rather than as strings, because the ambient variable and
+ * a caller's `repoRoot` routinely spell one directory two ways: a trailing
+ * slash, a symlinked checkout parent, `/tmp` vs `/private/tmp` on macOS. That
+ * was harmless while a divergence only warned; now that it refuses, a spelling
+ * difference would block a deploy that was never wrong. `realpathSync` is the
+ * same resolution nix performs on a bare-path flake ref, so agreeing here
+ * means agreeing about the artifact.
+ *
+ * Exported for testing.
+ */
+export function sameBuildRoot(a: string, b: string): boolean {
+	return a === b || canonicalBuildRoot(a) === canonicalBuildRoot(b);
+}
+
 function isStringRecord(
 	value: Record<string, pulumi.Input<string>>,
 ): value is Record<string, string> {
@@ -214,29 +255,65 @@ export class NixOutput extends pulumi.ComponentResource {
 			...(args.subPath ? { SUB_PATH: args.subPath } : {}),
 		};
 
-		// The spawned command always resolves REPO_ROOT from the ambient
-		// FLAKE_ROOT (see the comment on `env` above), never from
-		// `args.repoRoot` directly. If a caller's resolved repoRoot ever
-		// diverges from the ambient FLAKE_ROOT, the drvPath trigger / eager
-		// preview computations below (which DO use args.repoRoot) and the
-		// actual spawned build (which uses $FLAKE_ROOT) would silently
-		// resolve different flake refs — the exact silent-divergence risk
-		// this fix trades the machine-path diffing bug for. Warn loudly if
-		// that ever happens; every known caller's repoRoot is already
-		// identical to FLAKE_ROOT, so this should never fire in practice.
-		pulumi.output(args.repoRoot).apply((repoRoot) => {
-			const ambientFlakeRoot = process.env.FLAKE_ROOT;
-			if (ambientFlakeRoot && repoRoot !== ambientFlakeRoot) {
-				pulumi.log.warn(
+		// The spawned command resolves its build tree from the ambient
+		// environment (see the comment on `env` above), never from
+		// `args.repoRoot` directly — so when the two differ, the drvPath trigger
+		// and eager preview below describe one flake while the build compiles
+		// another.
+		//
+		// Checked eagerly when `repoRoot` is a plain string, which is every
+		// known caller: a throw inside `.apply()` surfaces as a deferred
+		// rejection rather than a constructor error, which is both harder to act
+		// on and easy to miss. The apply is kept as a backstop for genuinely
+		// dynamic inputs.
+		const checkRoot = (repoRoot: string) => {
+			// Mirror the script's own precedence: ${REPO_ROOT:-${FLAKE_ROOT:-}}.
+			// `||`, not `??` — shell `:-` falls through on an *empty* string as
+			// well as an unset one, so `REPO_ROOT= pulumi up` must still resolve
+			// to FLAKE_ROOT here, or this check would validate a different tree
+			// than the one the script then builds.
+			const ambient = process.env.REPO_ROOT || process.env.FLAKE_ROOT;
+			if (ambient && !sameBuildRoot(repoRoot, ambient)) {
+				// This was a warn, on the reasoning that it "should never fire in
+				// practice". It fired: cavinsresearch/zeus#3162, where a deploy
+				// built an image from a branch nobody named and a prod deploy came
+				// one command from doing the same. The assumption holds only while
+				// every consumer runs in a devshell rooted at the tree it means,
+				// which stops being true the moment anyone uses a git worktree, a
+				// second checkout, or a repo shared by concurrent sessions.
+				//
+				// A warning is the wrong severity for "this resource will build
+				// something other than you asked for", and is easily lost in
+				// `pulumi up` output. Refuse instead — in the intended case the two
+				// are equal and this costs nothing.
+				throw new Error(
 					`NixOutput(${name}): repoRoot ("${repoRoot}") does not match the ` +
-						`ambient FLAKE_ROOT ("${ambientFlakeRoot}"). The spawned command ` +
-						"always builds/resolves against FLAKE_ROOT, not repoRoot, so " +
-						"this resource will silently use a different flake than the " +
-						"drvPath trigger and eager preview were computed against.",
-					this,
+						`ambient REPO_ROOT/FLAKE_ROOT ("${ambient}"). The spawned ` +
+						"command builds against the ambient value, not repoRoot, so " +
+						"this resource would compile a different flake than the " +
+						"drvPath trigger and eager preview were computed against — " +
+						"and than you asked for. Export the variable to choose the " +
+						`tree:\n  REPO_ROOT=${repoRoot} pulumi up`,
 				);
 			}
-		});
+
+			// Named at program time so a preview says which commit it is about
+			// to build. The drvPath trigger below already detects *that* the
+			// content changed; this says what tree the change came from, which a
+			// store-path hash cannot.
+			pulumi.log.info(
+				`NixOutput(${name}): building ${describeRepoProvenance(
+					resolveRepoProvenance(repoRoot),
+				)}`,
+				this,
+			);
+		};
+
+		if (typeof args.repoRoot === "string") {
+			checkRoot(args.repoRoot);
+		} else {
+			pulumi.output(args.repoRoot).apply(checkRoot);
+		}
 
 		const changeDetection = args.changeDetection ?? "drv";
 		const drvPathTrigger =
