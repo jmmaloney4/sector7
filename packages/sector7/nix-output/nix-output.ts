@@ -237,7 +237,11 @@ export class NixOutput extends pulumi.ComponentResource {
 		// dynamic inputs.
 		const checkRoot = (repoRoot: string) => {
 			// Mirror the script's own precedence: ${REPO_ROOT:-${FLAKE_ROOT:-}}.
-			const ambient = process.env.REPO_ROOT ?? process.env.FLAKE_ROOT;
+			// `||`, not `??` — shell `:-` falls through on an *empty* string as
+			// well as an unset one, so `REPO_ROOT= pulumi up` must still resolve
+			// to FLAKE_ROOT here, or this check would validate a different tree
+			// than the one the script then builds.
+			const ambient = process.env.REPO_ROOT || process.env.FLAKE_ROOT;
 			if (ambient && repoRoot !== ambient) {
 				// This was a warn, on the reasoning that it "should never fire in
 				// practice". It fired: cavinsresearch/zeus#3162, where a deploy

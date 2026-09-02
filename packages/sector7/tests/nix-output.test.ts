@@ -171,6 +171,30 @@ describe("NixOutput", () => {
 		}
 	});
 
+	// Shell `:-` falls through on an EMPTY string too, not just an unset one.
+	// `??` would not, so `REPO_ROOT= pulumi up` would have us checking against
+	// nothing while the script built FLAKE_ROOT's tree.
+	it("treats an empty ambient REPO_ROOT as unset, like the shell does", () => {
+		const originalFlake = process.env.FLAKE_ROOT;
+		const originalRepo = process.env.REPO_ROOT;
+		process.env.REPO_ROOT = "";
+		process.env.FLAKE_ROOT = "/home/user/flake-root-repo";
+
+		try {
+			expect(
+				() =>
+					new NixOutput("test-empty-repo-root", {
+						nixAttr: "packages.x86_64-linux.myapp",
+						repoRoot: "/home/user/somewhere-else",
+					}),
+			).toThrow(/\/home\/user\/flake-root-repo/);
+		} finally {
+			process.env.FLAKE_ROOT = originalFlake;
+			if (originalRepo === undefined) delete process.env.REPO_ROOT;
+			else process.env.REPO_ROOT = originalRepo;
+		}
+	});
+
 	// The script's own precedence is ${REPO_ROOT:-${FLAKE_ROOT:-}}, so an
 	// explicit REPO_ROOT must win over FLAKE_ROOT here too — otherwise pinning
 	// the build with REPO_ROOT would be rejected by a stale FLAKE_ROOT.
