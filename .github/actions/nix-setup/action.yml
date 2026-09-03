@@ -33,7 +33,7 @@ runs:
   using: composite
   steps:
     - if: ${{ contains(inputs.runs-on, 'runner=') }} && ${{ contains(inputs.runs-on, 's3-cache') }}
-      uses: runs-on/action@4e5f72399b6b17f2e79c511c1b38a315a64d22dc # v2.2.0
+      uses: runs-on/action@46910bf61b41721b0579f237e186afb35477007a # v2.3.0
       with:
         show_costs: true
         sccache: s3
