@@ -74,6 +74,10 @@
 		"./attic": {
 			"types": "./dist/attic/index.d.ts",
 			"default": "./dist/attic/index.js"
+		},
+		"./tenancy": {
+			"types": "./dist/tenancy/index.d.ts",
+			"default": "./dist/tenancy/index.js"
 		}
 	},
 	"files": [
