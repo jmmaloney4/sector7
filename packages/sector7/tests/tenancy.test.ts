@@ -1,4 +1,5 @@
-import { describe, expect, it } from "vitest";
+import * as pulumi from "@pulumi/pulumi";
+import { beforeAll, describe, expect, it } from "vitest";
 import {
 	contractItemsFor,
 	findUnclaimedNamespaces,
@@ -8,6 +9,7 @@ import {
 	resolveConsumes,
 	TENANT_LABEL,
 	TenancyRegistry,
+	Tenant,
 } from "../tenancy/index.js";
 
 const CATALOG: PlatformService[] = [
@@ -274,5 +276,84 @@ describe("observabilityIngressPolicy", () => {
 		}) as { ingress: Array<Record<string, unknown>> };
 		expect(JSON.stringify(p.ingress[0])).toContain("3100");
 		expect(p.ingress[0].toPorts).toBeDefined();
+	});
+});
+
+describe("input validation", () => {
+	it("rejects duplicate tenant ids in the registry", () => {
+		expect(
+			() =>
+				new TenancyRegistry([
+					{ id: "jmmaloney4", namespaces: ["matrix"], contractItems: [] },
+					{
+						id: "cavinsresearch",
+						namespaces: ["cavins-prod"],
+						contractItems: [],
+					},
+					{ id: "jmmaloney4", namespaces: ["media"], contractItems: [] },
+				]),
+		).toThrow(/duplicate tenant id\(s\) in registry: jmmaloney4/);
+	});
+
+	it("accepts a registry with unique ids", () => {
+		expect(
+			() =>
+				new TenancyRegistry([
+					{ id: "jmmaloney4", namespaces: ["matrix"], contractItems: [] },
+					{
+						id: "cavinsresearch",
+						namespaces: ["cavins-prod"],
+						contractItems: [],
+					},
+				]),
+		).not.toThrow();
+	});
+});
+
+describe("Tenant deployer validation", () => {
+	beforeAll(() => {
+		pulumi.runtime.setMocks({
+			newResource: (args) => ({ id: `${args.name}-id`, state: args.inputs }),
+			call: (args) => args.inputs,
+		});
+	});
+
+	const base = { id: "t", namespaces: ["x"] };
+
+	it("rejects a ServiceAccount deployer with no namespace", () => {
+		// Kubernetes requires a namespace on a ServiceAccount subject. Without the
+		// guard the RoleBinding is generated with `namespace: undefined` and the
+		// apiserver rejects it at deploy time rather than here.
+		expect(
+			() =>
+				new Tenant("t", {
+					...base,
+					deployer: { kind: "ServiceAccount", name: "sa" },
+				}),
+		).toThrow(/deployer\.namespace is required/);
+	});
+
+	it("accepts a ServiceAccount deployer that names its namespace", () => {
+		expect(
+			() =>
+				new Tenant("t2", {
+					...base,
+					deployer: {
+						kind: "ServiceAccount",
+						name: "sa",
+						namespace: "kube-system",
+					},
+				}),
+		).not.toThrow();
+	});
+
+	it("accepts a User deployer, which is not namespaced", () => {
+		expect(
+			() =>
+				new Tenant("t3", {
+					...base,
+					deployer: { kind: "User", name: "pulumi-jmm" },
+				}),
+		).not.toThrow();
 	});
 });

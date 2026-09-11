@@ -114,6 +114,20 @@ export class Tenant extends pulumi.ComponentResource {
 			);
 		}
 
+		// Kubernetes requires a namespace on a ServiceAccount RBAC subject. Without
+		// this guard the binding is generated with `namespace: undefined`, which the
+		// apiserver rejects — so a valid-looking tenant declaration fails at deploy
+		// time with an RBAC error rather than here, at the point of the mistake.
+		if (
+			args.deployer.kind === "ServiceAccount" &&
+			args.deployer.namespace === undefined
+		) {
+			throw new Error(
+				`tenant "${args.id}": deployer.namespace is required when deployer.kind ` +
+					`is "ServiceAccount" — a ServiceAccount subject is namespaced.`,
+			);
+		}
+
 		const subject = {
 			kind: args.deployer.kind,
 			name: args.deployer.name,

@@ -22,6 +22,21 @@ export class TenancyRegistry {
 		tenants: TenancyRegistryEntry[],
 		catalog: PlatformService[] = [],
 	) {
+		// Two entries sharing an id are not two tenants — they are one identity with
+		// its namespaces split across two declarations. `contract` would keep only
+		// the last (Object.fromEntries overwrites) and both would stamp the same
+		// tenant label, so the duplicate is invisible everywhere except in the
+		// contract that silently went missing.
+		const ids = tenants.map((t) => t.id);
+		const duplicated = [
+			...new Set(ids.filter((id, i) => ids.indexOf(id) !== i)),
+		];
+		if (duplicated.length > 0) {
+			throw new Error(
+				`duplicate tenant id(s) in registry: ${duplicated.sort().join(", ")}. ` +
+					`Each tenant must appear once, with all of its namespaces.`,
+			);
+		}
 		this.tenants = tenants;
 		this.catalog = catalog;
 	}
