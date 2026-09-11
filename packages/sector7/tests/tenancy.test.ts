@@ -223,7 +223,10 @@ describe("observabilityIngressPolicy", () => {
 				ingress: Array<{ fromEndpoints: Array<Record<string, unknown>> }>;
 			}
 		).ingress;
-		const attested = rules[1]?.fromEndpoints ?? [];
+		// Searched rather than indexed: the rule's position is not part of the
+		// contract, and hard-coding it made this test fail for the wrong reason
+		// when the blanket in-namespace rule was removed.
+		const attested = rules.flatMap((r) => r.fromEndpoints ?? []);
 		expect(attested).toContainEqual({
 			matchLabels: {
 				"k8s:io.kubernetes.pod.namespace": "kube-system",
@@ -234,5 +237,42 @@ describe("observabilityIngressPolicy", () => {
 
 	it("is default-deny on ingress only", () => {
 		expect(policy.enableDefaultDeny).toEqual({ ingress: true, egress: false });
+	});
+});
+
+describe("observabilityIngressPolicy", () => {
+	const alloy = [{ namespace: "observability", name: "alloy-platform" }];
+
+	it("does not blanket-allow the namespace — that would subsume the Alloy rule", () => {
+		// Cilium ORs ingress rules, so a namespace-wide allow does not sit
+		// alongside the ServiceAccount restriction, it replaces it.
+		const p = observabilityIngressPolicy({
+			namespace: "observability",
+			alloyServiceAccounts: alloy,
+			writePorts: [{ port: 3100 }],
+		}) as { ingress: Array<Record<string, unknown>> };
+		expect(p.ingress).toHaveLength(1);
+		expect(JSON.stringify(p.ingress)).toContain("alloy-platform");
+	});
+
+	it("admits in-namespace components only when they are named", () => {
+		const p = observabilityIngressPolicy({
+			namespace: "observability",
+			alloyServiceAccounts: alloy,
+			writePorts: [{ port: 3100 }],
+			componentServiceAccounts: [{ namespace: "observability", name: "loki" }],
+		}) as { ingress: Array<Record<string, unknown>> };
+		expect(p.ingress).toHaveLength(2);
+		expect(JSON.stringify(p.ingress)).toContain("loki");
+	});
+
+	it("restricts the Alloy rule to the write ports", () => {
+		const p = observabilityIngressPolicy({
+			namespace: "observability",
+			alloyServiceAccounts: alloy,
+			writePorts: [{ port: 3100 }],
+		}) as { ingress: Array<Record<string, unknown>> };
+		expect(JSON.stringify(p.ingress[0])).toContain("3100");
+		expect(p.ingress[0].toPorts).toBeDefined();
 	});
 });

@@ -210,13 +210,36 @@ export function observabilityIngressPolicy(args: {
 	namespace: string;
 	alloyServiceAccounts: Array<{ namespace: string; name: string }>;
 	writePorts: Array<{ port: number; protocol?: "TCP" | "UDP" }>;
+	/**
+	 * ServiceAccounts of components *inside* the namespace that must reach each
+	 * other — a Loki distributor talking to its ingesters, and so on.
+	 *
+	 * Enumerated deliberately rather than allowed wholesale. Cilium ORs ingress
+	 * rules, so a blanket "anything in this namespace" rule does not sit
+	 * alongside the Alloy restriction below — it **subsumes** it, and every pod
+	 * in the namespace regains access to every write port. The guarantee in this
+	 * function's description is only true if nothing here is broader than it
+	 * needs to be.
+	 */
+	componentServiceAccounts?: Array<{ namespace: string; name: string }>;
 }): Record<string, unknown> {
 	return {
 		description: "ADR 171 — only attested Alloy may write telemetry",
 		endpointSelector: {},
 		enableDefaultDeny: { ingress: true, egress: false },
 		ingress: [
-			{ fromEndpoints: [namespaceEndpoints(args.namespace)] },
+			...(args.componentServiceAccounts?.length
+				? [
+						{
+							fromEndpoints: args.componentServiceAccounts.map((sa) => ({
+								matchLabels: {
+									[NS_LABEL]: sa.namespace,
+									"k8s:io.cilium.k8s.policy.serviceaccount": sa.name,
+								},
+							})),
+						},
+					]
+				: []),
 			{
 				fromEndpoints: args.alloyServiceAccounts.map((sa) => ({
 					matchLabels: {

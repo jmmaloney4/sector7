@@ -214,7 +214,20 @@ export class Tenant extends pulumi.ComponentResource {
 		// this only binds the tenant to it, so a missing Role is a loud failure
 		// rather than a silent over-grant.
 		const seenGrants = new Set<string>();
+		const owned = new Set(this.namespaceNames);
 		for (const grant of args.platformGrants ?? []) {
+			// A grant into a namespace the tenant already owns is a contradiction,
+			// not a shortcut: the deployer ClusterRole already covers that
+			// namespace, so the only thing an extra binding can do is widen access
+			// to some other Role — quietly, and outside the deployer role that the
+			// rest of the model reasons about. Reject it rather than materialise it.
+			if (owned.has(grant.namespace)) {
+				throw new Error(
+					`platformGrant targets "${grant.namespace}", which tenant "${args.id}" ` +
+						`already owns. Platform grants are for namespaces the tenant does NOT ` +
+						`own; widen the deployer ClusterRole instead.`,
+				);
+			}
 			// Keyed by what the grant *is* — never by where it sits in the array.
 			// An index-derived resource name turns a reorder of `platformGrants`
 			// into a delete-and-recreate of live RoleBindings.
