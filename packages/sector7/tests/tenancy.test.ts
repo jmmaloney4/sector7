@@ -3,6 +3,7 @@ import {
 	contractItemsFor,
 	findUnclaimedNamespaces,
 	namespacePolicy,
+	observabilityIngressPolicy,
 	type PlatformService,
 	resolveConsumes,
 	TENANT_LABEL,
@@ -186,5 +187,38 @@ describe("findUnclaimedNamespaces", () => {
 	it("reports an owner for a claimed namespace", () => {
 		expect(registry.ownerOf("cavins-prod")).toBe("cavinsresearch");
 		expect(registry.ownerOf("codex-proxy")).toBeUndefined();
+	});
+});
+
+describe("observabilityIngressPolicy", () => {
+	const policy = observabilityIngressPolicy({
+		namespace: "observability",
+		alloyServiceAccounts: [
+			{ namespace: "observability", name: "alloy-logs" },
+			{ namespace: "kube-system", name: "alloy-metrics" },
+		],
+		writePorts: [{ port: 3100 }],
+	});
+
+	it("names each Alloy ServiceAccount's namespace", () => {
+		// A fromEndpoints selector that mentions no namespace gets the policy's
+		// own namespace ANDed in, so a bare ServiceAccount name would silently
+		// drop telemetry from Alloy running anywhere else.
+		const rules = (
+			policy as {
+				ingress: Array<{ fromEndpoints: Array<Record<string, unknown>> }>;
+			}
+		).ingress;
+		const attested = rules[1]?.fromEndpoints ?? [];
+		expect(attested).toContainEqual({
+			matchLabels: {
+				"k8s:io.kubernetes.pod.namespace": "kube-system",
+				"k8s:io.cilium.k8s.policy.serviceaccount": "alloy-metrics",
+			},
+		});
+	});
+
+	it("is default-deny on ingress only", () => {
+		expect(policy.enableDefaultDeny).toEqual({ ingress: true, egress: false });
 	});
 });

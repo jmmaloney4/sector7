@@ -197,10 +197,18 @@ export function namespacePolicy(
  * Blocked on garden#1844: the ARC runner diag shipper pushes to Loki from inside
  * runner pods where tenant CI runs arbitrary code, and this policy breaks it —
  * which is the point.
+ *
+ * Each ServiceAccount must name its namespace. A `fromEndpoints` selector in a
+ * namespaced CiliumNetworkPolicy that mentions no namespace gets the policy's
+ * own namespace ANDed in (`getEndpointSelector`,
+ * `pkg/k8s/apis/cilium.io/utils/utils.go`) — so a bare ServiceAccount name
+ * would match only an Alloy that happens to run in `observability`, and
+ * silently drop telemetry from every other namespace. This policy is
+ * default-deny on ingress, so that failure mode is a telemetry outage.
  */
 export function observabilityIngressPolicy(args: {
 	namespace: string;
-	alloyServiceAccounts: string[];
+	alloyServiceAccounts: Array<{ namespace: string; name: string }>;
 	writePorts: Array<{ port: number; protocol?: "TCP" | "UDP" }>;
 }): Record<string, unknown> {
 	return {
@@ -211,7 +219,10 @@ export function observabilityIngressPolicy(args: {
 			{ fromEndpoints: [namespaceEndpoints(args.namespace)] },
 			{
 				fromEndpoints: args.alloyServiceAccounts.map((sa) => ({
-					matchLabels: { "k8s:io.cilium.k8s.policy.serviceaccount": sa },
+					matchLabels: {
+						[NS_LABEL]: sa.namespace,
+						"k8s:io.cilium.k8s.policy.serviceaccount": sa.name,
+					},
 				})),
 				toPorts: [
 					{
