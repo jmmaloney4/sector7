@@ -37,6 +37,13 @@ export interface PodSecuritySpec {
  *
  * Deliberately a small, opinionated subset: the goal is a ceiling that stops a
  * runaway workload from starving the cluster, not a chargeback model.
+ *
+ * **Pair `cpu`/`memory` with {@link LimitsSpec}.** They become `limits.cpu` and
+ * `limits.memory`, and Kubernetes rejects any pod that omits a resource the
+ * namespace quota constrains. On a cluster whose workloads have never had to
+ * declare limits — which is this one, since there are zero ResourceQuotas
+ * today — a quota with no `LimitRange` supplying defaults stops new pods from
+ * being admitted at all.
  */
 export interface QuotaSpec {
 	cpu?: pulumi.Input<string>;
@@ -49,8 +56,12 @@ export interface QuotaSpec {
 
 /**
  * Default and maximum container resources applied to a tenant's namespaces via
- * `LimitRange`. Without this, a quota is enforceable only against pods that
- * already declare requests.
+ * `LimitRange`.
+ *
+ * This is not optional polish next to {@link QuotaSpec}: a namespace quota on
+ * `limits.cpu`/`limits.memory` makes those fields mandatory, so without a
+ * `LimitRange` to default them, every pod that does not declare limits is
+ * rejected outright rather than merely uncounted.
  */
 export interface LimitsSpec {
 	defaultRequest?: { cpu?: string; memory?: string };
