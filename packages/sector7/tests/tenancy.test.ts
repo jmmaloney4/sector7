@@ -184,6 +184,20 @@ describe("findUnclaimedNamespaces", () => {
 		expect(findUnclaimedNamespaces(live, registry)).toEqual([]);
 	});
 
+	it("catches a namespace claimed by two tenants", () => {
+		// ownerOf answers with the first match, so a double claim is invisible
+		// to it and to the unclaimed check — but in the cluster it means two
+		// deployer RoleBindings and two tenant labels racing on apply order.
+		const clash = new TenancyRegistry([
+			{ id: "jmmaloney4", namespaces: ["matrix", "shared"], contractItems: [] },
+			{ id: "cavinsresearch", namespaces: ["shared"], contractItems: [] },
+		]);
+		expect(clash.conflictingClaims).toEqual([
+			{ namespace: "shared", tenants: ["jmmaloney4", "cavinsresearch"] },
+		]);
+		expect(registry.conflictingClaims).toEqual([]);
+	});
+
 	it("reports an owner for a claimed namespace", () => {
 		expect(registry.ownerOf("cavins-prod")).toBe("cavinsresearch");
 		expect(registry.ownerOf("codex-proxy")).toBeUndefined();

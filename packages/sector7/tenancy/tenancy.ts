@@ -40,6 +40,33 @@ export class TenancyRegistry {
 	ownerOf(namespace: string): string | undefined {
 		return this.tenants.find((t) => t.namespaces.includes(namespace))?.id;
 	}
+
+	/**
+	 * Namespaces claimed by more than one tenant, with their claimants.
+	 *
+	 * {@link ownerOf} answers with the *first* match, which is how a double
+	 * claim stays invisible: the registry reports a single owner and the
+	 * unclaimed-namespace check stays green. In the cluster the same namespace
+	 * would then carry two deployer RoleBindings and two tenant labels fighting
+	 * over one `metadata.labels` entry, so ownership would depend on apply
+	 * order.
+	 *
+	 * Paired with {@link findUnclaimedNamespaces}, this is the other half of
+	 * "every namespace has exactly one owner", and it is the half a registry can
+	 * answer with no cluster access at all.
+	 */
+	get conflictingClaims(): Array<{ namespace: string; tenants: string[] }> {
+		const claimants = new Map<string, string[]>();
+		for (const t of this.tenants) {
+			for (const ns of t.namespaces) {
+				claimants.set(ns, [...(claimants.get(ns) ?? []), t.id]);
+			}
+		}
+		return [...claimants]
+			.filter(([, ids]) => ids.length > 1)
+			.map(([namespace, tenants]) => ({ namespace, tenants }))
+			.sort((a, b) => a.namespace.localeCompare(b.namespace));
+	}
 }
 
 /**
