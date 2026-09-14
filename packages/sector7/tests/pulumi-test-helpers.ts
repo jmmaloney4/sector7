@@ -31,6 +31,18 @@ export function installPulumiMocks(): void {
 						: "generated-master-key";
 			}
 
+			// Pulumi auto-names Kubernetes resources that omit `metadata.name`,
+			// appending a random suffix. Emulate it (deterministically) so tests see
+			// the same shape a real deploy produces — without this, an auto-named
+			// resource has an undefined name and every assertion about which object
+			// references it silently passes.
+			if (typeToken.startsWith("kubernetes:")) {
+				const metadata = (state.metadata ?? {}) as Record<string, unknown>;
+				if (metadata.name === undefined) {
+					state.metadata = { ...metadata, name: `${args.name}-autoname` };
+				}
+			}
+
 			if (args.type === "command:local:Command") {
 				state.stdout = `${args.name}-stdout`;
 			}

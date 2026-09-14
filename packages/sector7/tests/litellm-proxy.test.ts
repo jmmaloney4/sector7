@@ -241,7 +241,10 @@ describe("LiteLLMProxy", () => {
 			name: "LANGFUSE_HOST",
 			valueFrom: {
 				secretKeyRef: {
-					name: "observed-proxy-runtime",
+					// Compared against the Secret's own rendered name rather than a
+					// literal: the name is auto-generated, and the invariant worth
+					// testing is that the env var points at *this* Secret.
+					name: (runtimeSecret?.inputs.metadata as { name: string }).name,
 					key: "LANGFUSE_HOST",
 				},
 			},

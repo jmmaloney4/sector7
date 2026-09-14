@@ -225,8 +225,6 @@ export class LiteLLMProxy extends pulumi.ComponentResource {
 			extraSecretRefEnvEntries.map(([name]) => name),
 		);
 
-		const providerSecretName = `${name}-provider-keys`;
-
 		const providerStringData = resolvedProviderSecrets.apply(
 			(secretProviders) =>
 				Object.fromEntries(
@@ -397,11 +395,22 @@ export class LiteLLMProxy extends pulumi.ComponentResource {
 				})
 			: pulumi.output(args.databaseUrl);
 
+		// metadata.name is deliberately omitted on this Secret, the runtime Secret
+		// and the ConfigMap below so Pulumi auto-names them.
+		//
+		// The Kubernetes provider never PATCHes ConfigMaps or Secrets — pods holding
+		// one must restart for a change to take effect — so any `data` change forces
+		// a replacement. With an explicit name the replacement must reuse that name,
+		// which means the Deployment is *replaced* rather than rolled, and the create
+		// collides with the live object. Auto-naming makes the same change a
+		// create-new / roll / delete-old sequence: a normal rolling update.
+		//
+		// Every dependent below reads `.metadata.name` off these resources rather
+		// than reconstructing the string, so the generated names propagate.
 		this.providerSecret = new k8s.core.v1.Secret(
 			`${name}-providers`,
 			{
 				metadata: {
-					name: providerSecretName,
 					namespace: this.namespace,
 				},
 				stringData: providerStringData,
@@ -433,7 +442,6 @@ export class LiteLLMProxy extends pulumi.ComponentResource {
 			`${name}-runtime`,
 			{
 				metadata: {
-					name: `${name}-runtime`,
 					namespace: this.namespace,
 				},
 				stringData: runtimeSecretData,
@@ -445,7 +453,6 @@ export class LiteLLMProxy extends pulumi.ComponentResource {
 			`${name}-config`,
 			{
 				metadata: {
-					name: `${name}-config`,
 					namespace: this.namespace,
 				},
 				data: {
