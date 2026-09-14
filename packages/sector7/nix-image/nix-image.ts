@@ -108,7 +108,14 @@ export class NixImage extends pulumi.ComponentResource {
 		// It is scheduling-only state (and once populated holds references to
 		// this component's own child push commands); leaking it into the input
 		// bag would create a registration cycle.
-		const { pushGroup: _pushGroup, ...registrableArgs } = args;
+		// `repoRoot` excluded for the same reason as in NixOutput: an absolute
+		// checkout-specific path whose value does not affect the build, so
+		// diffing it churns this resource across checkouts for no content change.
+		const {
+			pushGroup: _pushGroup,
+			repoRoot: _repoRoot,
+			...registrableArgs
+		} = args;
 
 		super("sector7:nix:NixImage", name, registrableArgs, {
 			...opts,

@@ -219,7 +219,26 @@ export class NixOutput extends pulumi.ComponentResource {
 			aliases.push({ parent: opts.parent });
 		}
 
-		super("sector7:nix:NixOutput", name, args, {
+		// `repoRoot` is deliberately excluded from the registered inputs.
+		//
+		// It is an absolute, machine- and checkout-specific path, and its VALUE
+		// provably does not affect what gets built: two clean worktrees of the
+		// same commit, at different paths, evaluate to an identical drvPath. So
+		// diffing it churns every NixOutput and NixImage whenever a preview runs
+		// from a different checkout than the last deploy — `[diff: ~repoRoot]` on
+		// resources whose content is unchanged.
+		//
+		// The content signal is the drvPath trigger below, which is exactly the
+		// right one: the drv hash covers every transitive input. The risk
+		// `repoRoot` used to guard against by being diffed — pointing at one tree
+		// while the script builds another — is now caught by `checkRoot` as a
+		// hard error, which is a better instrument than a diff anyway.
+		//
+		// Same reasoning as the script-path handling immediately below, and as
+		// `pushGroup` in NixImage.
+		const { repoRoot: _repoRoot, ...registrableArgs } = args;
+
+		super("sector7:nix:NixOutput", name, registrableArgs, {
 			...opts,
 			aliases: [...aliases, ...(opts?.aliases ?? [])],
 		});
