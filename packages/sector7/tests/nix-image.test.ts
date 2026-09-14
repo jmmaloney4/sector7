@@ -330,6 +330,34 @@ describe("NixImage", () => {
 		expect(component).toBeDefined();
 	});
 
+	it("does not register repoRoot as a tracked input", async () => {
+		// repoRoot is an absolute checkout-specific path whose value provably
+		// does not affect the build (two clean worktrees of one commit evaluate
+		// to the same drvPath). Registering it makes every preview from a
+		// different checkout churn `[diff: ~repoRoot]` on unchanged content.
+		// Without this test, re-adding it to super() would pass silently.
+		const img = new NixImage("test-no-reporoot", {
+			nixAttr: "packages.x86_64-linux.my-image",
+			imageName: "my-image",
+			imageTag: "dev",
+			artifactRegistryUrl: "us-east1-docker.pkg.dev/my-project/my-repo",
+			repoRoot: "/home/user/my-repo",
+		});
+
+		await resolveOutput(img.digest);
+
+		for (const type of ["sector7:nix:NixImage", "sector7:nix:NixOutput"]) {
+			const component = resources.find(
+				(r) => r.type === type && r.name.startsWith("test-no-reporoot"),
+			);
+			expect(component, `${type} should have been registered`).toBeDefined();
+			expect(
+				Object.keys(component?.inputs ?? {}),
+				`${type} must not track repoRoot`,
+			).not.toContain("repoRoot");
+		}
+	});
+
 	it("passes STORE_PATH from NixOutput to push command in build mode", async () => {
 		const img = new NixImage("test-store-path", {
 			nixAttr: "packages.x86_64-linux.my-image",
