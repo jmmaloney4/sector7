@@ -244,7 +244,7 @@ describe("LiteLLMProxy", () => {
 					// Compared against the Secret's own rendered name rather than a
 					// literal: the name is auto-generated, and the invariant worth
 					// testing is that the env var points at *this* Secret.
-					name: (runtimeSecret?.inputs.metadata as { name: string }).name,
+					name: (runtimeSecret!.inputs.metadata as { name: string }).name,
 					key: "LANGFUSE_HOST",
 				},
 			},
