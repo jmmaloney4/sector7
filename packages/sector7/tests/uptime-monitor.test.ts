@@ -178,7 +178,7 @@ describe("UptimeMonitor", () => {
 
 		const worker = findResource("exd1-worker");
 		const d1Binding = (
-			worker?.inputs.bindings as Array<Record<string, unknown>>
+			worker!.inputs.bindings as Array<Record<string, unknown>>
 		).find((b) => b.name === "DB");
 		expect(d1Binding).toBeDefined();
 	});
