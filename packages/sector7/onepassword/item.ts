@@ -101,11 +101,11 @@ export interface OnePasswordItemArgs {
  */
 export class OnePasswordItem extends pulumi.CustomResource {
 	/** The created/adopted 1Password item id. */
-	public declare readonly uuid: Output<string>;
+	declare public readonly uuid: Output<string>;
 	/** `vaults/<vault>/items/<uuid>` — the form `OnePasswordItem` CRs / `op read` consume. */
-	public declare readonly itemPath: Output<string>;
+	declare public readonly itemPath: Output<string>;
 	/** Hash of the written content; used to detect drift without storing values. */
-	public declare readonly contentHash: Output<string>;
+	declare public readonly contentHash: Output<string>;
 
 	constructor(
 		name: string,

@@ -181,7 +181,7 @@ const omitCloudProviderOptions = (
  */
 export class R2Object extends pulumi.CustomResource {
 	/** ETag of the uploaded object as returned by R2 (MD5 hex, no quotes). */
-	public declare readonly etag: pulumi.Output<string>;
+	declare public readonly etag: pulumi.Output<string>;
 
 	constructor(
 		name: string,

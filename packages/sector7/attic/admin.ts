@@ -30,8 +30,8 @@ import { parseDurationSeconds } from "./token.ts";
  * dropped as harmless bookkeeping cleanup once nothing references it.
  */
 export class AtticCache extends pulumi.CustomResource {
-	public declare readonly cacheName: pulumi.Output<string>;
-	public declare readonly publicKey: pulumi.Output<string>;
+	declare public readonly cacheName: pulumi.Output<string>;
+	declare public readonly publicKey: pulumi.Output<string>;
 
 	constructor(
 		name: string,
@@ -73,9 +73,9 @@ export class AtticCache extends pulumi.CustomResource {
  * same reason for the `atticprovider` token as `AtticCache` above.
  */
 export class AtticToken extends pulumi.CustomResource {
-	public declare readonly token: pulumi.Output<string>;
-	public declare readonly expiresAt: pulumi.Output<number>;
-	public declare readonly notBefore: pulumi.Output<number>;
+	declare public readonly token: pulumi.Output<string>;
+	declare public readonly expiresAt: pulumi.Output<number>;
+	declare public readonly notBefore: pulumi.Output<number>;
 
 	constructor(
 		name: string,

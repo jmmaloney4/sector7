@@ -69,7 +69,7 @@ export class D1Query extends pulumi.CustomResource {
 	/**
 	 * SHA-256 hex digest of the last-executed SQL.
 	 */
-	public declare readonly sqlHash: Output<string>;
+	declare public readonly sqlHash: Output<string>;
 
 	constructor(
 		name: string,
