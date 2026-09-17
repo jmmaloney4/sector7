@@ -81,7 +81,7 @@ function teamProviderInputs(args: LiteLLMTeamArgs) {
 }
 
 class LiteLLMTeamRecord extends pulumi.CustomResource {
-	public declare readonly teamId: pulumi.Output<string>;
+	declare public readonly teamId: pulumi.Output<string>;
 
 	constructor(
 		name: string,
@@ -160,7 +160,7 @@ function keyProviderInputs(
 }
 
 class LiteLLMApiKeyRecord extends pulumi.CustomResource {
-	public declare readonly tokenId: pulumi.Output<string>;
+	declare public readonly tokenId: pulumi.Output<string>;
 
 	constructor(
 		name: string,
