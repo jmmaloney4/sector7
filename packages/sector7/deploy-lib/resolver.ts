@@ -13,6 +13,7 @@
 
 import * as k8s from "@pulumi/kubernetes";
 import * as pulumi from "@pulumi/pulumi";
+import * as yaml from "yaml";
 import {
 	type ContractChannel,
 	getContractChannel,
@@ -130,14 +131,16 @@ export function apiServerHostFromContractFields(
 	);
 	let server: unknown;
 	try {
-		const parsed = JSON.parse(kubeconfig) as {
+		// Kubeconfigs are conventionally YAML; JSON is a subset of YAML, so
+		// this accepts both without caring which the publisher wrote.
+		const parsed = yaml.parse(kubeconfig) as {
 			clusters?: { cluster?: { server?: unknown } }[];
-		};
-		server = parsed.clusters?.[0]?.cluster?.server;
+		} | null;
+		server = parsed?.clusters?.[0]?.cluster?.server;
 	} catch {
 		throw new Error(
 			`contract item "op://${channel.vault}/${KUBECONFIG_ITEM}/kubeconfig" ` +
-				"is not parseable JSON, so the API server host cannot be derived",
+				"is not parseable YAML/JSON, so the API server host cannot be derived",
 		);
 	}
 	if (typeof server !== "string" || server.length === 0) {

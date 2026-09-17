@@ -91,11 +91,11 @@ Contract-mode configuration (all read once, at the chokepoint):
 
 | Item title   | Field labels                                                                                                               | Replaces                                                |
 | ------------ | -------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------- |
-| `kubeconfig` | `kubeconfig` (JSON kubeconfig), `producedBy`, `producedAt`                                                                 | `organization/k8s/<env>` outputs `kubeconfig`/`apiHost` |
+| `kubeconfig` | `kubeconfig` (YAML/JSON kubeconfig), `producedBy`, `producedAt`                                                            | `organization/k8s/<env>` outputs `kubeconfig`/`apiHost` |
 | `config`     | `cloudflareApiTokens` (JSON `Record<accountId, token>`), `ghcr` (JSON `{"username", "token"}`), `producedBy`, `producedAt` | `organization/config/<env>` outputs                     |
 
 `getApiServerHost` in contract mode parses `clusters[0].cluster.server` out
-of the kubeconfig JSON rather than requiring a separate item — the kubeconfig
+of the kubeconfig (YAML or JSON) rather than requiring a separate item — the kubeconfig
 already carries the coordinate, and a second item could drift from it.
 
 ## Read mechanism

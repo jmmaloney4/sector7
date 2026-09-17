@@ -51,12 +51,17 @@ export function getContractChannel(): ContractChannel | undefined {
 	if (!vault) {
 		return undefined;
 	}
-	const connectHost = cfg.get("connectHost") ?? process.env.OP_CONNECT_HOST;
+	let connectHost = cfg.get("connectHost") ?? process.env.OP_CONNECT_HOST;
 	if (!connectHost) {
 		throw new Error(
 			"contract:vault is set but no 1Password Connect host is configured. " +
 				"Set contract:connectHost or the OP_CONNECT_HOST environment variable.",
 		);
+	}
+	// A bare hostname would surface as a cryptic "Invalid URL" from fetch;
+	// normalize to https (never http — this channel carries credentials).
+	if (!/^https?:\/\//i.test(connectHost)) {
+		connectHost = `https://${connectHost}`;
 	}
 	const connectToken: pulumi.Input<string> | undefined =
 		cfg.getSecret("connectToken") ?? process.env.OP_CONNECT_TOKEN;
@@ -78,6 +83,12 @@ export function getContractChannel(): ContractChannel | undefined {
 /** 1Password vault/item UUIDs are 26 lowercase base32 characters. */
 const OP_ID = /^[a-z0-9]{26}$/;
 
+/**
+ * Per-request Connect timeout. Without it, an unresponsive Connect server
+ * hangs the whole preview/update instead of failing it loudly.
+ */
+const CONNECT_TIMEOUT_MS = 15_000;
+
 async function connectGet(
 	host: string,
 	token: string,
@@ -88,11 +99,19 @@ async function connectGet(
 	try {
 		res = await fetch(url, {
 			headers: { Authorization: `Bearer ${token}` },
+			signal: AbortSignal.timeout(CONNECT_TIMEOUT_MS),
 		});
 	} catch (e) {
+		const message =
+			e instanceof Error &&
+			(e.name === "TimeoutError" || e.name === "AbortError")
+				? `request timed out after ${CONNECT_TIMEOUT_MS / 1000}s`
+				: e instanceof Error
+					? e.message
+					: String(e);
 		throw new Error(
 			`contract read failed: 1Password Connect at ${host} is unreachable ` +
-				`(${e instanceof Error ? e.message : String(e)})`,
+				`(${message})`,
 		);
 	}
 	if (!res.ok) {
@@ -226,6 +245,13 @@ export async function readContractItemAsync(
 	if (!cached) {
 		cached = fetchItemFields(channel.connectHost, token, channel.vault, title);
 		itemCache.set(key, cached);
+		// Cache successes only: a cached rejection would pin a transient
+		// network failure for the rest of the process.
+		cached.catch(() => {
+			if (itemCache.get(key) === cached) {
+				itemCache.delete(key);
+			}
+		});
 	}
 	const fields = await cached;
 	assertFresh(channel, title, fields);

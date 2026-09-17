@@ -207,6 +207,13 @@ describe("mode selection (the chokepoint)", () => {
 		expect(() => getContractChannel()).toThrow(/connectToken|OP_CONNECT_TOKEN/);
 	});
 
+	it("normalizes a protocol-less connectHost to https", () => {
+		setContractConfig({ "contract:connectHost": "connect.example" });
+		expect(getContractChannel()).toMatchObject({
+			connectHost: "https://connect.example",
+		});
+	});
+
 	it("falls back to OP_CONNECT_HOST / OP_CONNECT_TOKEN env vars", () => {
 		pulumi.runtime.setAllConfig({ "contract:vault": VAULT_ID });
 		process.env.OP_CONNECT_HOST = "https://env.example";
@@ -378,18 +385,36 @@ describe("contract failure modes (loud, never a silent fallback)", () => {
 		).rejects.toThrow(/exactly one 1Password vault named "tenant-vault"/);
 	});
 
-	it("rejects a non-JSON kubeconfig when deriving the API server host", () => {
+	it("derives the API server host from a YAML kubeconfig too", () => {
+		const yamlKubeconfig = [
+			"apiVersion: v1",
+			"kind: Config",
+			"clusters:",
+			"  - name: c",
+			"    cluster:",
+			"      server: https://yaml.example:6443",
+		].join("\n");
+		expect(
+			apiServerHostFromContractFields(channel, { kubeconfig: yamlKubeconfig }),
+		).toBe("https://yaml.example:6443");
+	});
+
+	it("rejects an unparseable kubeconfig when deriving the API server host", () => {
 		expect(() =>
-			apiServerHostFromContractFields(channel, { kubeconfig: "not-json" }),
-		).toThrow(/not parseable JSON/);
+			apiServerHostFromContractFields(channel, { kubeconfig: "{ invalid" }),
+		).toThrow(/not parseable YAML\/JSON/);
 	});
 
 	it("rejects a kubeconfig with no server when deriving the API server host", () => {
-		expect(() =>
-			apiServerHostFromContractFields(channel, {
-				kubeconfig: JSON.stringify({ clusters: [] }),
-			}),
-		).toThrow(/clusters\[0\]\.cluster\.server/);
+		for (const kubeconfig of [
+			JSON.stringify({ clusters: [] }),
+			"null",
+			"just-a-scalar",
+		]) {
+			expect(() =>
+				apiServerHostFromContractFields(channel, { kubeconfig }),
+			).toThrow(/clusters\[0\]\.cluster\.server/);
+		}
 	});
 });
 
