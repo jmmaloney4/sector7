@@ -78,6 +78,10 @@
 		"./tenancy": {
 			"types": "./dist/tenancy/index.d.ts",
 			"default": "./dist/tenancy/index.js"
+		},
+		"./deploy-lib": {
+			"types": "./dist/deploy-lib/index.d.ts",
+			"default": "./dist/deploy-lib/index.js"
 		}
 	},
 	"files": [
