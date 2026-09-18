@@ -235,6 +235,16 @@ describe("mode selection (the chokepoint)", () => {
 			connectToken: "env-token",
 		});
 	});
+
+	it("trims whitespace from env-provided Connect coordinates", () => {
+		pulumi.runtime.setAllConfig({ "contract:vault": VAULT_ID });
+		process.env.OP_CONNECT_HOST = "https://env.example\n";
+		process.env.OP_CONNECT_TOKEN = " env-token\n";
+		expect(getContractChannel()).toMatchObject({
+			connectHost: "https://env.example",
+			connectToken: "env-token",
+		});
+	});
 });
 
 describe("stackref mode", () => {
@@ -384,6 +394,20 @@ describe("contract failure modes (loud, never a silent fallback)", () => {
 		await expect(
 			readContractItemAsync(channel, "test-token", "kubeconfig"),
 		).rejects.toThrow(/unreachable/);
+	});
+
+	it("surfaces the cause behind Node's generic 'fetch failed'", async () => {
+		vi.stubGlobal(
+			"fetch",
+			vi.fn(async () => {
+				throw new Error("fetch failed", {
+					cause: new Error("connect ECONNREFUSED 10.0.0.1:443"),
+				});
+			}),
+		);
+		await expect(
+			readContractItemAsync(channel, "test-token", "kubeconfig"),
+		).rejects.toThrow(/fetch failed — connect ECONNREFUSED 10\.0\.0\.1:443/);
 	});
 
 	it("fails clearly when a 200 response carries a non-JSON body", async () => {

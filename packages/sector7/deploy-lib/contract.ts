@@ -51,7 +51,11 @@ export function getContractChannel(): ContractChannel | undefined {
 	if (!vault) {
 		return undefined;
 	}
-	let connectHost = cfg.get("connectHost") ?? process.env.OP_CONNECT_HOST;
+	// Trimmed: a trailing newline in an env var or pasted config value would
+	// otherwise surface as a baffling "Invalid URL" or 401 far from the cause.
+	let connectHost = (
+		cfg.get("connectHost") ?? process.env.OP_CONNECT_HOST
+	)?.trim();
 	if (!connectHost) {
 		throw new Error(
 			"contract:vault is set but no 1Password Connect host is configured. " +
@@ -72,7 +76,8 @@ export function getContractChannel(): ContractChannel | undefined {
 		connectHost = `https://${connectHost}`;
 	}
 	const connectToken: pulumi.Input<string> | undefined =
-		cfg.getSecret("connectToken") ?? process.env.OP_CONNECT_TOKEN;
+		cfg.getSecret("connectToken")?.apply((t) => t.trim()) ??
+		process.env.OP_CONNECT_TOKEN?.trim();
 	if (!connectToken) {
 		throw new Error(
 			"contract:vault is set but no 1Password Connect token is configured. " +
@@ -121,12 +126,18 @@ async function connectGet(
 			signal: AbortSignal.timeout(CONNECT_TIMEOUT_MS),
 		});
 	} catch (e) {
+		// Node's fetch wraps network errors in a generic "fetch failed" whose
+		// cause carries the useful part (ECONNREFUSED, ENOTFOUND, ...).
+		const cause =
+			e instanceof Error && e.cause instanceof Error
+				? ` — ${e.cause.message}`
+				: "";
 		const message =
 			e instanceof Error &&
 			(e.name === "TimeoutError" || e.name === "AbortError")
 				? `request timed out after ${CONNECT_TIMEOUT_MS / 1000}s`
 				: e instanceof Error
-					? e.message
+					? `${e.message}${cause}`
 					: String(e);
 		throw new Error(
 			`contract read failed: 1Password Connect at ${host} is unreachable ` +
