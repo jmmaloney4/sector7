@@ -165,6 +165,10 @@ today: `new k8s.Provider("k8s-platform", { kubeconfig, enablePatchForce })`.
   it arrives as a Pulumi secret config value or CI-injected env var and is
   never logged. Field values read from the contract are wrapped in
   `pulumi.secret` before leaving the module.
+- The channel is https-only: a protocol-less `connectHost` is normalized to
+  https, and an explicit `http://` host is refused outright rather than
+  honored — a cleartext hop for the bearer token and contract secrets is not
+  a supported configuration.
 - No credential material is written anywhere by this module — it is
   read-only against Connect.
 - Error messages include vault/item/field *names*, never values.

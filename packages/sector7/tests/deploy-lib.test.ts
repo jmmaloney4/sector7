@@ -214,6 +214,18 @@ describe("mode selection (the chokepoint)", () => {
 		});
 	});
 
+	it("refuses an explicit http:// connectHost", () => {
+		setContractConfig({ "contract:connectHost": "http://connect.example" });
+		expect(() => getContractChannel()).toThrow(/cleartext http/);
+	});
+
+	it("refuses a non-positive contract:maxAgeHours", () => {
+		for (const bad of ["0", "-3"]) {
+			setContractConfig({ "contract:maxAgeHours": bad });
+			expect(() => getContractChannel()).toThrow(/positive number of hours/);
+		}
+	});
+
 	it("falls back to OP_CONNECT_HOST / OP_CONNECT_TOKEN env vars", () => {
 		pulumi.runtime.setAllConfig({ "contract:vault": VAULT_ID });
 		process.env.OP_CONNECT_HOST = "https://env.example";
@@ -372,6 +384,23 @@ describe("contract failure modes (loud, never a silent fallback)", () => {
 		await expect(
 			readContractItemAsync(channel, "test-token", "kubeconfig"),
 		).rejects.toThrow(/unreachable/);
+	});
+
+	it("fails clearly when a 200 response carries a non-JSON body", async () => {
+		vi.stubGlobal(
+			"fetch",
+			vi.fn(async () => ({
+				ok: true,
+				status: 200,
+				json: async () => {
+					throw new SyntaxError("Unexpected token <");
+				},
+				text: async () => "<html>proxy error page</html>",
+			})),
+		);
+		await expect(
+			readContractItemAsync(channel, "test-token", "kubeconfig"),
+		).rejects.toThrow(/invalid JSON body/);
 	});
 
 	it("fails when the vault name matches no vault", async () => {

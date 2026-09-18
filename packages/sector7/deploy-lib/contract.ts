@@ -59,8 +59,16 @@ export function getContractChannel(): ContractChannel | undefined {
 		);
 	}
 	// A bare hostname would surface as a cryptic "Invalid URL" from fetch;
-	// normalize to https (never http — this channel carries credentials).
-	if (!/^https?:\/\//i.test(connectHost)) {
+	// normalize to https. An explicit http:// is refused rather than honored:
+	// this channel carries the Connect bearer token and every contract secret,
+	// and a cleartext hop is not a configuration this module supports.
+	if (/^http:\/\//i.test(connectHost)) {
+		throw new Error(
+			"contract:connectHost must be https; refusing to send the Connect " +
+				"bearer token and contract secrets over cleartext http.",
+		);
+	}
+	if (!/^https:\/\//i.test(connectHost)) {
 		connectHost = `https://${connectHost}`;
 	}
 	const connectToken: pulumi.Input<string> | undefined =
@@ -72,11 +80,22 @@ export function getContractChannel(): ContractChannel | undefined {
 				"environment variable.",
 		);
 	}
+	const maxAgeHours = cfg.getNumber("maxAgeHours");
+	if (
+		maxAgeHours !== undefined &&
+		(!Number.isFinite(maxAgeHours) || maxAgeHours <= 0)
+	) {
+		throw new Error(
+			`contract:maxAgeHours must be a positive number of hours, got ` +
+				`${maxAgeHours}; a value that cannot bound freshness would silently ` +
+				`disable the configured freshness guarantee.`,
+		);
+	}
 	return {
 		vault,
 		connectHost,
 		connectToken,
-		maxAgeHours: cfg.getNumber("maxAgeHours"),
+		maxAgeHours,
 	};
 }
 
@@ -115,14 +134,20 @@ async function connectGet(
 		);
 	}
 	if (!res.ok) {
-		const body = (await res.text().catch(() => "")).slice(0, 200);
+		// Status and path only — an error body from Connect or an intermediate
+		// proxy could echo request or item material, and this module guarantees
+		// its errors carry names, never values.
+		throw new Error(`contract read failed: GET ${path} returned ${res.status}`);
+	}
+	try {
+		return await res.json();
+	} catch {
 		throw new Error(
-			`contract read failed: GET ${path} returned ${res.status}${
-				body ? `: ${body}` : ""
-			}`,
+			`contract read failed: GET ${path} returned ${res.status} with an ` +
+				"invalid JSON body (is something other than 1Password Connect " +
+				"answering at this host?)",
 		);
 	}
-	return res.json();
 }
 
 async function resolveVaultId(
