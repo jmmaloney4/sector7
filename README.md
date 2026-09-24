@@ -155,7 +155,7 @@ If a consumer repository depends on the packed Sector7 GitHub Release tarball UR
 
 ## 🛠️ Development Environment
 
-This repository includes a Nix flake that provides a consistent development environment across all supported platforms.
+The flake lives at the **repository root** (`flake.nix`). `.envrc` is `use flake`.
 
 ### Prerequisites
 
@@ -180,36 +180,35 @@ This repository includes a Nix flake that provides a consistent development envi
 
 ### Usage
 
-#### Using direnv (recommended)
+From the repository root:
 
-1. Allow direnv in the repository:
+```bash
+direnv allow   # optional; loads the flake when you enter the repo
+```
 
-   ```bash
-   cd nix/default
-   direnv allow
-   ```
+or:
 
-2. The development environment will be automatically activated when you enter the directory.
+```bash
+nix develop
+```
 
-#### Manual activation
+In the shell, `just --list` shows recipes from the jackpkgs just module (including `just cut` for version bumps).
 
-1. Enter a development shell:
-   ```bash
-   cd nix/default
-   nix develop
-   ```
+### What's in the shell
 
-### Available Tools
+`devShells.default` is `inputsFrom` of `jackpkgs.outputs.devShell` (`jackpkgs.flakeModules.default`) plus extra packages declared in this repo's `flake.nix`.
 
-The development environment includes:
+**Extra `buildInputs` in this flake:** `pnpm`, `envsubst`, `renovate`, `go`, `gopls`.
 
-- **Build Tools**: Make, CMake, Ninja, pkg-config
-- **Version Control**: Git, GitHub CLI
-- **Development Tools**: direnv, Nix LSP
-- **Languages**: Rust (with rust-analyzer), Go, Python 3, Node.js
-- **Cloud Tools**: AWS CLI, Azure CLI, Google Cloud SDK, kubectl, Helm
-- **Utilities**: jq, yq, ripgrep, fd, bat, exa, fzf, htop, tmux
+**From jackpkgs (this repo's module config):**
+
+- Node.js 24 and pnpm (`jackpkgs.nodejs.enable = true`)
+- `just`, `pre-commit`
+- `treefmt` and the jackpkgs default formatters: alejandra, biome, hujsonfmt, latexindent, mdformat, ruff, rustfmt, shfmt, taplo, yamlfmt
+- pre-commit helpers that land on PATH: `ty`, `nbstripout`, `adr-conflict-check`
+
+Flake checks (not extra runtimes): `jackpkgs.checks.typescript.tsc.enable = true` and `jackpkgs.checks.vitest.enable = true`. `jackpkgs.pulumi.enable = false`, so this shell does **not** include the Pulumi CLI / gcloud fragment.
 
 ### Customization
 
-To customize the development environment, modify `nix/default/flake.nix`. The file is well-documented and follows Nix best practices.
+Edit the root `flake.nix`. Extra packages go in `devShells.default.buildInputs`. Jackpkgs knobs (`jackpkgs.nodejs`, `jackpkgs.pulumi.enable`, checks, `jackpkgs.just.cut`, ADR directory, etc.) are in the same file.
