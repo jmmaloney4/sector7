@@ -242,7 +242,10 @@ can differ by machine without producing `[diff: ~environment]`. Putting
 the absolute path on `command.local.Command.environment` (or `stdin`, or
 `create`) would force a replace whenever the same stack is applied from a
 different checkout; two clean worktrees of the same commit evaluate to an
-identical drvPath, so that path is not a content signal.
+identical drvPath, so that path is not a content signal. The sidecar
+directory is `.pulumi/command-logs/<stack>/<sanitized-name>/` so two stacks
+sharing a cwd cannot clobber each other, and a resource `name` cannot
+path-traverse out of that tree.
 
 **Safety net:** construction still refuses when `repoRoot` and the ambient
 build root name different trees (#385). The sidecar would have built the

@@ -15,6 +15,21 @@ import {
 	resolveRepoProvenance,
 } from "./repo-provenance.ts";
 
+/** Restrict a value to a single path component (no traversal). */
+function safePathComponent(value: string): string {
+	const safe = value.replace(/[^A-Za-z0-9_-]+/g, "-").replace(/^-+|-+$/g, "");
+	return safe.length > 0 ? safe : "unnamed";
+}
+
+/**
+ * Log/sidecar directory for this resource. Includes the Pulumi stack so two
+ * stacks applied from the same cwd cannot overwrite each other's `repo-root`
+ * file. `name` is sanitized so it cannot escape `.pulumi/command-logs`.
+ */
+export function nixOutputCommandLogStem(name: string): string {
+	return `.pulumi/command-logs/${safePathComponent(pulumi.getStack())}/${safePathComponent(name)}`;
+}
+
 export interface NixOutputArgs {
 	/** Flake attribute path (e.g. "packages.x86_64-linux.lens-api-image") */
 	nixAttr: pulumi.Input<string>;
@@ -312,7 +327,7 @@ export class NixOutput extends pulumi.ComponentResource {
 		// via `stdin` with a fixed `create` command makes the tracked input
 		// depend only on what the script actually does.
 		const scriptContent = readFileSync(scriptPath, "utf8");
-		const commandLogStem = `.pulumi/command-logs/${name}`;
+		const commandLogStem = nixOutputCommandLogStem(name);
 		const mode = args.mode ?? "resolve";
 		const previewStrategy = args.previewStrategy ?? "resource";
 

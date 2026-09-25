@@ -14,6 +14,7 @@ import {
 } from "vitest";
 import {
 	NixOutput,
+	nixOutputCommandLogStem,
 	REPO_ROOT_SIDECAR,
 	resolveDrvPathTrigger,
 	resolvePreviewStorePath,
@@ -166,7 +167,7 @@ describe("NixOutput", () => {
 		expect(cmd.inputs.environment).toEqual({
 			NIX_ATTR: "packages.x86_64-linux.myapp",
 			SCRIPT_MODE: "resolve",
-			COMMAND_LOG_STEM: ".pulumi/command-logs/test-default",
+			COMMAND_LOG_STEM: nixOutputCommandLogStem("test-default"),
 		});
 		// `create` must be a FIXED string — not a resolved filesystem path
 		// through node_modules, which would change on every checkout AND on
@@ -179,7 +180,7 @@ describe("NixOutput", () => {
 		);
 
 		const sidecar = readFileSync(
-			join(".pulumi/command-logs/test-default", REPO_ROOT_SIDECAR),
+			join(nixOutputCommandLogStem("test-default"), REPO_ROOT_SIDECAR),
 			"utf8",
 		).trim();
 		expect(sidecar).toBe(TEST_REPO_ROOT);
@@ -265,7 +266,33 @@ describe("NixOutput", () => {
 		expect(cmds[0].inputs.environment).not.toHaveProperty("REPO_ROOT");
 		expect(
 			readFileSync(
-				join(".pulumi/command-logs/test-sidecar-no-ambient", REPO_ROOT_SIDECAR),
+				join(
+					nixOutputCommandLogStem("test-sidecar-no-ambient"),
+					REPO_ROOT_SIDECAR,
+				),
+				"utf8",
+			).trim(),
+		).toBe(TEST_REPO_ROOT);
+	});
+
+	it("sanitizes resource names so the sidecar cannot leave command-logs", async () => {
+		const output = new NixOutput("evil/../tmp", {
+			nixAttr: "packages.x86_64-linux.myapp",
+			repoRoot: TEST_REPO_ROOT,
+		});
+		await resolveOutput(output.storePath);
+
+		const cmds = byName("tmp-resolve");
+		expect(cmds).toHaveLength(1);
+		expect(cmds[0].inputs.environment).toMatchObject({
+			COMMAND_LOG_STEM: nixOutputCommandLogStem("evil/../tmp"),
+		});
+		expect(nixOutputCommandLogStem("evil/../tmp")).toBe(
+			".pulumi/command-logs/stack/evil-tmp",
+		);
+		expect(
+			readFileSync(
+				join(nixOutputCommandLogStem("evil/../tmp"), REPO_ROOT_SIDECAR),
 				"utf8",
 			).trim(),
 		).toBe(TEST_REPO_ROOT);
