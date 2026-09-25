@@ -1,4 +1,5 @@
 import { execFileSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import {
 	mkdirSync,
 	readFileSync,
@@ -15,21 +16,32 @@ import {
 	resolveRepoProvenance,
 } from "./repo-provenance.ts";
 
+/** Restrict a value to a single path component (no traversal). */
+function safePathComponent(value: string): string {
+	const safe = value.replace(/[^A-Za-z0-9_-]+/g, "-").replace(/^-+|-+$/g, "");
+	return safe.length > 0 ? safe : "unnamed";
+}
+
 /**
  * Tracked `COMMAND_LOG_STEM` for the child Command — and the directory the
  * untracked `repo-root` sidecar is written into.
  *
- * This formula is load-bearing for upgrade diffs. It MUST stay
- * `.pulumi/command-logs/${name}`, the same string every existing stack stored
- * before #401. Namespacing by stack or hashing the name would change a
- * tracked `environment` value and force `~environment` + a Command re-run on
- * every NixOutput/NixImage at first `pulumi up` after upgrade. After
- * zeus#3162 that is not "routine churn". Sidecar isolation therefore follows
- * the log directory: two stacks sharing a cwd and a resource name already
- * shared this path.
+ * `.pulumi/command-logs/<stack>/<sanitized-name>-<sha8>` so two stacks
+ * sharing a cwd cannot clobber each other's `repo-root`, a resource `name`
+ * cannot path-traverse, and names that collide after sanitization (`api/foo`
+ * vs `api-foo`) stay distinct.
+ *
+ * This changes the tracked `environment` value vs pre-#401
+ * (`.pulumi/command-logs/${name}`). That is the same one-time Command
+ * update as the script `stdin` change: operators see `~environment,stdin`,
+ * the Command re-runs once, and `storePath` is unchanged when the drv is.
  */
 export function nixOutputCommandLogStem(name: string): string {
-	return `.pulumi/command-logs/${name}`;
+	const digest = createHash("sha256")
+		.update(name, "utf8")
+		.digest("hex")
+		.slice(0, 8);
+	return `.pulumi/command-logs/${safePathComponent(pulumi.getStack())}/${safePathComponent(name)}-${digest}`;
 }
 
 export interface NixOutputArgs {

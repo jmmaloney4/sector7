@@ -167,7 +167,7 @@ describe("NixOutput", () => {
 		expect(cmd.inputs.environment).toEqual({
 			NIX_ATTR: "packages.x86_64-linux.myapp",
 			SCRIPT_MODE: "resolve",
-			COMMAND_LOG_STEM: ".pulumi/command-logs/test-default",
+			COMMAND_LOG_STEM: nixOutputCommandLogStem("test-default"),
 		});
 		// `create` must be a FIXED string — not a resolved filesystem path
 		// through node_modules, which would change on every checkout AND on
@@ -275,7 +275,7 @@ describe("NixOutput", () => {
 		).toBe(TEST_REPO_ROOT);
 	});
 
-	it("keeps COMMAND_LOG_STEM on the pre-upgrade formula so upgrades do not ~environment", async () => {
+	it("namespaces COMMAND_LOG_STEM per stack and name without changing storePath", async () => {
 		const output = new NixOutput("test-upgrade-log-stem", {
 			nixAttr: "packages.x86_64-linux.myapp",
 			repoRoot: TEST_REPO_ROOT,
@@ -284,13 +284,16 @@ describe("NixOutput", () => {
 
 		const cmds = byName("test-upgrade-log-stem-resolve");
 		const env = cmds[0].inputs.environment as Record<string, string>;
-		// Pre-#401 / origin/main formula. A stack- or hash-prefixed stem
-		// would show `~environment` on every existing NixOutput at first up.
-		expect(env.COMMAND_LOG_STEM).toBe(
+		const stem = nixOutputCommandLogStem("test-upgrade-log-stem");
+		expect(stem).toMatch(
+			/^\.pulumi\/command-logs\/stack\/test-upgrade-log-stem-[0-9a-f]{8}$/,
+		);
+		expect(env.COMMAND_LOG_STEM).toBe(stem);
+		expect(env.COMMAND_LOG_STEM).not.toBe(
 			".pulumi/command-logs/test-upgrade-log-stem",
 		);
-		expect(env.COMMAND_LOG_STEM).toBe(
-			nixOutputCommandLogStem("test-upgrade-log-stem"),
+		expect(nixOutputCommandLogStem("api/foo")).not.toBe(
+			nixOutputCommandLogStem("api-foo"),
 		);
 		expect(storePath).toBe("/nix/store/abc123-myapp-1.0.0");
 	});

@@ -65,14 +65,16 @@ checkouts of the same commit do not replace the resource. Resource outputs
 (informational; they are not Command triggers). Non-git roots report
 `"unknown"` rather than failing. See ADR-021.
 
-**Upgrade:** the first `pulumi up` after this version shows `[diff: ~stdin]`
-on each NixOutput resolve Command (the script now reads the sidecar) and
-re-runs that command once. `storePath` does not change when the derivation
-does not, so images and pods that depend on it do not replace. The Command
-`environment` (including `COMMAND_LOG_STEM=.pulumi/command-logs/<name>`)
-and trigger list are unchanged from previous releases on purpose — a
-stack-namespaced log dir would have been an extra `~environment` across
-every consumer.
+**Upgrade:** the first `pulumi up` after this version shows
+`[diff: ~environment,stdin]` on each NixOutput resolve Command and
+re-runs that command once. `environment` changes because
+`COMMAND_LOG_STEM` is now `.pulumi/command-logs/<stack>/<sanitized-name>-<sha8>`
+(per-stack sidecar isolation); `stdin` changes because the script reads
+the sidecar. That is one update of the same resource, not an extra
+upgrade cost. `storePath` does not change when the derivation does not
+(`storePath` is script stdout; the drv is unchanged), so images and pods
+that depend on it do not replace. Dynamic-`repoRoot` consumers do not
+see an extra trigger token.
 
 ### GitHubOidcResource
 

@@ -245,24 +245,31 @@ different checkout; two clean worktrees of the same commit evaluate to an
 identical drvPath, so that path is not a content signal.
 
 The sidecar lives at `${COMMAND_LOG_STEM}/repo-root` with
-`COMMAND_LOG_STEM=.pulumi/command-logs/${name}` — the same tracked string
-every stack stored before this change. Namespacing that path by stack or
-hashing the resource name was considered (#401 review) and rejected: it
-is safer against same-cwd collisions, but it changes a tracked
-`environment` input, so the first `pulumi up` after upgrade would show
-`~environment` and re-run every NixOutput/NixImage in garden, zeus, and
-yard. After zeus#3162 operators are taught not to treat a NixOutput diff
-as routine churn. Sidecar isolation therefore matches the pre-existing
-log directory. A dynamic `repoRoot` waits on the sidecar write by folding
-it into the existing `nixAttr` trigger value (still the attr string), not
-by appending a new trigger token.
+`COMMAND_LOG_STEM=.pulumi/command-logs/<stack>/<sanitized-name>-<sha8>`.
+Two stacks sharing a cwd cannot clobber each other's `repo-root`; a
+resource `name` cannot path-traverse; names that collide after
+sanitization (`api/foo` vs `api-foo`) stay distinct.
 
-**Upgrade (one-time, expected):** the child Command's `stdin` still
-changes because the resolve script gained sidecar reads. Operators will
-see `[diff: ~stdin]` (and a Command re-run) once. `storePath` is
-unchanged when the drv is unchanged, so NixImage pushes and downstream
-Kubernetes resources do not replace. `COMMAND_LOG_STEM` and the trigger
-list are not part of that diff.
+That formula changes the tracked `environment` value vs pre-#401
+(`.pulumi/command-logs/${name}`). It is not extra upgrade cost: every
+consumer's `${name}-resolve` Command already re-runs once because the
+script `stdin` changed. Operators see `[diff: ~environment,stdin]` on
+that same resource, the same single update, and the same re-run.
+`storePath` is unchanged when the drv is unchanged, so NixImage pushes
+and downstream Kubernetes resources do not replace. Keeping the old stem
+would take on same-cwd sidecar collisions for no savings.
+
+A dynamic `repoRoot` waits on the sidecar write by folding it into the
+existing `nixAttr` trigger value (still the attr string), not by
+appending a new trigger token — so the first apply after upgrade does
+not `~triggers`.
+
+**Upgrade (one-time, expected):** operators will see
+`[diff: ~environment,stdin]` on each NixOutput resolve Command and a
+Command re-run once. `storePath` is unchanged when the drv is unchanged,
+so there is no downstream replacement. Why: `storePath` is the Command
+stdout (`STORE_PATH_OUTPUT`); the env/stdin diffs re-run the script but
+do not change the drv, so the printed store path is the same.
 
 **Safety net:** construction still refuses when `repoRoot` and the ambient
 build root name different trees (#385). The sidecar would have built the
@@ -315,7 +322,7 @@ Balances declarative intent ("output" of the nix system) with generality. An out
 - 2026-09-02: Amended — refuse when `repoRoot` disagrees with the ambient build root (#385 / 0.22.0)
 - 2026-09-24: Amended — refuse when `repoRoot` does not contain `flake.nix` (#384 item 3)
 - 2026-09-24: Amended — forward `repoRoot` via untracked sidecar; expose git provenance as outputs (#384 items 1–2)
-- 2026-09-25: Amended — keep `COMMAND_LOG_STEM` on the pre-upgrade formula; do not add a sidecar trigger token (#401 upgrade-diff)
+- 2026-09-25: Amended — namespaced hashed `COMMAND_LOG_STEM`; no extra sidecar trigger token; one-time `~environment,stdin` (#401)
 
 # Resolved Questions
 
