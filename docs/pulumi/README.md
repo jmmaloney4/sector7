@@ -24,9 +24,24 @@ pnpm add "git+https://github.com/jmmaloney4/sector7.git#path:/packages/sector7#v
 store path. Pass `repoRoot` as the **flake checkout** (the directory that
 contains `flake.nix`). Construction throws if that file is missing, and throws
 if `repoRoot` names a different tree than the ambient `REPO_ROOT`/`FLAKE_ROOT`
-the spawned command will actually build. A stale inherited devshell in a
-worktree is the usual cause: re-enter the nix devshell or reload direnv in the
-worktree you mean to deploy from. See ADR-021.
+(a stale inherited devshell in a worktree is the usual cause: re-enter the nix
+devshell or reload direnv). The build itself uses `repoRoot` via an untracked
+sidecar file — the absolute path is not a diffed Command input — so two
+checkouts of the same commit do not replace the resource. Resource outputs
+`gitSha`, `gitDirty`, and `gitBranch` name the tree at program time
+(informational; they are not Command triggers). Non-git roots report
+`"unknown"` rather than failing. See ADR-021.
+
+**Upgrade:** the first `pulumi up` after this version shows
+`[diff: ~environment,stdin]` on each NixOutput resolve Command and
+re-runs that command once. `environment` changes because
+`COMMAND_LOG_STEM` is now `.pulumi/command-logs/<stack>/<sanitized-name>-<sha8>`
+(per-stack sidecar isolation); `stdin` changes because the script reads
+the sidecar. That is one update of the same resource, not an extra
+upgrade cost. `storePath` does not change when the derivation does not
+(`storePath` is script stdout; the drv is unchanged), so images and pods
+that depend on it do not replace. Dynamic-`repoRoot` consumers do not
+see an extra trigger token.
 
 ### GitHubOidcResource
 

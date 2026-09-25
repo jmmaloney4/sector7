@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, rmSync, symlinkSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import * as pulumi from "@pulumi/pulumi";
@@ -14,6 +14,8 @@ import {
 } from "vitest";
 import {
 	NixOutput,
+	nixOutputCommandLogStem,
+	REPO_ROOT_SIDECAR,
 	resolveDrvPathTrigger,
 	resolvePreviewStorePath,
 	sameBuildRoot,
@@ -126,6 +128,10 @@ beforeEach(() => {
 	installMocks(false);
 });
 
+afterAll(() => {
+	rmSync(".pulumi/command-logs", { recursive: true, force: true });
+});
+
 function resolveOutput<T>(value: pulumi.Input<T>): Promise<T> {
 	return new Promise((resolve) => {
 		pulumi.output(value).apply((resolved: T) => {
@@ -161,7 +167,7 @@ describe("NixOutput", () => {
 		expect(cmd.inputs.environment).toEqual({
 			NIX_ATTR: "packages.x86_64-linux.myapp",
 			SCRIPT_MODE: "resolve",
-			COMMAND_LOG_STEM: ".pulumi/command-logs/test-default",
+			COMMAND_LOG_STEM: nixOutputCommandLogStem("test-default"),
 		});
 		// `create` must be a FIXED string — not a resolved filesystem path
 		// through node_modules, which would change on every checkout AND on
@@ -172,15 +178,18 @@ describe("NixOutput", () => {
 		expect(cmd.inputs.stdin).toContain(
 			"Resolve or build a nix flake attribute",
 		);
+
+		const sidecar = readFileSync(
+			join(nixOutputCommandLogStem("test-default"), REPO_ROOT_SIDECAR),
+			"utf8",
+		).trim();
+		expect(sidecar).toBe(TEST_REPO_ROOT);
 	});
 
-	// The spawned command always builds/resolves against the ambient
-	// REPO_ROOT/FLAKE_ROOT, never the repoRoot input (that's the whole fix).
-	// When they diverge, the drvPath trigger (computed from repoRoot) and the
-	// actual build target different flakes. This was a warning until #384,
-	// where exactly that shipped an image from an unintended branch in a
-	// downstream repo; it is now a refusal, because a warning is the wrong
-	// severity for "this will build something other than you asked for".
+	// The spawned command reads args.repoRoot from an untracked sidecar, not
+	// from a diffed environment input. A stale ambient root is still refused
+	// so a Pulumi process whose nix/devshell is in another tree cannot quietly
+	// proceed (#384 / #385).
 	it("refuses when repoRoot diverges from the ambient build root", () => {
 		const repoRoot = makeFlakeRoot();
 		process.env.FLAKE_ROOT = "/home/user/actual-repo";
@@ -241,6 +250,88 @@ describe("NixOutput", () => {
 			repoRoot: TEST_REPO_ROOT,
 		});
 		await expect(resolveOutput(output.storePath)).resolves.toBeDefined();
+	});
+
+	it("forwards repoRoot via sidecar when ambient REPO_ROOT/FLAKE_ROOT are unset", async () => {
+		delete process.env.REPO_ROOT;
+		delete process.env.FLAKE_ROOT;
+
+		const output = new NixOutput("test-sidecar-no-ambient", {
+			nixAttr: "packages.x86_64-linux.myapp",
+			repoRoot: TEST_REPO_ROOT,
+		});
+		await resolveOutput(output.storePath);
+
+		const cmds = byName("test-sidecar-no-ambient-resolve");
+		expect(cmds[0].inputs.environment).not.toHaveProperty("REPO_ROOT");
+		expect(
+			readFileSync(
+				join(
+					nixOutputCommandLogStem("test-sidecar-no-ambient"),
+					REPO_ROOT_SIDECAR,
+				),
+				"utf8",
+			).trim(),
+		).toBe(TEST_REPO_ROOT);
+	});
+
+	it("namespaces COMMAND_LOG_STEM per stack and name without changing storePath", async () => {
+		const output = new NixOutput("test-upgrade-log-stem", {
+			nixAttr: "packages.x86_64-linux.myapp",
+			repoRoot: TEST_REPO_ROOT,
+		});
+		const storePath = await resolveOutput(output.storePath);
+
+		const cmds = byName("test-upgrade-log-stem-resolve");
+		const env = cmds[0].inputs.environment as Record<string, string>;
+		const stem = nixOutputCommandLogStem("test-upgrade-log-stem");
+		expect(stem).toMatch(
+			/^\.pulumi\/command-logs\/stack\/test-upgrade-log-stem-[0-9a-f]{8}$/,
+		);
+		expect(env.COMMAND_LOG_STEM).toBe(stem);
+		expect(env.COMMAND_LOG_STEM).not.toBe(
+			".pulumi/command-logs/test-upgrade-log-stem",
+		);
+		expect(nixOutputCommandLogStem("api/foo")).not.toBe(
+			nixOutputCommandLogStem("api-foo"),
+		);
+		expect(storePath).toBe("/nix/store/abc123-myapp-1.0.0");
+	});
+
+	it("does not add a sidecar trigger when repoRoot is a dynamic Output", async () => {
+		const output = new NixOutput("test-upgrade-dynamic-root", {
+			nixAttr: "packages.x86_64-linux.myapp",
+			repoRoot: pulumi.output(TEST_REPO_ROOT),
+		});
+		const storePath = await resolveOutput(output.storePath);
+
+		const cmds = byName("test-upgrade-dynamic-root-resolve");
+		const triggers = cmds[0].inputs.triggers as string[];
+		expect(triggers).toEqual(["packages.x86_64-linux.myapp", MOCK_DRV_PATH]);
+		expect(triggers).not.toContain("repo-root-sidecar");
+		expect(storePath).toBe("/nix/store/abc123-myapp-1.0.0");
+	});
+
+	it("exposes git provenance as outputs without putting them on the Command", async () => {
+		const output = new NixOutput("test-provenance-outputs", {
+			nixAttr: "packages.x86_64-linux.myapp",
+			repoRoot: TEST_REPO_ROOT,
+		});
+
+		await expect(resolveOutput(output.gitSha)).resolves.toEqual(
+			expect.any(String),
+		);
+		await expect(resolveOutput(output.gitDirty)).resolves.toEqual(
+			expect.any(Boolean),
+		);
+		await expect(resolveOutput(output.gitBranch)).resolves.toEqual(
+			expect.any(String),
+		);
+
+		const cmds = byName("test-provenance-outputs-resolve");
+		const env = cmds[0].inputs.environment as Record<string, unknown>;
+		expect(env).not.toHaveProperty("GIT_SHA");
+		expect(env).not.toHaveProperty("gitSha");
 	});
 
 	// A refusal has to be about the tree, not about how it was spelled. A

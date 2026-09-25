@@ -245,4 +245,54 @@ describe("nix-output-resolve.sh REPO_ROOT fallback", () => {
 		expect(result.status).not.toBe(0);
 		expect(result.stderr).toContain("Required env var REPO_ROOT is not set");
 	});
+
+	it("prefers the COMMAND_LOG_STEM sidecar over ambient REPO_ROOT and FLAKE_ROOT", () => {
+		const recordPath = join(makeTempDir("nix-record-"), "flake-ref");
+		const binDir = stubNixRecordingFlakeRef(recordPath);
+		const logDir = makeTempDir("nix-logs-");
+		writeFileSync(join(logDir, "repo-root"), "/home/user/sidecar-repo\n");
+
+		const result = spawnSync("bash", [SCRIPT_PATH], {
+			env: {
+				...process.env,
+				PATH: `${binDir}:${process.env.PATH ?? ""}`,
+				NIX_ATTR: "packages.x86_64-linux.myapp",
+				REPO_ROOT: "/home/user/explicit-repo",
+				FLAKE_ROOT: "/home/user/fallback-repo",
+				SCRIPT_MODE: "build",
+				COMMAND_LOG_STEM: logDir,
+			},
+			encoding: "utf8",
+		});
+
+		expect(result.status).toBe(0);
+		expect(readFileSync(recordPath, "utf8")).toBe(
+			"/home/user/sidecar-repo#packages.x86_64-linux.myapp",
+		);
+	});
+
+	it("uses the sidecar when ambient REPO_ROOT and FLAKE_ROOT are unset", () => {
+		const recordPath = join(makeTempDir("nix-record-"), "flake-ref");
+		const binDir = stubNixRecordingFlakeRef(recordPath);
+		const logDir = makeTempDir("nix-logs-");
+		writeFileSync(join(logDir, "repo-root"), "/home/user/sidecar-only\n");
+
+		const result = spawnSync("bash", [SCRIPT_PATH], {
+			env: {
+				...process.env,
+				PATH: `${binDir}:${process.env.PATH ?? ""}`,
+				NIX_ATTR: "packages.x86_64-linux.myapp",
+				REPO_ROOT: undefined,
+				FLAKE_ROOT: undefined,
+				SCRIPT_MODE: "build",
+				COMMAND_LOG_STEM: logDir,
+			},
+			encoding: "utf8",
+		});
+
+		expect(result.status).toBe(0);
+		expect(readFileSync(recordPath, "utf8")).toBe(
+			"/home/user/sidecar-only#packages.x86_64-linux.myapp",
+		);
+	});
 });

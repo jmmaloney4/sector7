@@ -101,6 +101,12 @@ export interface NixOutputArgs {
 export class NixOutput extends pulumi.ComponentResource {
   /** The /nix/store/... store path of the built/resolved output */
   public readonly storePath: pulumi.Output<string>;
+  /** Git HEAD at program time, or `"unknown"`. Not a replacement trigger. */
+  public readonly gitSha: pulumi.Output<string>;
+  /** Tracked-file dirtiness. Untracked files do not count. */
+  public readonly gitDirty: pulumi.Output<boolean>;
+  /** Branch, `"(detached)"`, or `"unknown"`. */
+  public readonly gitBranch: pulumi.Output<string>;
 
   constructor(
     name: string,
@@ -222,29 +228,67 @@ Alternatives considered for the trigger value:
 - **Migration**: Existing `NixImage` consumers get the same interface — no API break. But the internal command changes (two scripts instead of one, different env vars) means the test suite and any manual testing of the scripts need to pass.
 - **`resolve` mode in NixImage**: When `NixImage` is in "resolve" mode (digest-only, image already pushed elsewhere), it should NOT create a `NixOutput` child. It should just run `skopeo inspect`. This means the refactored `NixImage` has two code paths — one that composes `NixOutput` + push, and one that just does skopeo inspect.
 
-## `repoRoot` validation (#384)
+## `repoRoot` validation and forwarding (#384)
 
-`repoRoot` drives the drvPath trigger and eager preview. The spawned command
-reads the build tree from ambient `REPO_ROOT`/`FLAKE_ROOT` so an absolute
-checkout path is not a diffed input. That split is load-bearing, and it is
-also a footgun: a stale inherited devshell in a worktree can preview one
-tree and compile another.
+`repoRoot` drives the drvPath trigger, eager preview, and provenance
+outputs. It also controls which tree `nix-output-resolve.sh` compiles,
+without becoming a diffed Command input.
 
-Construction therefore refuses when:
+**Channel:** NixOutput writes `args.repoRoot` to
+`${COMMAND_LOG_STEM}/repo-root` at program time. The script reads that
+sidecar first, then falls back to ambient `REPO_ROOT`/`FLAKE_ROOT` for
+direct invocation. The sidecar is not a Pulumi property — its contents
+can differ by machine without producing `[diff: ~environment]`. Putting
+the absolute path on `command.local.Command.environment` (or `stdin`, or
+`create`) would force a replace whenever the same stack is applied from a
+different checkout; two clean worktrees of the same commit evaluate to an
+identical drvPath, so that path is not a content signal.
 
-1. `repoRoot` does not contain a `flake.nix` — a nested Pulumi program
-   directory (`deploy/services/…`, `process.cwd()` of `pulumi up`) used to
-   surface later as an opaque nix evaluation error.
-2. `repoRoot` and the ambient build root name different trees — this used
-   to be a `pulumi.log.warn` (0.20.x); a warning is the wrong severity for
-   "this will build something other than you asked for" and is easily lost
-   in `pulumi up` output. Since 0.22.0 (#385) it throws, naming both paths
-   and telling the operator to re-enter the nix devshell / reload direnv in
-   the intended worktree.
+The sidecar lives at `${COMMAND_LOG_STEM}/repo-root` with
+`COMMAND_LOG_STEM=.pulumi/command-logs/<stack>/<sanitized-name>-<sha8>`.
+Two stacks sharing a cwd cannot clobber each other's `repo-root`; a
+resource `name` cannot path-traverse; names that collide after
+sanitization (`api/foo` vs `api-foo`) stay distinct.
 
-Forwarding `repoRoot` into the script out-of-band (so the parameter also
-controls the build) remains a follow-up; this record only covers the
-refuse-early half.
+That formula changes the tracked `environment` value vs pre-#401
+(`.pulumi/command-logs/${name}`). It is not extra upgrade cost: every
+consumer's `${name}-resolve` Command already re-runs once because the
+script `stdin` changed. Operators see `[diff: ~environment,stdin]` on
+that same resource, the same single update, and the same re-run.
+`storePath` is unchanged when the drv is unchanged, so NixImage pushes
+and downstream Kubernetes resources do not replace. Keeping the old stem
+would take on same-cwd sidecar collisions for no savings.
+
+A dynamic `repoRoot` waits on the sidecar write by folding it into the
+existing `nixAttr` trigger value (still the attr string), not by
+appending a new trigger token — so the first apply after upgrade does
+not `~triggers`.
+
+**Upgrade (one-time, expected):** operators will see
+`[diff: ~environment,stdin]` on each NixOutput resolve Command and a
+Command re-run once. `storePath` is unchanged when the drv is unchanged,
+so there is no downstream replacement. Why: `storePath` is the Command
+stdout (`STORE_PATH_OUTPUT`); the env/stdin diffs re-run the script but
+do not change the drv, so the printed store path is the same.
+
+**Safety net:** construction still refuses when `repoRoot` and the ambient
+build root name different trees (#385). The sidecar would have built the
+named tree anyway; the throw exists because a Pulumi process whose
+nix/devshell is rooted elsewhere is usually an operator error (stale
+direnv in a worktree), not a legitimate pin.
+
+**Provenance outputs:** `gitSha`, `gitDirty`, and `gitBranch` are
+component outputs, not Command inputs or triggers. A SHA or branch change
+does not replace the child Command; `changeDetection: "drv"` remains the
+content signal. Downstream resources that consume the outputs (pod
+annotations, image labels) will update — that is the point of exposing
+them. Untracked files do not set `gitDirty`. A non-git root degrades to
+`"unknown"` and never throws.
+
+Construction also refuses when `repoRoot` does not contain a `flake.nix`
+file — a nested Pulumi program directory (`deploy/services/…`,
+`process.cwd()` of `pulumi up`) used to surface later as an opaque nix
+evaluation error.
 
 ## Alternative names considered
 
@@ -277,6 +321,8 @@ Balances declarative intent ("output" of the nix system) with generality. An out
 - 2026-07-02: Amended — default drvPath change detection (`changeDetection: "drv"`) replaces attr-only triggering after a stale-deploy incident
 - 2026-09-02: Amended — refuse when `repoRoot` disagrees with the ambient build root (#385 / 0.22.0)
 - 2026-09-24: Amended — refuse when `repoRoot` does not contain `flake.nix` (#384 item 3)
+- 2026-09-24: Amended — forward `repoRoot` via untracked sidecar; expose git provenance as outputs (#384 items 1–2)
+- 2026-09-25: Amended — namespaced hashed `COMMAND_LOG_STEM`; no extra sidecar trigger token; one-time `~environment,stdin` (#401)
 
 # Resolved Questions
 

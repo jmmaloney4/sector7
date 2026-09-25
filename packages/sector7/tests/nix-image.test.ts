@@ -1,7 +1,9 @@
 import { execFileSync } from "node:child_process";
+import { rmSync } from "node:fs";
 import * as command from "@pulumi/command";
 import * as pulumi from "@pulumi/pulumi";
 import {
+	afterAll,
 	afterEach,
 	beforeAll,
 	beforeEach,
@@ -95,6 +97,10 @@ beforeEach(() => {
 	vi.mocked(execFileSync).mockReturnValue(`${MOCK_DRV_PATH}\n`);
 });
 
+afterAll(() => {
+	rmSync(".pulumi/command-logs", { recursive: true, force: true });
+});
+
 function resolveOutput<T>(value: pulumi.Input<T>): Promise<T> {
 	return new Promise((resolve) => {
 		pulumi.output(value).apply((resolved) => {
@@ -142,6 +148,16 @@ describe("NixImage", () => {
 			AUTH_MODE: "gcloud",
 			SCRIPT_MODE: "push",
 		});
+
+		await expect(resolveOutput(img.gitSha)).resolves.toEqual(
+			expect.any(String),
+		);
+		await expect(resolveOutput(img.gitDirty)).resolves.toEqual(
+			expect.any(Boolean),
+		);
+		await expect(resolveOutput(img.gitBranch)).resolves.toEqual(
+			expect.any(String),
+		);
 	});
 
 	it("creates a resolve command in resolve mode", async () => {
@@ -155,6 +171,9 @@ describe("NixImage", () => {
 		});
 
 		await resolveOutput(img.digest);
+		await expect(resolveOutput(img.gitSha)).resolves.toEqual(
+			expect.any(String),
+		);
 
 		// Resolve mode should NOT create a NixOutput child
 		const nixOutputs = resources.filter(

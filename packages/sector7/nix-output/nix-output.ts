@@ -1,5 +1,12 @@
 import { execFileSync } from "node:child_process";
-import { readFileSync, realpathSync, statSync } from "node:fs";
+import { createHash } from "node:crypto";
+import {
+	mkdirSync,
+	readFileSync,
+	realpathSync,
+	statSync,
+	writeFileSync,
+} from "node:fs";
 import { join } from "node:path";
 import * as command from "@pulumi/command";
 import * as pulumi from "@pulumi/pulumi";
@@ -9,27 +16,54 @@ import {
 	resolveRepoProvenance,
 } from "./repo-provenance.ts";
 
+/** Restrict a value to a single path component (no traversal). */
+function safePathComponent(value: string): string {
+	const safe = value.replace(/[^A-Za-z0-9_-]+/g, "-").replace(/^-+|-+$/g, "");
+	return safe.length > 0 ? safe : "unnamed";
+}
+
+/**
+ * Tracked `COMMAND_LOG_STEM` for the child Command — and the directory the
+ * untracked `repo-root` sidecar is written into.
+ *
+ * `.pulumi/command-logs/<stack>/<sanitized-name>-<sha8>` so two stacks
+ * sharing a cwd cannot clobber each other's `repo-root`, a resource `name`
+ * cannot path-traverse, and names that collide after sanitization (`api/foo`
+ * vs `api-foo`) stay distinct.
+ *
+ * This changes the tracked `environment` value vs pre-#401
+ * (`.pulumi/command-logs/${name}`). That is the same one-time Command
+ * update as the script `stdin` change: operators see `~environment,stdin`,
+ * the Command re-runs once, and `storePath` is unchanged when the drv is.
+ */
+export function nixOutputCommandLogStem(name: string): string {
+	const digest = createHash("sha256")
+		.update(name, "utf8")
+		.digest("hex")
+		.slice(0, 8);
+	return `.pulumi/command-logs/${safePathComponent(pulumi.getStack())}/${safePathComponent(name)}-${digest}`;
+}
+
 export interface NixOutputArgs {
 	/** Flake attribute path (e.g. "packages.x86_64-linux.lens-api-image") */
 	nixAttr: pulumi.Input<string>;
 	/**
 	 * Absolute path to the repo root containing the flake.
 	 *
-	 * Used locally (drvPath trigger resolution, eager preview resolution) —
-	 * never forwarded into the spawned command's tracked `environment` input.
-	 * That command instead reads REPO_ROOT from its own ambient environment
-	 * at execution time, falling back to FLAKE_ROOT (see
-	 * nix-output-resolve.sh). Forwarding this value would bake an absolute,
-	 * machine-specific filesystem path into a diffed Pulumi input, forcing a
-	 * spurious replace whenever the same stack is applied from a different
-	 * checkout path than whoever last applied it.
+	 * Controls drvPath evaluation, eager preview, provenance outputs, and
+	 * (via an untracked sidecar file, not a Pulumi input) the tree
+	 * `nix-output-resolve.sh` actually builds. The absolute path is never
+	 * placed in the child Command's tracked `environment`, `stdin`, or
+	 * `create` inputs: doing so would force a spurious replace whenever the
+	 * same stack is applied from a different checkout than whoever last
+	 * applied it. Two clean worktrees of the same commit evaluate to the
+	 * same drvPath; the path is not a content signal.
 	 *
-	 * Because of that, this value does **not** choose the tree that gets
-	 * compiled — the ambient variable does. Passing a path here that differs
-	 * from the ambient one is refused at construction rather than silently
-	 * ignored (#384): it would describe one flake in the drvPath trigger and
-	 * preview while building another. Re-enter the nix devshell or reload
-	 * direnv in the worktree you mean to deploy from; to pin one-shot:
+	 * Construction still refuses when this path names a different tree than
+	 * the ambient `REPO_ROOT`/`FLAKE_ROOT` (#385). That check is a safety
+	 * net for a stale inherited devshell — it is no longer what *selects*
+	 * the build tree. Re-enter the nix devshell or reload direnv in the
+	 * worktree you mean to deploy from; to pin one-shot:
 	 *
 	 *     REPO_ROOT=/path/to/checkout pulumi up
 	 *
@@ -190,6 +224,24 @@ export function sameBuildRoot(a: string, b: string): boolean {
 	return a === b || canonicalBuildRoot(a) === canonicalBuildRoot(b);
 }
 
+/** Basename of the untracked sidecar NixOutput uses to forward `repoRoot`. */
+export const REPO_ROOT_SIDECAR = "repo-root";
+
+/**
+ * Write `repoRoot` where `nix-output-resolve.sh` will read it. The file is
+ * not a Pulumi input: its contents can differ by machine without showing up
+ * in a preview diff. Exported for testing.
+ */
+export function writeRepoRootSidecar(
+	commandLogStem: string,
+	repoRoot: string,
+): void {
+	mkdirSync(commandLogStem, { recursive: true });
+	writeFileSync(join(commandLogStem, REPO_ROOT_SIDECAR), `${repoRoot}\n`, {
+		encoding: "utf8",
+	});
+}
+
 function isStringRecord(
 	value: Record<string, pulumi.Input<string>>,
 ): value is Record<string, string> {
@@ -222,6 +274,24 @@ export function resolvePreviewStorePath(
 export class NixOutput extends pulumi.ComponentResource {
 	/** The /nix/store/... store path of the resolved output */
 	public readonly storePath: pulumi.Output<string>;
+	/**
+	 * Git HEAD of `repoRoot` at program time, or `"unknown"` when git cannot
+	 * be read. Informational only: not a Command input or trigger, so a
+	 * checkout/SHA change does not replace the build. Consumers that stamp
+	 * this onto a pod annotation will update that downstream resource.
+	 */
+	public readonly gitSha: pulumi.Output<string>;
+	/**
+	 * Tracked files differ from HEAD. Untracked files do not count — nix
+	 * excludes them from a bare-path flake build. Informational; same
+	 * replacement rule as {@link gitSha}.
+	 */
+	public readonly gitDirty: pulumi.Output<boolean>;
+	/**
+	 * Current branch, `"(detached)"`, or `"unknown"`. Informational; same
+	 * replacement rule as {@link gitSha}.
+	 */
+	public readonly gitBranch: pulumi.Output<string>;
 
 	constructor(
 		name: string,
@@ -245,10 +315,10 @@ export class NixOutput extends pulumi.ComponentResource {
 		// resources whose content is unchanged.
 		//
 		// The content signal is the drvPath trigger below, which is exactly the
-		// right one: the drv hash covers every transitive input. The risk
-		// `repoRoot` used to guard against by being diffed — pointing at one tree
-		// while the script builds another — is now caught by `checkRoot` as a
-		// hard error, which is a better instrument than a diff anyway.
+		// right one: the drv hash covers every transitive input. `repoRoot`
+		// reaches the script through an untracked sidecar under COMMAND_LOG_STEM
+		// so the parameter controls the build without becoming a diffed input.
+		// `checkRoot` still refuses an ambient/devshell mismatch as a safety net.
 		//
 		// Same reasoning as the script-path handling immediately below, and as
 		// `pushGroup` in NixImage.
@@ -271,16 +341,14 @@ export class NixOutput extends pulumi.ComponentResource {
 		// via `stdin` with a fixed `create` command makes the tracked input
 		// depend only on what the script actually does.
 		const scriptContent = readFileSync(scriptPath, "utf8");
-		const commandLogStem = `.pulumi/command-logs/${name}`;
+		const commandLogStem = nixOutputCommandLogStem(name);
 		const mode = args.mode ?? "resolve";
 		const previewStrategy = args.previewStrategy ?? "resource";
 
 		// REPO_ROOT is deliberately NOT included here. It would be a diffed
-		// input on the spawned command (directly, or via resolvePreviewStorePath
-		// below, which merges this map over the ambient process.env). The
-		// script reads it from the ambient environment at execution time
-		// instead, falling back to FLAKE_ROOT — see the doc comment on
-		// NixOutputArgs.repoRoot and nix-output-resolve.sh.
+		// input on the spawned command. The script reads args.repoRoot from
+		// ${COMMAND_LOG_STEM}/repo-root (written below), then falls back to
+		// ambient REPO_ROOT/FLAKE_ROOT. See ADR-021.
 		const env: Record<string, pulumi.Input<string>> = {
 			...(args.env ?? {}),
 			NIX_ATTR: args.nixAttr,
@@ -290,17 +358,12 @@ export class NixOutput extends pulumi.ComponentResource {
 			...(args.subPath ? { SUB_PATH: args.subPath } : {}),
 		};
 
-		// The spawned command resolves its build tree from the ambient
-		// environment (see the comment on `env` above), never from
-		// `args.repoRoot` directly — so when the two differ, the drvPath trigger
-		// and eager preview below describe one flake while the build compiles
-		// another.
-		//
 		// Checked eagerly when `repoRoot` is a plain string, which is every
 		// known caller: a throw inside `.apply()` surfaces as a deferred
 		// rejection rather than a constructor error, which is both harder to act
 		// on and easy to miss. The apply is kept as a backstop for genuinely
-		// dynamic inputs.
+		// dynamic inputs, and that apply also writes the sidecar so the Command
+		// cannot run before the path is on disk.
 		const checkRoot = (repoRoot: string) => {
 			if (!repoRootHasFlakeNix(repoRoot)) {
 				throw new Error(
@@ -311,11 +374,12 @@ export class NixOutput extends pulumi.ComponentResource {
 				);
 			}
 
-			// Mirror the script's own precedence: ${REPO_ROOT:-${FLAKE_ROOT:-}}.
+			// Mirror the script's ambient fallback: ${REPO_ROOT:-${FLAKE_ROOT:-}}.
 			// `||`, not `??` — shell `:-` falls through on an *empty* string as
 			// well as an unset one, so `REPO_ROOT= pulumi up` must still resolve
-			// to FLAKE_ROOT here, or this check would validate a different tree
-			// than the one the script then builds.
+			// to FLAKE_ROOT here. The sidecar makes repoRoot control the build;
+			// this check is the safety net for a Pulumi process whose nix/devshell
+			// is rooted in a different tree than the one named.
 			const ambient = process.env.REPO_ROOT || process.env.FLAKE_ROOT;
 			if (ambient && !sameBuildRoot(repoRoot, ambient)) {
 				// This was a warn, on the reasoning that it "should never fire in
@@ -326,21 +390,19 @@ export class NixOutput extends pulumi.ComponentResource {
 				// which stops being true the moment anyone uses a git worktree, a
 				// second checkout, or a repo shared by concurrent sessions.
 				//
-				// A warning is the wrong severity for "this resource will build
-				// something other than you asked for", and is easily lost in
-				// `pulumi up` output. Refuse instead — in the intended case the two
-				// are equal and this costs nothing.
+				// A warning is the wrong severity for that class of operator error
+				// and is easily lost in `pulumi up` output. Refuse instead — in the
+				// intended case the two are equal and this costs nothing.
 				throw new Error(
 					`NixOutput(${name}): repoRoot ("${repoRoot}") does not match the ` +
-						`ambient REPO_ROOT/FLAKE_ROOT ("${ambient}"). The spawned ` +
-						"command builds against the ambient value, not repoRoot, so " +
-						"this resource would compile a different flake than the " +
-						"drvPath trigger and eager preview were computed against — " +
-						"and than you asked for. Re-enter the nix devshell or reload " +
-						`direnv in the worktree at ${repoRoot}, then retry. To pin ` +
-						`one-shot:\n  REPO_ROOT=${repoRoot} pulumi up`,
+						`ambient REPO_ROOT/FLAKE_ROOT ("${ambient}"). Re-enter the nix ` +
+						"devshell or reload direnv in the worktree you mean to deploy " +
+						`from (${repoRoot}), then retry. To pin one-shot:\n  ` +
+						`REPO_ROOT=${repoRoot} pulumi up`,
 				);
 			}
+
+			writeRepoRootSidecar(commandLogStem, repoRoot);
 
 			// Named at program time so a preview says which commit it is about
 			// to build. The drvPath trigger below already detects *that* the
@@ -352,23 +414,39 @@ export class NixOutput extends pulumi.ComponentResource {
 				)}`,
 				this,
 			);
+			return repoRoot;
 		};
 
-		if (typeof args.repoRoot === "string") {
-			checkRoot(args.repoRoot);
-		} else {
-			pulumi.output(args.repoRoot).apply(checkRoot);
-		}
+		const repoRootReady: pulumi.Output<string> =
+			typeof args.repoRoot === "string"
+				? pulumi.output(checkRoot(args.repoRoot))
+				: pulumi.output(args.repoRoot).apply(checkRoot);
+
+		const provenance = repoRootReady.apply(resolveRepoProvenance);
+		this.gitSha = provenance.apply((p) => p.gitSha);
+		this.gitDirty = provenance.apply((p) => p.dirty);
+		this.gitBranch = provenance.apply((p) => p.branch);
 
 		const changeDetection = args.changeDetection ?? "drv";
 		const drvPathTrigger =
 			changeDetection === "drv"
 				? pulumi
-						.all([args.repoRoot, args.nixAttr])
+						.all([repoRootReady, args.nixAttr])
 						.apply(([repoRoot, nixAttr]) =>
 							resolveDrvPathTrigger(repoRoot, nixAttr),
 						)
 				: undefined;
+
+		// String repoRoot (every known caller): keep `nixAttr` as the trigger
+		// entry, identical to pre-#401. Dynamic repoRoot: wait for the sidecar
+		// write without adding a new trigger *value* — the resolved string is
+		// still `nixAttr`, so first apply after upgrade does not `~triggers`.
+		const nixAttrTrigger =
+			typeof args.repoRoot === "string"
+				? args.nixAttr
+				: pulumi
+						.all([args.nixAttr, repoRootReady])
+						.apply(([nixAttr]) => nixAttr);
 
 		const cmd = new command.local.Command(
 			`${name}-resolve`,
@@ -377,7 +455,7 @@ export class NixOutput extends pulumi.ComponentResource {
 				stdin: scriptContent,
 				environment: env,
 				triggers: [
-					args.nixAttr,
+					nixAttrTrigger,
 					...(drvPathTrigger !== undefined ? [drvPathTrigger] : []),
 					...(args.triggers ?? []),
 				],
@@ -397,6 +475,9 @@ export class NixOutput extends pulumi.ComponentResource {
 
 		this.registerOutputs({
 			storePath: this.storePath,
+			gitSha: this.gitSha,
+			gitDirty: this.gitDirty,
+			gitBranch: this.gitBranch,
 		});
 	}
 }

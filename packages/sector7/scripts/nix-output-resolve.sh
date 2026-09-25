@@ -8,8 +8,10 @@
 # Env vars:
 #   NIX_ATTR          - flake attribute path (e.g. "packages.x86_64-linux.lens-api-image")
 #   REPO_ROOT         - absolute path to repo root containing the flake.
-#                       Falls back to the ambient FLAKE_ROOT when unset —
-#                       see the fallback assignment below for why.
+#                       Used when the sidecar file is absent (direct
+#                       invocation). NixOutput does not put this in the
+#                       Command's tracked environment; it writes
+#                       ${COMMAND_LOG_STEM}/repo-root instead.
 #   SUB_OUTPUT        - named output from a multi-output derivation (e.g. "docs", "dev")
 #   SUB_PATH          - sub-path within the resolved store path (e.g. "assets/style.css")
 #   SCRIPT_MODE       - "resolve" (default) or "build"
@@ -33,16 +35,22 @@ set -euo pipefail
 SCRIPT_MODE="${SCRIPT_MODE:-resolve}"
 COMMAND_LOG_STEM="${COMMAND_LOG_STEM:-.pulumi/command-logs}"
 
-# REPO_ROOT falls back to the devshell's FLAKE_ROOT (set by the flake-root
-# hook) when the caller doesn't inject it explicitly. This is deliberate: an
-# explicit REPO_ROOT would be an absolute, machine-specific filesystem path
-# baked into command.local.Command's tracked `environment` input, forcing a
-# spurious replace of this resource (and everything downstream of its output)
-# on every machine whose checkout lives at a different path than whoever last
-# applied the stack. Reading it from the ambient environment at execution time
-# instead keeps the tracked inputs identical across every machine. See
-# nix-output.ts for the corresponding half of this fix.
-REPO_ROOT="${REPO_ROOT:-${FLAKE_ROOT:-}}"
+# How the build tree is chosen, in order:
+#
+# 1. ${COMMAND_LOG_STEM}/repo-root — NixOutput writes args.repoRoot here at
+#    program time. This is the out-of-band channel that lets repoRoot *control*
+#    the build without putting an absolute checkout path into a diffed
+#    command.local.Command input (environment/stdin/create). See ADR-021.
+# 2. Ambient REPO_ROOT, else FLAKE_ROOT — for direct script invocation and as
+#    a safety net when the sidecar is absent.
+#
+# The sidecar wins when present so the TypeScript parameter names the tree
+# that nix actually compiles.
+if [ -n "${COMMAND_LOG_STEM:-}" ] && [ -s "${COMMAND_LOG_STEM}/repo-root" ]; then
+  IFS= read -r REPO_ROOT <"${COMMAND_LOG_STEM}/repo-root"
+else
+  REPO_ROOT="${REPO_ROOT:-${FLAKE_ROOT:-}}"
+fi
 
 # Validate required env vars
 for var in NIX_ATTR REPO_ROOT; do

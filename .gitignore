@@ -8,3 +8,4 @@ just-flake.just
 **/node_modules/
 **/dist/
 .worktrees/
+.pulumi/
