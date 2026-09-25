@@ -287,8 +287,11 @@ describe("NixOutput", () => {
 		expect(cmds[0].inputs.environment).toMatchObject({
 			COMMAND_LOG_STEM: nixOutputCommandLogStem("evil/../tmp"),
 		});
-		expect(nixOutputCommandLogStem("evil/../tmp")).toBe(
-			".pulumi/command-logs/stack/evil-tmp",
+		expect(nixOutputCommandLogStem("evil/../tmp")).toMatch(
+			/^\.pulumi\/command-logs\/stack\/evil-tmp-[0-9a-f]{8}$/,
+		);
+		expect(nixOutputCommandLogStem("api/foo")).not.toBe(
+			nixOutputCommandLogStem("api-foo"),
 		);
 		expect(
 			readFileSync(

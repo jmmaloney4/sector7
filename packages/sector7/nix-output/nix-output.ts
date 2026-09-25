@@ -1,4 +1,5 @@
 import { execFileSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import {
 	mkdirSync,
 	readFileSync,
@@ -27,7 +28,11 @@ function safePathComponent(value: string): string {
  * file. `name` is sanitized so it cannot escape `.pulumi/command-logs`.
  */
 export function nixOutputCommandLogStem(name: string): string {
-	return `.pulumi/command-logs/${safePathComponent(pulumi.getStack())}/${safePathComponent(name)}`;
+	const digest = createHash("sha256")
+		.update(name, "utf8")
+		.digest("hex")
+		.slice(0, 8);
+	return `.pulumi/command-logs/${safePathComponent(pulumi.getStack())}/${safePathComponent(name)}-${digest}`;
 }
 
 export interface NixOutputArgs {
