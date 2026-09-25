@@ -20,6 +20,7 @@ import {
 } from "../nix-output/nix-output";
 import {
 	cleanupFlakeRoots,
+	makeDirectoryNamedFlakeNix,
 	makeEmptyRoot,
 	makeFlakeRoot,
 } from "./helpers/flake-root";
@@ -262,6 +263,19 @@ describe("NixOutput", () => {
 		expect(
 			() =>
 				new NixOutput("test-missing-flake", {
+					nixAttr: "packages.x86_64-linux.myapp",
+					repoRoot,
+				}),
+		).toThrow(/does not contain flake\.nix/);
+	});
+
+	it("refuses when flake.nix is a directory rather than a file", () => {
+		const repoRoot = makeDirectoryNamedFlakeNix();
+		process.env.REPO_ROOT = repoRoot;
+
+		expect(
+			() =>
+				new NixOutput("test-flake-nix-is-dir", {
 					nixAttr: "packages.x86_64-linux.myapp",
 					repoRoot,
 				}),

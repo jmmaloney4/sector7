@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { existsSync, readFileSync, realpathSync } from "node:fs";
+import { readFileSync, realpathSync, statSync } from "node:fs";
 import { join } from "node:path";
 import * as command from "@pulumi/command";
 import * as pulumi from "@pulumi/pulumi";
@@ -149,6 +149,16 @@ export function resolveDrvPathTrigger(
 	}
 }
 
+function repoRootHasFlakeNix(repoRoot: string): boolean {
+	try {
+		// `statSync` follows a symlink; `isFile()` rejects a directory that
+		// happens to be named flake.nix (`existsSync` would accept that).
+		return statSync(join(repoRoot, "flake.nix")).isFile();
+	} catch {
+		return false;
+	}
+}
+
 /**
  * Resolve a build root to the directory it actually names: symlinks followed,
  * trailing slashes dropped. Falls back to the literal spelling when the path
@@ -292,7 +302,7 @@ export class NixOutput extends pulumi.ComponentResource {
 		// on and easy to miss. The apply is kept as a backstop for genuinely
 		// dynamic inputs.
 		const checkRoot = (repoRoot: string) => {
-			if (!existsSync(join(repoRoot, "flake.nix"))) {
+			if (!repoRootHasFlakeNix(repoRoot)) {
 				throw new Error(
 					`NixOutput(${name}): repoRoot ("${repoRoot}") does not contain ` +
 						"flake.nix. Pass the absolute path to the flake checkout, not " +
