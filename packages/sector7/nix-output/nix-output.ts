@@ -1,5 +1,6 @@
 import { execFileSync } from "node:child_process";
-import { readFileSync, realpathSync } from "node:fs";
+import { readFileSync, realpathSync, statSync } from "node:fs";
+import { join } from "node:path";
 import * as command from "@pulumi/command";
 import * as pulumi from "@pulumi/pulumi";
 import { getScriptPath } from "../scripts/index.ts";
@@ -27,9 +28,14 @@ export interface NixOutputArgs {
 	 * compiled — the ambient variable does. Passing a path here that differs
 	 * from the ambient one is refused at construction rather than silently
 	 * ignored (#384): it would describe one flake in the drvPath trigger and
-	 * preview while building another. To choose the tree, export the variable:
+	 * preview while building another. Re-enter the nix devshell or reload
+	 * direnv in the worktree you mean to deploy from; to pin one-shot:
 	 *
 	 *     REPO_ROOT=/path/to/checkout pulumi up
+	 *
+	 * The path must contain a `flake.nix`. A nested Pulumi program directory
+	 * (`deploy/services/…`, `process.cwd()` of `pulumi up`) is refused early
+	 * instead of failing later as an opaque nix evaluation error.
 	 */
 	repoRoot: pulumi.Input<string>;
 	/**
@@ -140,6 +146,16 @@ export function resolveDrvPathTrigger(
 			`NixOutput: failed to evaluate drvPath for ${repoRoot}#${nixAttr}` +
 				` (changeDetection: "drv"): ${stderr || String(error)}`,
 		);
+	}
+}
+
+function repoRootHasFlakeNix(repoRoot: string): boolean {
+	try {
+		// `statSync` follows a symlink; `isFile()` rejects a directory that
+		// happens to be named flake.nix (`existsSync` would accept that).
+		return statSync(join(repoRoot, "flake.nix")).isFile();
+	} catch {
+		return false;
 	}
 }
 
@@ -286,6 +302,15 @@ export class NixOutput extends pulumi.ComponentResource {
 		// on and easy to miss. The apply is kept as a backstop for genuinely
 		// dynamic inputs.
 		const checkRoot = (repoRoot: string) => {
+			if (!repoRootHasFlakeNix(repoRoot)) {
+				throw new Error(
+					`NixOutput(${name}): repoRoot ("${repoRoot}") does not contain ` +
+						"flake.nix. Pass the absolute path to the flake checkout, not " +
+						"a nested Pulumi program directory (for example deploy/services/) " +
+						"or process.cwd() of `pulumi up`.",
+				);
+			}
+
 			// Mirror the script's own precedence: ${REPO_ROOT:-${FLAKE_ROOT:-}}.
 			// `||`, not `??` — shell `:-` falls through on an *empty* string as
 			// well as an unset one, so `REPO_ROOT= pulumi up` must still resolve
@@ -311,8 +336,9 @@ export class NixOutput extends pulumi.ComponentResource {
 						"command builds against the ambient value, not repoRoot, so " +
 						"this resource would compile a different flake than the " +
 						"drvPath trigger and eager preview were computed against — " +
-						"and than you asked for. Export the variable to choose the " +
-						`tree:\n  REPO_ROOT=${repoRoot} pulumi up`,
+						"and than you asked for. Re-enter the nix devshell or reload " +
+						`direnv in the worktree at ${repoRoot}, then retry. To pin ` +
+						`one-shot:\n  REPO_ROOT=${repoRoot} pulumi up`,
 				);
 			}
 

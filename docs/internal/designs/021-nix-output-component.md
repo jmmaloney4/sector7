@@ -222,6 +222,30 @@ Alternatives considered for the trigger value:
 - **Migration**: Existing `NixImage` consumers get the same interface — no API break. But the internal command changes (two scripts instead of one, different env vars) means the test suite and any manual testing of the scripts need to pass.
 - **`resolve` mode in NixImage**: When `NixImage` is in "resolve" mode (digest-only, image already pushed elsewhere), it should NOT create a `NixOutput` child. It should just run `skopeo inspect`. This means the refactored `NixImage` has two code paths — one that composes `NixOutput` + push, and one that just does skopeo inspect.
 
+## `repoRoot` validation (#384)
+
+`repoRoot` drives the drvPath trigger and eager preview. The spawned command
+reads the build tree from ambient `REPO_ROOT`/`FLAKE_ROOT` so an absolute
+checkout path is not a diffed input. That split is load-bearing, and it is
+also a footgun: a stale inherited devshell in a worktree can preview one
+tree and compile another.
+
+Construction therefore refuses when:
+
+1. `repoRoot` does not contain a `flake.nix` — a nested Pulumi program
+   directory (`deploy/services/…`, `process.cwd()` of `pulumi up`) used to
+   surface later as an opaque nix evaluation error.
+2. `repoRoot` and the ambient build root name different trees — this used
+   to be a `pulumi.log.warn` (0.20.x); a warning is the wrong severity for
+   "this will build something other than you asked for" and is easily lost
+   in `pulumi up` output. Since 0.22.0 (#385) it throws, naming both paths
+   and telling the operator to re-enter the nix devshell / reload direnv in
+   the intended worktree.
+
+Forwarding `repoRoot` into the script out-of-band (so the parameter also
+controls the build) remains a follow-up; this record only covers the
+refuse-early half.
+
 ## Alternative names considered
 
 ### `NixDerivation`
@@ -251,6 +275,8 @@ Balances declarative intent ("output" of the nix system) with generality. An out
 - 2026-05-13: Proposed
 - 2026-05-13: Accepted — all open questions resolved, implementation in progress
 - 2026-07-02: Amended — default drvPath change detection (`changeDetection: "drv"`) replaces attr-only triggering after a stale-deploy incident
+- 2026-09-02: Amended — refuse when `repoRoot` disagrees with the ambient build root (#385 / 0.22.0)
+- 2026-09-24: Amended — refuse when `repoRoot` does not contain `flake.nix` (#384 item 3)
 
 # Resolved Questions
 
