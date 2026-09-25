@@ -24,9 +24,13 @@ pnpm add "git+https://github.com/jmmaloney4/sector7.git#path:/packages/sector7#v
 store path. Pass `repoRoot` as the **flake checkout** (the directory that
 contains `flake.nix`). Construction throws if that file is missing, and throws
 if `repoRoot` names a different tree than the ambient `REPO_ROOT`/`FLAKE_ROOT`
-the spawned command will actually build. A stale inherited devshell in a
-worktree is the usual cause: re-enter the nix devshell or reload direnv in the
-worktree you mean to deploy from. See ADR-021.
+(a stale inherited devshell in a worktree is the usual cause: re-enter the nix
+devshell or reload direnv). The build itself uses `repoRoot` via an untracked
+sidecar file — the absolute path is not a diffed Command input — so two
+checkouts of the same commit do not replace the resource. Resource outputs
+`gitSha`, `gitDirty`, and `gitBranch` name the tree at program time
+(informational; they are not Command triggers). Non-git roots report
+`"unknown"` rather than failing. See ADR-021.
 
 ### GitHubOidcResource
 

@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import * as command from "@pulumi/command";
 import * as pulumi from "@pulumi/pulumi";
 import { NixOutput } from "../nix-output/nix-output.ts";
+import { resolveRepoProvenance } from "../nix-output/repo-provenance.ts";
 import { getScriptPath } from "../scripts/index.ts";
 import { NixImagePushGroup } from "./push-group.ts";
 
@@ -91,6 +92,12 @@ export class NixImage extends pulumi.ComponentResource {
 	public readonly imageRef: pulumi.Output<string>;
 	/** The digest (e.g. "sha256:...") */
 	public readonly digest: pulumi.Output<string>;
+	/** Passthrough of {@link NixOutput.gitSha} (build mode) or repoRoot at program time (resolve mode). */
+	public readonly gitSha: pulumi.Output<string>;
+	/** Passthrough of {@link NixOutput.gitDirty}. */
+	public readonly gitDirty: pulumi.Output<boolean>;
+	/** Passthrough of {@link NixOutput.gitBranch}. */
+	public readonly gitBranch: pulumi.Output<string>;
 
 	constructor(
 		name: string,
@@ -171,6 +178,12 @@ export class NixImage extends pulumi.ComponentResource {
 				return match[1];
 			});
 			this.imageRef = pulumi.interpolate`${args.artifactRegistryUrl}/${args.imageName}@${this.digest}`;
+			const provenance = pulumi
+				.output(args.repoRoot)
+				.apply(resolveRepoProvenance);
+			this.gitSha = provenance.apply((p) => p.gitSha);
+			this.gitDirty = provenance.apply((p) => p.dirty);
+			this.gitBranch = provenance.apply((p) => p.branch);
 		} else {
 			// Build + push: compose NixOutput for the build step, then push
 			const nixOutput = new NixOutput(
@@ -226,11 +239,17 @@ export class NixImage extends pulumi.ComponentResource {
 				return match[1];
 			});
 			this.imageRef = pulumi.interpolate`${args.artifactRegistryUrl}/${args.imageName}@${this.digest}`;
+			this.gitSha = nixOutput.gitSha;
+			this.gitDirty = nixOutput.gitDirty;
+			this.gitBranch = nixOutput.gitBranch;
 		}
 
 		this.registerOutputs({
 			imageRef: this.imageRef,
 			digest: this.digest,
+			gitSha: this.gitSha,
+			gitDirty: this.gitDirty,
+			gitBranch: this.gitBranch,
 		});
 	}
 }

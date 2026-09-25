@@ -35,7 +35,7 @@ as namespaces (`access`, `d1`, `iam`, `monitor`, `nixImage`, `nixOutput`,
 | `@jmmaloney4/sector7/r2`            | `R2Object`, `uploadAssets`, `uploadStaticAssets`, `purgeZoneCache`                    | Cloudflare R2 object upload + zone cache purge, backed by the sector7 resource plugin     |
 | `@jmmaloney4/sector7/d1`            | `D1Query`                                                                             | Cloudflare D1 query, backed by the sector7 resource plugin                                |
 | `@jmmaloney4/sector7/nix-image`     | `NixImage`, `NixImagePushGroup`                                                       | Build and push OCI images from Nix outputs (ADR-017/029)                                  |
-| `@jmmaloney4/sector7/nix-output`    | `NixOutput`                                                                           | Realize a Nix flake output as a resource (ADR-021)                                        |
+| `@jmmaloney4/sector7/nix-output`    | `NixOutput`, `resolveRepoProvenance`                                                  | Realize a Nix flake output as a resource (ADR-021)                                        |
 | `@jmmaloney4/sector7/monitor`       | `UptimeMonitor`                                                                       | Cloudflare Worker uptime monitor (ADR-020/028/030)                                        |
 | `@jmmaloney4/sector7/cloudsql`      | `CloudSqlAuthProxySidecar`, `rewriteDatabaseUrlForProxy`                              | Cloud SQL Auth Proxy sidecar for Kubernetes workloads (ADR-027)                           |
 | `@jmmaloney4/sector7/litellm`       | `LiteLLMProxy`, `LiteLLMTeam`, `LiteLLMApiKey`, `generateLiteLLMConfig`               | LiteLLM proxy deployment + team/virtual-key admin, dynamic (ADR-026; [details](#litellm)) |
@@ -57,9 +57,13 @@ as namespaces (`access`, `d1`, `iam`, `monitor`, `nixImage`, `nixOutput`,
 store path. Pass `repoRoot` as the **flake checkout** (the directory that
 contains `flake.nix`). Construction throws if that file is missing, and throws
 if `repoRoot` names a different tree than the ambient `REPO_ROOT`/`FLAKE_ROOT`
-the spawned command will actually build. A stale inherited devshell in a
-worktree is the usual cause: re-enter the nix devshell or reload direnv in the
-worktree you mean to deploy from. See ADR-021.
+(a stale inherited devshell in a worktree is the usual cause: re-enter the nix
+devshell or reload direnv). The build itself uses `repoRoot` via an untracked
+sidecar file — the absolute path is not a diffed Command input — so two
+checkouts of the same commit do not replace the resource. Resource outputs
+`gitSha`, `gitDirty`, and `gitBranch` name the tree at program time
+(informational; they are not Command triggers). Non-git roots report
+`"unknown"` rather than failing. See ADR-021.
 
 ### GitHubOidcResource
 
