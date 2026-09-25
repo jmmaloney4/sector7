@@ -18,6 +18,11 @@ import {
 	resolvePreviewStorePath,
 	sameBuildRoot,
 } from "../nix-output/nix-output";
+import {
+	cleanupFlakeRoots,
+	makeEmptyRoot,
+	makeFlakeRoot,
+} from "./helpers/flake-root";
 
 vi.mock("node:child_process", () => ({
 	execFileSync: vi.fn(),
@@ -77,12 +82,12 @@ function installMocks(preview = false): void {
 
 const MOCK_DRV_PATH = "/nix/store/drvhash123-myapp-1.0.0.drv";
 
-// NixOutput now refuses when `repoRoot` disagrees with the ambient
-// REPO_ROOT/FLAKE_ROOT, because the ambient value is what actually gets built
-// (#384). These tests pass a synthetic repoRoot, so they must declare the
-// matching ambient root rather than inheriting the developer's real devshell
-// — which previously only produced a warning and now, correctly, refuses.
-const TEST_REPO_ROOT = "/home/user/my-repo";
+// NixOutput refuses when `repoRoot` disagrees with the ambient
+// REPO_ROOT/FLAKE_ROOT, and when `repoRoot` has no flake.nix (#384).
+// Tests must use a real flake directory (not `/home/user/my-repo`) and
+// declare a matching ambient root rather than inheriting the developer's
+// real devshell.
+let TEST_REPO_ROOT = "";
 let savedRepoRoot: string | undefined;
 let savedFlakeRoot: string | undefined;
 
@@ -102,11 +107,13 @@ afterEach(async () => {
 	else process.env.REPO_ROOT = savedRepoRoot;
 	if (savedFlakeRoot === undefined) delete process.env.FLAKE_ROOT;
 	else process.env.FLAKE_ROOT = savedFlakeRoot;
+	cleanupFlakeRoots();
 });
 
 beforeEach(() => {
 	savedRepoRoot = process.env.REPO_ROOT;
 	savedFlakeRoot = process.env.FLAKE_ROOT;
+	TEST_REPO_ROOT = makeFlakeRoot();
 	process.env.REPO_ROOT = TEST_REPO_ROOT;
 	delete process.env.FLAKE_ROOT;
 	resources.length = 0;
@@ -135,7 +142,7 @@ describe("NixOutput", () => {
 	it("creates a Command resource in resolve mode by default", async () => {
 		const output = new NixOutput("test-default", {
 			nixAttr: "packages.x86_64-linux.myapp",
-			repoRoot: "/home/user/my-repo",
+			repoRoot: TEST_REPO_ROOT,
 		});
 
 		await resolveOutput(output.storePath);
@@ -174,83 +181,63 @@ describe("NixOutput", () => {
 	// downstream repo; it is now a refusal, because a warning is the wrong
 	// severity for "this will build something other than you asked for".
 	it("refuses when repoRoot diverges from the ambient build root", () => {
-		const original = process.env.FLAKE_ROOT;
-		const originalRepo = process.env.REPO_ROOT;
+		const repoRoot = makeFlakeRoot();
 		process.env.FLAKE_ROOT = "/home/user/actual-repo";
 		delete process.env.REPO_ROOT;
 
-		try {
-			expect(
-				() =>
-					new NixOutput("test-divergent-root", {
-						nixAttr: "packages.x86_64-linux.myapp",
-						repoRoot: "/home/user/different-repo",
-					}),
-			).toThrow(/does not match the ambient REPO_ROOT\/FLAKE_ROOT/);
-		} finally {
-			process.env.FLAKE_ROOT = original;
-			if (originalRepo === undefined) delete process.env.REPO_ROOT;
-			else process.env.REPO_ROOT = originalRepo;
-		}
+		expect(
+			() =>
+				new NixOutput("test-divergent-root", {
+					nixAttr: "packages.x86_64-linux.myapp",
+					repoRoot,
+				}),
+		).toThrow(
+			/does not match the ambient REPO_ROOT\/FLAKE_ROOT[\s\S]*re-enter the nix devshell or reload direnv/i,
+		);
 	});
 
 	// Shell `:-` falls through on an EMPTY string too, not just an unset one.
 	// `??` would not, so `REPO_ROOT= pulumi up` would have us checking against
 	// nothing while the script built FLAKE_ROOT's tree.
 	it("treats an empty ambient REPO_ROOT as unset, like the shell does", () => {
-		const originalFlake = process.env.FLAKE_ROOT;
-		const originalRepo = process.env.REPO_ROOT;
+		const repoRoot = makeFlakeRoot();
 		process.env.REPO_ROOT = "";
 		process.env.FLAKE_ROOT = "/home/user/flake-root-repo";
 
-		try {
-			expect(
-				() =>
-					new NixOutput("test-empty-repo-root", {
-						nixAttr: "packages.x86_64-linux.myapp",
-						repoRoot: "/home/user/somewhere-else",
-					}),
-			).toThrow(/\/home\/user\/flake-root-repo/);
-		} finally {
-			process.env.FLAKE_ROOT = originalFlake;
-			if (originalRepo === undefined) delete process.env.REPO_ROOT;
-			else process.env.REPO_ROOT = originalRepo;
-		}
+		expect(
+			() =>
+				new NixOutput("test-empty-repo-root", {
+					nixAttr: "packages.x86_64-linux.myapp",
+					repoRoot,
+				}),
+		).toThrow(/\/home\/user\/flake-root-repo/);
 	});
 
 	// The script's own precedence is ${REPO_ROOT:-${FLAKE_ROOT:-}}, so an
 	// explicit REPO_ROOT must win over FLAKE_ROOT here too — otherwise pinning
 	// the build with REPO_ROOT would be rejected by a stale FLAKE_ROOT.
 	it("prefers ambient REPO_ROOT over FLAKE_ROOT when both are set", () => {
-		const originalFlake = process.env.FLAKE_ROOT;
-		const originalRepo = process.env.REPO_ROOT;
 		process.env.FLAKE_ROOT = "/home/user/stale-devshell-root";
-		process.env.REPO_ROOT = "/home/user/pinned-repo";
+		process.env.REPO_ROOT = TEST_REPO_ROOT;
 
-		try {
-			expect(
-				() =>
-					new NixOutput("test-repo-root-wins", {
-						nixAttr: "packages.x86_64-linux.myapp",
-						repoRoot: "/home/user/pinned-repo",
-					}),
-			).not.toThrow(); // REPO_ROOT won; no divergence against FLAKE_ROOT
-		} finally {
-			process.env.FLAKE_ROOT = originalFlake;
-			if (originalRepo === undefined) delete process.env.REPO_ROOT;
-			else process.env.REPO_ROOT = originalRepo;
-		}
+		expect(
+			() =>
+				new NixOutput("test-repo-root-wins", {
+					nixAttr: "packages.x86_64-linux.myapp",
+					repoRoot: TEST_REPO_ROOT,
+				}),
+		).not.toThrow(); // REPO_ROOT won; no divergence against FLAKE_ROOT
 	});
 
 	// FLAKE_ROOT alone is still a valid way to declare the build root — the
 	// script falls back to it when REPO_ROOT is unset, so this must not refuse.
 	it("accepts a repoRoot matching the ambient FLAKE_ROOT", async () => {
 		delete process.env.REPO_ROOT;
-		process.env.FLAKE_ROOT = "/home/user/same-repo";
+		process.env.FLAKE_ROOT = TEST_REPO_ROOT;
 
 		const output = new NixOutput("test-matching-root", {
 			nixAttr: "packages.x86_64-linux.myapp",
-			repoRoot: "/home/user/same-repo",
+			repoRoot: TEST_REPO_ROOT,
 		});
 		await expect(resolveOutput(output.storePath)).resolves.toBeDefined();
 	});
@@ -259,19 +246,32 @@ describe("NixOutput", () => {
 	// devshell that exports a trailing slash names the same directory, and
 	// blocking a deploy over that would be a false refusal.
 	it("accepts a repoRoot that differs from the ambient root only in spelling", async () => {
-		process.env.REPO_ROOT = "/home/user/same-repo/";
+		process.env.REPO_ROOT = `${TEST_REPO_ROOT}/`;
 
 		const output = new NixOutput("test-trailing-slash-root", {
 			nixAttr: "packages.x86_64-linux.myapp",
-			repoRoot: "/home/user/same-repo",
+			repoRoot: TEST_REPO_ROOT,
 		});
 		await expect(resolveOutput(output.storePath)).resolves.toBeDefined();
+	});
+
+	it("refuses when repoRoot does not contain flake.nix", () => {
+		const repoRoot = makeEmptyRoot();
+		process.env.REPO_ROOT = repoRoot;
+
+		expect(
+			() =>
+				new NixOutput("test-missing-flake", {
+					nixAttr: "packages.x86_64-linux.myapp",
+					repoRoot,
+				}),
+		).toThrow(/does not contain flake\.nix/);
 	});
 
 	it("creates a Command resource in build mode when specified", async () => {
 		const output = new NixOutput("test-build", {
 			nixAttr: "packages.x86_64-linux.myapp",
-			repoRoot: "/home/user/my-repo",
+			repoRoot: TEST_REPO_ROOT,
 			mode: "build",
 		});
 
@@ -291,7 +291,7 @@ describe("NixOutput", () => {
 	it("parses STORE_PATH_OUTPUT marker from stdout", async () => {
 		const output = new NixOutput("test-storepath", {
 			nixAttr: "packages.x86_64-linux.myapp",
-			repoRoot: "/home/user/my-repo",
+			repoRoot: TEST_REPO_ROOT,
 		});
 
 		const storePath = await resolveOutput(output.storePath);
@@ -301,7 +301,7 @@ describe("NixOutput", () => {
 	it("passes subOutput as SUB_OUTPUT env var", async () => {
 		const output = new NixOutput("test-suboutput", {
 			nixAttr: "packages.x86_64-linux.myapp",
-			repoRoot: "/home/user/my-repo",
+			repoRoot: TEST_REPO_ROOT,
 			subOutput: "docs",
 		});
 
@@ -317,7 +317,7 @@ describe("NixOutput", () => {
 	it("passes subPath as SUB_PATH env var and resolves full path", async () => {
 		const output = new NixOutput("test-subpath", {
 			nixAttr: "packages.x86_64-linux.myapp",
-			repoRoot: "/home/user/my-repo",
+			repoRoot: TEST_REPO_ROOT,
 			subPath: "assets/style.css",
 		});
 
@@ -328,7 +328,7 @@ describe("NixOutput", () => {
 	it("combines subOutput and subPath", async () => {
 		const output = new NixOutput("test-combined", {
 			nixAttr: "packages.x86_64-linux.myapp",
-			repoRoot: "/home/user/my-repo",
+			repoRoot: TEST_REPO_ROOT,
 			subOutput: "docs",
 			subPath: "api/index.html",
 		});
@@ -346,7 +346,7 @@ describe("NixOutput", () => {
 	it("includes the drvPath trigger by default", async () => {
 		const output = new NixOutput("test-trigger-default", {
 			nixAttr: "packages.x86_64-linux.myapp",
-			repoRoot: "/home/user/my-repo",
+			repoRoot: TEST_REPO_ROOT,
 		});
 
 		await resolveOutput(output.storePath);
@@ -361,7 +361,7 @@ describe("NixOutput", () => {
 			[
 				"eval",
 				"--raw",
-				"/home/user/my-repo#packages.x86_64-linux.myapp.drvPath",
+				`${TEST_REPO_ROOT}#packages.x86_64-linux.myapp.drvPath`,
 			],
 			expect.objectContaining({ encoding: "utf8" }),
 		);
@@ -370,7 +370,7 @@ describe("NixOutput", () => {
 	it("omits the drvPath trigger with changeDetection none", async () => {
 		const output = new NixOutput("test-trigger-none", {
 			nixAttr: "packages.x86_64-linux.myapp",
-			repoRoot: "/home/user/my-repo",
+			repoRoot: TEST_REPO_ROOT,
 			changeDetection: "none",
 		});
 
@@ -397,7 +397,7 @@ describe("NixOutput", () => {
 	it("appends custom triggers after nixAttr and the drvPath trigger", async () => {
 		const output = new NixOutput("test-trigger-custom", {
 			nixAttr: "packages.x86_64-linux.myapp",
-			repoRoot: "/home/user/my-repo",
+			repoRoot: TEST_REPO_ROOT,
 			triggers: ["commit-sha-abc", "v2.0.0"],
 		});
 
@@ -444,7 +444,7 @@ describe("NixOutput", () => {
 	it("passes extra env vars to the command", async () => {
 		const output = new NixOutput("test-env", {
 			nixAttr: "packages.x86_64-linux.myapp",
-			repoRoot: "/home/user/my-repo",
+			repoRoot: TEST_REPO_ROOT,
 			env: { MY_VAR: "my-value" },
 		});
 
@@ -459,7 +459,7 @@ describe("NixOutput", () => {
 	it("registers storePath as output", async () => {
 		const output = new NixOutput("test-outputs", {
 			nixAttr: "packages.x86_64-linux.myapp",
-			repoRoot: "/home/user/my-repo",
+			repoRoot: TEST_REPO_ROOT,
 		});
 
 		const storePath = await resolveOutput(output.storePath);
@@ -470,7 +470,7 @@ describe("NixOutput", () => {
 	it("uses the sector7:nix:NixOutput type token", async () => {
 		const output = new NixOutput("test-type-token", {
 			nixAttr: "packages.x86_64-linux.myapp",
-			repoRoot: "/home/user/my-repo",
+			repoRoot: TEST_REPO_ROOT,
 		});
 
 		await resolveOutput(output.storePath);
@@ -484,7 +484,7 @@ describe("NixOutput", () => {
 	it("does not include SUB_OUTPUT or SUB_PATH when not specified", async () => {
 		const output = new NixOutput("test-no-sub", {
 			nixAttr: "packages.x86_64-linux.myapp",
-			repoRoot: "/home/user/my-repo",
+			repoRoot: TEST_REPO_ROOT,
 		});
 
 		await resolveOutput(output.storePath);

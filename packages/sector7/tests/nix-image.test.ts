@@ -12,6 +12,7 @@ import {
 } from "vitest";
 import { NixImage } from "../nix-image/nix-image";
 import { NixImagePushGroup } from "../nix-image/push-group";
+import { cleanupFlakeRoots, makeFlakeRoot } from "./helpers/flake-root";
 
 vi.mock("node:child_process", () => ({
 	execFileSync: vi.fn(),
@@ -69,10 +70,10 @@ beforeAll(() => {
 	});
 });
 
-// See the note in nix-output.test.ts: NixOutput now refuses when `repoRoot`
-// disagrees with the ambient REPO_ROOT/FLAKE_ROOT (#384), so a synthetic
-// repoRoot has to declare its matching ambient root.
-const TEST_REPO_ROOT = "/home/user/my-repo";
+// See the note in nix-output.test.ts: NixOutput refuses a synthetic
+// repoRoot that is not a flake checkout and that disagrees with the
+// ambient REPO_ROOT/FLAKE_ROOT (#384).
+let TEST_REPO_ROOT = "";
 let savedRepoRoot: string | undefined;
 let savedFlakeRoot: string | undefined;
 
@@ -81,11 +82,13 @@ afterEach(() => {
 	else process.env.REPO_ROOT = savedRepoRoot;
 	if (savedFlakeRoot === undefined) delete process.env.FLAKE_ROOT;
 	else process.env.FLAKE_ROOT = savedFlakeRoot;
+	cleanupFlakeRoots();
 });
 
 beforeEach(() => {
 	savedRepoRoot = process.env.REPO_ROOT;
 	savedFlakeRoot = process.env.FLAKE_ROOT;
+	TEST_REPO_ROOT = makeFlakeRoot();
 	process.env.REPO_ROOT = TEST_REPO_ROOT;
 	delete process.env.FLAKE_ROOT;
 	resources.length = 0;
@@ -112,7 +115,7 @@ describe("NixImage", () => {
 			imageName: "my-image",
 			imageTag: "dev",
 			artifactRegistryUrl: "us-east1-docker.pkg.dev/my-project/my-repo",
-			repoRoot: "/home/user/my-repo",
+			repoRoot: TEST_REPO_ROOT,
 		});
 
 		await resolveOutput(img.digest);
@@ -147,7 +150,7 @@ describe("NixImage", () => {
 			imageName: "my-image",
 			imageTag: "v1.0.0",
 			artifactRegistryUrl: "us-east1-docker.pkg.dev/my-project/my-repo",
-			repoRoot: "/home/user/my-repo",
+			repoRoot: TEST_REPO_ROOT,
 			mode: "resolve",
 		});
 
@@ -188,7 +191,7 @@ describe("NixImage", () => {
 			imageName: "my-image",
 			imageTag: "dev",
 			artifactRegistryUrl: "us-east1-docker.pkg.dev/my-project/my-repo",
-			repoRoot: "/home/user/my-repo",
+			repoRoot: TEST_REPO_ROOT,
 		});
 
 		const digest = await resolveOutput(img.digest);
@@ -201,7 +204,7 @@ describe("NixImage", () => {
 			imageName: "my-image",
 			imageTag: "dev",
 			artifactRegistryUrl: "us-east1-docker.pkg.dev/my-project/my-repo",
-			repoRoot: "/home/user/my-repo",
+			repoRoot: TEST_REPO_ROOT,
 		});
 
 		const imageRef = await resolveOutput(img.imageRef);
@@ -216,7 +219,7 @@ describe("NixImage", () => {
 			imageName: "my-image",
 			imageTag: "dev",
 			artifactRegistryUrl: "us-east1-docker.pkg.dev/my-project/my-repo",
-			repoRoot: "/home/user/my-repo",
+			repoRoot: TEST_REPO_ROOT,
 		});
 
 		await resolveOutput(img.digest);
@@ -244,7 +247,7 @@ describe("NixImage", () => {
 			imageName: "my-image",
 			imageTag: "dev",
 			artifactRegistryUrl: "us-east1-docker.pkg.dev/my-project/my-repo",
-			repoRoot: "/home/user/my-repo",
+			repoRoot: TEST_REPO_ROOT,
 			triggers: ["custom-trigger-1", "custom-trigger-2"],
 		});
 
@@ -267,7 +270,7 @@ describe("NixImage", () => {
 			imageName: "my-image",
 			imageTag: "v2.0.0",
 			artifactRegistryUrl: "us-east1-docker.pkg.dev/my-project/my-repo",
-			repoRoot: "/home/user/my-repo",
+			repoRoot: TEST_REPO_ROOT,
 			mode: "resolve",
 		});
 
@@ -286,7 +289,7 @@ describe("NixImage", () => {
 			imageName: "my-image",
 			imageTag: "v1.0.0",
 			artifactRegistryUrl: "us-east1-docker.pkg.dev/my-project/my-repo",
-			repoRoot: "/home/user/my-repo",
+			repoRoot: TEST_REPO_ROOT,
 			mode: "resolve",
 		});
 
@@ -302,7 +305,7 @@ describe("NixImage", () => {
 			imageName: "my-image",
 			imageTag: "dev",
 			artifactRegistryUrl: "us-east1-docker.pkg.dev/my-project/my-repo",
-			repoRoot: "/home/user/my-repo",
+			repoRoot: TEST_REPO_ROOT,
 		});
 
 		const digest = await resolveOutput(img.digest);
@@ -319,7 +322,7 @@ describe("NixImage", () => {
 			imageName: "my-image",
 			imageTag: "dev",
 			artifactRegistryUrl: "us-east1-docker.pkg.dev/my-project/my-repo",
-			repoRoot: "/home/user/my-repo",
+			repoRoot: TEST_REPO_ROOT,
 		});
 
 		await resolveOutput(img.digest);
@@ -341,7 +344,7 @@ describe("NixImage", () => {
 			imageName: "my-image",
 			imageTag: "dev",
 			artifactRegistryUrl: "us-east1-docker.pkg.dev/my-project/my-repo",
-			repoRoot: "/home/user/my-repo",
+			repoRoot: TEST_REPO_ROOT,
 		});
 
 		await resolveOutput(img.digest);
@@ -364,7 +367,7 @@ describe("NixImage", () => {
 			imageName: "my-image",
 			imageTag: "dev",
 			artifactRegistryUrl: "us-east1-docker.pkg.dev/my-project/my-repo",
-			repoRoot: "/home/user/my-repo",
+			repoRoot: TEST_REPO_ROOT,
 		});
 
 		await resolveOutput(img.digest);
@@ -384,7 +387,7 @@ describe("NixImage", () => {
 			imageName: "build-img",
 			imageTag: "dev",
 			artifactRegistryUrl: "us-east1-docker.pkg.dev/my-project/my-repo",
-			repoRoot: "/home/user/my-repo",
+			repoRoot: TEST_REPO_ROOT,
 			pushGroup: group,
 		});
 		await resolveOutput(img.digest);
@@ -403,7 +406,7 @@ describe("NixImage", () => {
 			imageName: "resolve-only",
 			imageTag: "v1.0.0",
 			artifactRegistryUrl: "us-east1-docker.pkg.dev/my-project/my-repo",
-			repoRoot: "/home/user/my-repo",
+			repoRoot: TEST_REPO_ROOT,
 			mode: "resolve",
 			pushGroup: group,
 		});
@@ -419,7 +422,7 @@ describe("NixImage", () => {
 			imageName: "optout",
 			imageTag: "dev",
 			artifactRegistryUrl: "us-east1-docker.pkg.dev/my-project/my-repo",
-			repoRoot: "/home/user/my-repo",
+			repoRoot: TEST_REPO_ROOT,
 			pushGroup: false,
 		});
 

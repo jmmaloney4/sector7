@@ -18,6 +18,16 @@ pnpm add "git+https://github.com/jmmaloney4/sector7.git#path:/packages/sector7#v
 
 ## Components
 
+### NixOutput
+
+`NixOutput` (`@jmmaloney4/sector7/nix-output`) realizes a flake attribute as a
+store path. Pass `repoRoot` as the **flake checkout** (the directory that
+contains `flake.nix`). Construction throws if that file is missing, and throws
+if `repoRoot` names a different tree than the ambient `REPO_ROOT`/`FLAKE_ROOT`
+the spawned command will actually build. A stale inherited devshell in a
+worktree is the usual cause: re-enter the nix devshell or reload direnv in the
+worktree you mean to deploy from. See ADR-021.
+
 ### GitHubOidcResource
 
 A component that sets up GitHub Actions OIDC authentication with Google Cloud Platform (GCP). This creates:
