@@ -1,5 +1,4 @@
 import { execFileSync } from "node:child_process";
-import { createHash } from "node:crypto";
 import {
 	mkdirSync,
 	readFileSync,
@@ -16,23 +15,21 @@ import {
 	resolveRepoProvenance,
 } from "./repo-provenance.ts";
 
-/** Restrict a value to a single path component (no traversal). */
-function safePathComponent(value: string): string {
-	const safe = value.replace(/[^A-Za-z0-9_-]+/g, "-").replace(/^-+|-+$/g, "");
-	return safe.length > 0 ? safe : "unnamed";
-}
-
 /**
- * Log/sidecar directory for this resource. Includes the Pulumi stack so two
- * stacks applied from the same cwd cannot overwrite each other's `repo-root`
- * file. `name` is sanitized so it cannot escape `.pulumi/command-logs`.
+ * Tracked `COMMAND_LOG_STEM` for the child Command — and the directory the
+ * untracked `repo-root` sidecar is written into.
+ *
+ * This formula is load-bearing for upgrade diffs. It MUST stay
+ * `.pulumi/command-logs/${name}`, the same string every existing stack stored
+ * before #401. Namespacing by stack or hashing the name would change a
+ * tracked `environment` value and force `~environment` + a Command re-run on
+ * every NixOutput/NixImage at first `pulumi up` after upgrade. After
+ * zeus#3162 that is not "routine churn". Sidecar isolation therefore follows
+ * the log directory: two stacks sharing a cwd and a resource name already
+ * shared this path.
  */
 export function nixOutputCommandLogStem(name: string): string {
-	const digest = createHash("sha256")
-		.update(name, "utf8")
-		.digest("hex")
-		.slice(0, 8);
-	return `.pulumi/command-logs/${safePathComponent(pulumi.getStack())}/${safePathComponent(name)}-${digest}`;
+	return `.pulumi/command-logs/${name}`;
 }
 
 export interface NixOutputArgs {
@@ -428,10 +425,16 @@ export class NixOutput extends pulumi.ComponentResource {
 						)
 				: undefined;
 
-		const sidecarReadyTrigger =
+		// String repoRoot (every known caller): keep `nixAttr` as the trigger
+		// entry, identical to pre-#401. Dynamic repoRoot: wait for the sidecar
+		// write without adding a new trigger *value* — the resolved string is
+		// still `nixAttr`, so first apply after upgrade does not `~triggers`.
+		const nixAttrTrigger =
 			typeof args.repoRoot === "string"
-				? []
-				: [repoRootReady.apply(() => "repo-root-sidecar")];
+				? args.nixAttr
+				: pulumi
+						.all([args.nixAttr, repoRootReady])
+						.apply(([nixAttr]) => nixAttr);
 
 		const cmd = new command.local.Command(
 			`${name}-resolve`,
@@ -440,9 +443,8 @@ export class NixOutput extends pulumi.ComponentResource {
 				stdin: scriptContent,
 				environment: env,
 				triggers: [
-					args.nixAttr,
+					nixAttrTrigger,
 					...(drvPathTrigger !== undefined ? [drvPathTrigger] : []),
-					...sidecarReadyTrigger,
 					...(args.triggers ?? []),
 				],
 			},

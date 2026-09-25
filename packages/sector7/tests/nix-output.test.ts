@@ -167,7 +167,7 @@ describe("NixOutput", () => {
 		expect(cmd.inputs.environment).toEqual({
 			NIX_ATTR: "packages.x86_64-linux.myapp",
 			SCRIPT_MODE: "resolve",
-			COMMAND_LOG_STEM: nixOutputCommandLogStem("test-default"),
+			COMMAND_LOG_STEM: ".pulumi/command-logs/test-default",
 		});
 		// `create` must be a FIXED string — not a resolved filesystem path
 		// through node_modules, which would change on every checkout AND on
@@ -275,30 +275,38 @@ describe("NixOutput", () => {
 		).toBe(TEST_REPO_ROOT);
 	});
 
-	it("sanitizes resource names so the sidecar cannot leave command-logs", async () => {
-		const output = new NixOutput("evil/../tmp", {
+	it("keeps COMMAND_LOG_STEM on the pre-upgrade formula so upgrades do not ~environment", async () => {
+		const output = new NixOutput("test-upgrade-log-stem", {
 			nixAttr: "packages.x86_64-linux.myapp",
 			repoRoot: TEST_REPO_ROOT,
 		});
-		await resolveOutput(output.storePath);
+		const storePath = await resolveOutput(output.storePath);
 
-		const cmds = byName("tmp-resolve");
-		expect(cmds).toHaveLength(1);
-		expect(cmds[0].inputs.environment).toMatchObject({
-			COMMAND_LOG_STEM: nixOutputCommandLogStem("evil/../tmp"),
+		const cmds = byName("test-upgrade-log-stem-resolve");
+		const env = cmds[0].inputs.environment as Record<string, string>;
+		// Pre-#401 / origin/main formula. A stack- or hash-prefixed stem
+		// would show `~environment` on every existing NixOutput at first up.
+		expect(env.COMMAND_LOG_STEM).toBe(
+			".pulumi/command-logs/test-upgrade-log-stem",
+		);
+		expect(env.COMMAND_LOG_STEM).toBe(
+			nixOutputCommandLogStem("test-upgrade-log-stem"),
+		);
+		expect(storePath).toBe("/nix/store/abc123-myapp-1.0.0");
+	});
+
+	it("does not add a sidecar trigger when repoRoot is a dynamic Output", async () => {
+		const output = new NixOutput("test-upgrade-dynamic-root", {
+			nixAttr: "packages.x86_64-linux.myapp",
+			repoRoot: pulumi.output(TEST_REPO_ROOT),
 		});
-		expect(nixOutputCommandLogStem("evil/../tmp")).toMatch(
-			/^\.pulumi\/command-logs\/stack\/evil-tmp-[0-9a-f]{8}$/,
-		);
-		expect(nixOutputCommandLogStem("api/foo")).not.toBe(
-			nixOutputCommandLogStem("api-foo"),
-		);
-		expect(
-			readFileSync(
-				join(nixOutputCommandLogStem("evil/../tmp"), REPO_ROOT_SIDECAR),
-				"utf8",
-			).trim(),
-		).toBe(TEST_REPO_ROOT);
+		const storePath = await resolveOutput(output.storePath);
+
+		const cmds = byName("test-upgrade-dynamic-root-resolve");
+		const triggers = cmds[0].inputs.triggers as string[];
+		expect(triggers).toEqual(["packages.x86_64-linux.myapp", MOCK_DRV_PATH]);
+		expect(triggers).not.toContain("repo-root-sidecar");
+		expect(storePath).toBe("/nix/store/abc123-myapp-1.0.0");
 	});
 
 	it("exposes git provenance as outputs without putting them on the Command", async () => {

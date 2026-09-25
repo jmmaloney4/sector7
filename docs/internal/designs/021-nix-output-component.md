@@ -242,11 +242,27 @@ can differ by machine without producing `[diff: ~environment]`. Putting
 the absolute path on `command.local.Command.environment` (or `stdin`, or
 `create`) would force a replace whenever the same stack is applied from a
 different checkout; two clean worktrees of the same commit evaluate to an
-identical drvPath, so that path is not a content signal. The sidecar
-directory is `.pulumi/command-logs/<stack>/<sanitized-name>-<sha256-8>/` so two
-stacks sharing a cwd cannot clobber each other, a resource `name` cannot
-path-traverse out of that tree, and names that collide after sanitization
-(`api/foo` vs `api-foo`) still get distinct directories.
+identical drvPath, so that path is not a content signal.
+
+The sidecar lives at `${COMMAND_LOG_STEM}/repo-root` with
+`COMMAND_LOG_STEM=.pulumi/command-logs/${name}` — the same tracked string
+every stack stored before this change. Namespacing that path by stack or
+hashing the resource name was considered (#401 review) and rejected: it
+is safer against same-cwd collisions, but it changes a tracked
+`environment` input, so the first `pulumi up` after upgrade would show
+`~environment` and re-run every NixOutput/NixImage in garden, zeus, and
+yard. After zeus#3162 operators are taught not to treat a NixOutput diff
+as routine churn. Sidecar isolation therefore matches the pre-existing
+log directory. A dynamic `repoRoot` waits on the sidecar write by folding
+it into the existing `nixAttr` trigger value (still the attr string), not
+by appending a new trigger token.
+
+**Upgrade (one-time, expected):** the child Command's `stdin` still
+changes because the resolve script gained sidecar reads. Operators will
+see `[diff: ~stdin]` (and a Command re-run) once. `storePath` is
+unchanged when the drv is unchanged, so NixImage pushes and downstream
+Kubernetes resources do not replace. `COMMAND_LOG_STEM` and the trigger
+list are not part of that diff.
 
 **Safety net:** construction still refuses when `repoRoot` and the ambient
 build root name different trees (#385). The sidecar would have built the
@@ -299,6 +315,7 @@ Balances declarative intent ("output" of the nix system) with generality. An out
 - 2026-09-02: Amended — refuse when `repoRoot` disagrees with the ambient build root (#385 / 0.22.0)
 - 2026-09-24: Amended — refuse when `repoRoot` does not contain `flake.nix` (#384 item 3)
 - 2026-09-24: Amended — forward `repoRoot` via untracked sidecar; expose git provenance as outputs (#384 items 1–2)
+- 2026-09-25: Amended — keep `COMMAND_LOG_STEM` on the pre-upgrade formula; do not add a sidecar trigger token (#401 upgrade-diff)
 
 # Resolved Questions
 

@@ -32,6 +32,13 @@ checkouts of the same commit do not replace the resource. Resource outputs
 (informational; they are not Command triggers). Non-git roots report
 `"unknown"` rather than failing. See ADR-021.
 
+**Upgrade:** the first `pulumi up` after this version shows `[diff: ~stdin]`
+on each NixOutput resolve Command (the script now reads the sidecar) and
+re-runs that command once. `storePath` does not change when the derivation
+does not, so images and pods that depend on it do not replace. The Command
+`environment` (including `COMMAND_LOG_STEM=.pulumi/command-logs/<name>`)
+and trigger list are unchanged from previous releases on purpose.
+
 ### GitHubOidcResource
 
 A component that sets up GitHub Actions OIDC authentication with Google Cloud Platform (GCP). This creates:
