@@ -32,25 +32,51 @@ export interface PodSecuritySpec {
 	warn?: "privileged" | "baseline" | "restricted";
 }
 
+/** A CPU and/or memory amount, in Kubernetes quantity syntax (`"4"`, `"16Gi"`). */
+export interface ComputeQuantities {
+	cpu?: pulumi.Input<string>;
+	memory?: pulumi.Input<string>;
+}
+
 /**
  * Aggregate resource ceiling for a tenant, applied per namespace.
  *
  * Deliberately a small, opinionated subset: the goal is a ceiling that stops a
  * runaway workload from starving the cluster, not a chargeback model.
  *
- * **Pair `cpu`/`memory` with {@link LimitsSpec}.** They become `limits.cpu` and
- * `limits.memory`, and Kubernetes rejects any pod that omits a resource the
- * namespace quota constrains. On a cluster whose workloads have never had to
- * declare limits — which is this one, since there are zero ResourceQuotas
- * today — a quota with no `LimitRange` supplying defaults stops new pods from
- * being admitted at all.
+ * CPU and memory have two distinct ceilings, and which one a quota means is
+ * spelled at the call site rather than implied:
+ *
+ * - `requests` → `requests.cpu` / `requests.memory`: the sum of what the
+ *   tenant's pods *reserve*. This is the fair-share ceiling — requests are
+ *   what the scheduler packs against, so they decide how much shared capacity
+ *   a tenant can actually claim. Note it binds on the numbers pods declare, so
+ *   it is only as honest as those requests are (CPU rightsizing first).
+ * - `limits` → `limits.cpu` / `limits.memory`: the sum of what the tenant's
+ *   pods may *burst* to. A separate control with a separate purpose.
+ *
+ * Either, both, or neither may be set.
+ *
+ * **A CPU/memory quota requires a {@link LimitsSpec} that defaults it.**
+ * Kubernetes rejects every pod that does not declare a resource the namespace
+ * quota constrains, so a quota with no `LimitRange` supplying defaults stops
+ * new pods from being admitted at all. `Tenant` refuses such a declaration at
+ * construction — see {@link resourceEnvelope}.
  */
 export interface QuotaSpec {
-	cpu?: pulumi.Input<string>;
-	memory?: pulumi.Input<string>;
+	/** Ceiling on summed container *requests* — the fair-share form. */
+	requests?: ComputeQuantities;
+	/** Ceiling on summed container *limits* — the burst form. */
+	limits?: ComputeQuantities;
 	pods?: pulumi.Input<number>;
 	persistentVolumeClaims?: pulumi.Input<number>;
-	/** Escape hatch for anything the fields above do not cover. */
+	/**
+	 * Escape hatch for anything the fields above do not cover, as raw
+	 * `ResourceQuota.spec.hard` keys. A key here that the fields above also
+	 * produce is rejected rather than silently overridden, and a CPU/memory key
+	 * here (`cpu`, `requests.memory`, …) is held to the same `LimitRange`
+	 * requirement as the typed fields.
+	 */
 	extra?: Record<string, pulumi.Input<string>>;
 }
 
@@ -58,9 +84,14 @@ export interface QuotaSpec {
  * Default and maximum container resources applied to a tenant's namespaces via
  * `LimitRange`.
  *
- * This is not optional polish next to {@link QuotaSpec}: a namespace quota on
- * `limits.cpu`/`limits.memory` makes those fields mandatory, so without a
- * `LimitRange` to default them, every pod that does not declare limits is
+ * Required whenever the effective {@link QuotaSpec} of any owned namespace
+ * constrains CPU or memory, and it must default *each* constrained dimension:
+ *
+ * - a `requests.*` ceiling needs a default request — `defaultRequest`, or
+ *   `default` / `max`, which the apiserver copies down into it;
+ * - a `limits.*` ceiling needs a default limit — `default`, or `max`.
+ *
+ * Without that default, every pod that does not declare the resource is
  * rejected outright rather than merely uncounted.
  */
 export interface LimitsSpec {
@@ -184,7 +215,17 @@ export interface TenantArgs {
 	/** Roles in namespaces this tenant does not own. See {@link PlatformGrant}. */
 	platformGrants?: PlatformGrant[];
 
+	/**
+	 * Default quota for every owned namespace; a namespace entry may override
+	 * it. A CPU/memory ceiling here (or in any override) requires
+	 * {@link TenantArgs.limits}.
+	 */
 	quota?: QuotaSpec;
+	/**
+	 * Container defaults (`LimitRange`) for every owned namespace. Not to be
+	 * confused with {@link QuotaSpec.limits}, the namespace-wide burst ceiling:
+	 * this is what makes such a ceiling — or a `requests` one — admissible.
+	 */
 	limits?: LimitsSpec;
 	podSecurity?: PodSecuritySpec;
 

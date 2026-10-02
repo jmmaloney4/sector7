@@ -1,5 +1,5 @@
 import * as pulumi from "@pulumi/pulumi";
-import { beforeAll, describe, expect, it } from "vitest";
+import { beforeAll, describe, expect, it, vi } from "vitest";
 import {
 	contractItemsFor,
 	findUnclaimedNamespaces,
@@ -7,6 +7,7 @@ import {
 	observabilityIngressPolicy,
 	type PlatformService,
 	resolveConsumes,
+	resourceEnvelope,
 	TENANT_LABEL,
 	TenancyRegistry,
 	Tenant,
@@ -355,5 +356,237 @@ describe("Tenant deployer validation", () => {
 					deployer: { kind: "User", name: "pulumi-jmm" },
 				}),
 		).not.toThrow();
+	});
+});
+
+describe("resourceEnvelope", () => {
+	const at = { tenantId: "t", namespace: "x" };
+	const hardKeys = (e: ReturnType<typeof resourceEnvelope>) =>
+		Object.keys(e.quotaHard ?? {}).sort();
+
+	it("targets requests.* for a requests ceiling — the fair-share form", () => {
+		const e = resourceEnvelope({
+			...at,
+			quota: { requests: { cpu: "40", memory: "96Gi" } },
+			limits: { defaultRequest: { cpu: "100m", memory: "128Mi" } },
+		});
+		expect(e.quotaHard).toEqual({
+			"requests.cpu": "40",
+			"requests.memory": "96Gi",
+		});
+	});
+
+	it("targets limits.* only when the burst ceiling is asked for", () => {
+		const e = resourceEnvelope({
+			...at,
+			quota: { limits: { cpu: "80" } },
+			limits: { default: { cpu: "500m" } },
+		});
+		expect(e.quotaHard).toEqual({ "limits.cpu": "80" });
+	});
+
+	it("expresses both ceilings side by side", () => {
+		const e = resourceEnvelope({
+			...at,
+			quota: { requests: { cpu: "40" }, limits: { cpu: "80" } },
+			limits: { default: { cpu: "500m" } },
+		});
+		expect(hardKeys(e)).toEqual(["limits.cpu", "requests.cpu"]);
+	});
+
+	it("emits the LimitRange from the same declaration", () => {
+		const e = resourceEnvelope({
+			...at,
+			quota: { requests: { cpu: "40" } },
+			limits: { defaultRequest: { cpu: "100m" }, max: { cpu: "4" } },
+		});
+		expect(e.limitRange).toEqual({
+			limits: [
+				{
+					type: "Container",
+					defaultRequest: { cpu: "100m" },
+					default: undefined,
+					max: { cpu: "4" },
+				},
+			],
+		});
+	});
+
+	it("rejects a CPU/memory quota with no LimitRange, naming the failure", () => {
+		expect(() =>
+			resourceEnvelope({
+				...at,
+				quota: { requests: { cpu: "40", memory: "96Gi" }, pods: 200 },
+			}),
+		).toThrow(
+			/tenant "t", namespace "x": the quota constrains requests\.cpu .*requests\.memory .*rejects every pod that does not declare/,
+		);
+	});
+
+	it("rejects a LimitRange that defaults a different dimension", () => {
+		// A memory ceiling is not admissible on the strength of CPU defaults.
+		expect(() =>
+			resourceEnvelope({
+				...at,
+				quota: { requests: { memory: "96Gi" } },
+				limits: { defaultRequest: { cpu: "100m" } },
+			}),
+		).toThrow(/requests\.memory \(needs a default container memory request/);
+	});
+
+	it("rejects a limits ceiling when only a default request is supplied", () => {
+		// defaultRequest is never copied up into a default limit, so pods that
+		// omit a cpu limit would still be refused.
+		expect(() =>
+			resourceEnvelope({
+				...at,
+				quota: { limits: { cpu: "80" } },
+				limits: { defaultRequest: { cpu: "100m" } },
+			}),
+		).toThrow(/limits\.cpu \(needs a default container cpu limit/);
+	});
+
+	it("follows apiserver defaulting: max implies default implies defaultRequest", () => {
+		expect(() =>
+			resourceEnvelope({
+				...at,
+				quota: { requests: { cpu: "40" }, limits: { cpu: "80" } },
+				limits: { max: { cpu: "4" } },
+			}),
+		).not.toThrow();
+		expect(() =>
+			resourceEnvelope({
+				...at,
+				quota: { requests: { memory: "1Gi" } },
+				limits: { default: { memory: "256Mi" } },
+			}),
+		).not.toThrow();
+	});
+
+	it("holds CPU/memory keys arriving through extra to the same rule", () => {
+		for (const key of ["cpu", "requests.memory", "limits.cpu"]) {
+			expect(() =>
+				resourceEnvelope({ ...at, quota: { extra: { [key]: "1" } } }),
+			).toThrow(/rejects every pod/);
+		}
+	});
+
+	it("does not require a LimitRange for quotas that force no declaration", () => {
+		const e = resourceEnvelope({
+			...at,
+			quota: {
+				persistentVolumeClaims: 10,
+				extra: { "requests.ephemeral-storage": "50Gi" },
+			},
+		});
+		expect(hardKeys(e)).toEqual([
+			"persistentvolumeclaims",
+			"requests.ephemeral-storage",
+		]);
+		expect(e.limitRange).toBeUndefined();
+	});
+
+	it("rejects the removed top-level cpu/memory rather than dropping them", () => {
+		// A config-loaded QuotaSpec escapes the type check; silently ignoring the
+		// old field would delete a quota on upgrade.
+		expect(() =>
+			resourceEnvelope({
+				...at,
+				quota: { cpu: "40" } as never,
+				limits: { default: { cpu: "1" } },
+			}),
+		).toThrow(/QuotaSpec\.cpu no longer exists — it used to mean limits\.cpu/);
+	});
+
+	it("rejects an extra key that a typed field also sets", () => {
+		expect(() =>
+			resourceEnvelope({
+				...at,
+				quota: { requests: { cpu: "40" }, extra: { "requests.cpu": "50" } },
+				limits: { defaultRequest: { cpu: "100m" } },
+			}),
+		).toThrow(/quota\.extra sets requests\.cpu/);
+	});
+
+	it("emits a LimitRange with no quota", () => {
+		const e = resourceEnvelope({
+			...at,
+			limits: { defaultRequest: { cpu: "100m" } },
+		});
+		expect(e.quotaHard).toBeUndefined();
+		expect(e.limitRange).toBeDefined();
+	});
+});
+
+describe("Tenant resource envelope", () => {
+	const created: Array<{ type: string; inputs: Record<string, unknown> }> = [];
+	beforeAll(() => {
+		pulumi.runtime.setMocks({
+			newResource: (args) => {
+				created.push({ type: args.type, inputs: args.inputs });
+				return { id: `${args.name}-id`, state: args.inputs };
+			},
+			call: (args) => args.inputs,
+		});
+	});
+
+	const deployer = { kind: "User" as const, name: "pulumi-t" };
+
+	it("rejects a CPU/memory quota with no limits — ADR 174 §1's old example", () => {
+		expect(
+			() =>
+				new Tenant("env-bad", {
+					id: "bad",
+					deployer,
+					namespaces: ["matrix"],
+					quota: { requests: { cpu: "40", memory: "96Gi" }, pods: 200 },
+				}),
+		).toThrow(/tenant "bad", namespace "matrix".*rejects every pod/);
+	});
+
+	it("checks a per-namespace quota override against the tenant LimitRange", () => {
+		expect(
+			() =>
+				new Tenant("env-override", {
+					id: "override",
+					deployer,
+					namespaces: [
+						"ok",
+						{ name: "hot", quota: { limits: { memory: "64Gi" } } },
+					],
+					quota: { pods: 50 },
+					limits: { defaultRequest: { memory: "128Mi" } },
+				}),
+		).toThrow(/namespace "hot".*limits\.memory/);
+	});
+
+	it("emits a requests.* ResourceQuota together with its LimitRange", async () => {
+		new Tenant("env-good", {
+			id: "good",
+			deployer,
+			namespaces: ["matrix"],
+			quota: { requests: { cpu: "40", memory: "96Gi" }, pods: 200 },
+			limits: { defaultRequest: { cpu: "100m", memory: "128Mi" } },
+		});
+		const named = (type: string) =>
+			created.find(
+				(r) =>
+					r.type === type &&
+					(r.inputs.metadata as { namespace?: string }).namespace ===
+						"matrix" &&
+					(r.inputs.metadata as { name?: string }).name?.startsWith("good-"),
+			);
+		await vi.waitFor(() => {
+			expect(named("kubernetes:core/v1:ResourceQuota")).toBeDefined();
+			expect(named("kubernetes:core/v1:LimitRange")).toBeDefined();
+		});
+		const spec = named("kubernetes:core/v1:ResourceQuota")?.inputs.spec as
+			| { hard: Record<string, string> }
+			| undefined;
+		expect(spec?.hard).toEqual({
+			"requests.cpu": "40",
+			"requests.memory": "96Gi",
+			pods: "200",
+		});
 	});
 });
