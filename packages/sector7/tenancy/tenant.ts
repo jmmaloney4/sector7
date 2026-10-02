@@ -1,17 +1,13 @@
 import * as k8s from "@pulumi/kubernetes";
 import * as pulumi from "@pulumi/pulumi";
+import { type ResourceEnvelope, resourceEnvelope } from "./envelope.js";
 import {
 	contractItemsFor,
 	namespacePolicy,
 	resolveConsumes,
 	TENANT_LABEL,
 } from "./policies.js";
-import type {
-	PlatformService,
-	PodSecuritySpec,
-	QuotaSpec,
-	TenantArgs,
-} from "./types.js";
+import type { PlatformService, PodSecuritySpec, TenantArgs } from "./types.js";
 
 const CILIUM_API = "cilium.io/v2";
 
@@ -22,20 +18,6 @@ function psaLabels(spec: PodSecuritySpec | undefined): Record<string, string> {
 	if (spec.audit) out["pod-security.kubernetes.io/audit"] = spec.audit;
 	if (spec.warn) out["pod-security.kubernetes.io/warn"] = spec.warn;
 	return out;
-}
-
-function quotaHard(spec: QuotaSpec): Record<string, pulumi.Input<string>> {
-	const hard: Record<string, pulumi.Input<string>> = { ...(spec.extra ?? {}) };
-	if (spec.cpu !== undefined) hard["limits.cpu"] = spec.cpu;
-	if (spec.memory !== undefined) hard["limits.memory"] = spec.memory;
-	if (spec.pods !== undefined)
-		hard.pods = pulumi.output(spec.pods).apply(String);
-	if (spec.persistentVolumeClaims !== undefined) {
-		hard.persistentvolumeclaims = pulumi
-			.output(spec.persistentVolumeClaims)
-			.apply(String);
-	}
-	return hard;
 }
 
 export interface TenantComponentArgs extends TenantArgs {
@@ -71,7 +53,10 @@ export interface TenantComponentArgs extends TenantArgs {
  *     { namespace: "1password", role: "onepassword-token-reader",
  *       reason: "reads its own Connect token" },
  *   ],
- *   quota: { cpu: "40", memory: "96Gi", pods: 200 },
+ *   // Fair-share ceiling on what pods reserve. A CPU/memory quota is refused
+ *   // unless `limits` defaults each constrained dimension.
+ *   quota: { requests: { cpu: "40", memory: "96Gi" }, pods: 200 },
+ *   limits: { defaultRequest: { cpu: "100m", memory: "128Mi" } },
  *   podSecurity: { enforce: "baseline", audit: "restricted" },
  *   networkPolicy: "observe",
  *   catalog: PLATFORM_SERVICES,
@@ -136,14 +121,26 @@ export class Tenant extends pulumi.ComponentResource {
 				: { apiGroup: "rbac.authorization.k8s.io" }),
 		};
 
-		for (const entry of args.namespaces) {
+		// Every namespace's quota/LimitRange pair is generated — and so validated
+		// — before any resource is registered, so a refused envelope in the last
+		// namespace leaves no half-built tenant behind in the program.
+		const planned = args.namespaces.map((entry) => {
 			const nsName = typeof entry === "string" ? entry : entry.name;
+			const envelope: ResourceEnvelope = resourceEnvelope({
+				tenantId: args.id,
+				namespace: nsName,
+				quota:
+					typeof entry === "string" ? args.quota : (entry.quota ?? args.quota),
+				limits: args.limits,
+			});
+			return { entry, nsName, envelope };
+		});
+
+		for (const { entry, nsName, envelope } of planned) {
 			const podSecurity =
 				typeof entry === "string"
 					? args.podSecurity
 					: (entry.podSecurity ?? args.podSecurity);
-			const quota =
-				typeof entry === "string" ? args.quota : (entry.quota ?? args.quota);
 
 			const ns = new k8s.core.v1.Namespace(
 				`${name}-ns-${nsName}`,
@@ -171,34 +168,30 @@ export class Tenant extends pulumi.ComponentResource {
 				inNamespace,
 			);
 
-			if (quota) {
+			const limitRange = envelope.limitRange
+				? new k8s.core.v1.LimitRange(
+						`${name}-limits-${nsName}`,
+						{
+							metadata: { name: `${args.id}-limits`, namespace: nsName },
+							spec: envelope.limitRange,
+						},
+						inNamespace,
+					)
+				: undefined;
+
+			if (envelope.quotaHard) {
+				// Ordered after the LimitRange: a CPU/memory quota that lands first
+				// rejects every pod that omits the resource until the defaults exist.
 				new k8s.core.v1.ResourceQuota(
 					`${name}-quota-${nsName}`,
 					{
 						metadata: { name: `${args.id}-quota`, namespace: nsName },
-						spec: { hard: quotaHard(quota) },
+						spec: { hard: envelope.quotaHard },
 					},
-					inNamespace,
-				);
-			}
-
-			if (args.limits) {
-				new k8s.core.v1.LimitRange(
-					`${name}-limits-${nsName}`,
 					{
-						metadata: { name: `${args.id}-limits`, namespace: nsName },
-						spec: {
-							limits: [
-								{
-									type: "Container",
-									defaultRequest: args.limits.defaultRequest,
-									default: args.limits.default,
-									max: args.limits.max,
-								},
-							],
-						},
+						parent: ns,
+						dependsOn: limitRange ? [ns, limitRange] : [ns],
 					},
-					inNamespace,
 				);
 			}
 

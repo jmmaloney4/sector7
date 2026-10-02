@@ -1,4 +1,10 @@
 export {
+	type ResourceEnvelope,
+	type ResourceEnvelopeArgs,
+	resourceEnvelope,
+	type TenantLimitRangeSpec,
+} from "./envelope.js";
+export {
 	allowDns,
 	allowPlatformService,
 	contractItemsFor,
@@ -18,6 +24,7 @@ export {
 } from "./tenancy.js";
 export { Tenant, type TenantComponentArgs } from "./tenant.js";
 export type {
+	ComputeQuantities,
 	EnforcementLevel,
 	LimitsSpec,
 	PlatformGrant,
