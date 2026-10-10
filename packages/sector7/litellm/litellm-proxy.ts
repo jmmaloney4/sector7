@@ -1,9 +1,13 @@
 import * as k8s from "@pulumi/kubernetes";
 import * as pulumi from "@pulumi/pulumi";
 import * as random from "@pulumi/random";
-import { CloudSqlAuthProxySidecar } from "../cloudsql/index.ts";
+import {
+	type CloudSqlAuthProxyCredentials,
+	CloudSqlAuthProxySidecar,
+} from "../cloudsql/index.ts";
 import { generateLiteLLMConfig, getProviderEnvVar } from "./config.ts";
 import type {
+	CloudSqlAuthProxy,
 	LiteLLMModelDeployment,
 	LiteLLMProviderConfig,
 	LiteLLMProxyArgs,
@@ -119,6 +123,37 @@ export function validateExtraEnvNameCollisions(
 		providerEnvVarNames,
 		"LiteLLMProxy extraSecretRefEnv",
 	);
+}
+
+/**
+ * Map LiteLLMProxy's Cloud SQL shorthand onto the sidecar credential union.
+ *
+ * `serviceAccountKey` stays as the inline-key shorthand used by existing
+ * consumers. `credentials` is the passthrough (existing-secret, managed-key,
+ * ambient-iam, or inline-key). Setting both is refused so a OnePassword-
+ * synced Secret cannot be silently ignored in favour of a copied key.
+ */
+export function resolveLiteLLMCloudSqlCredentials(
+	config: CloudSqlAuthProxy,
+): CloudSqlAuthProxyCredentials {
+	if (
+		config.credentials !== undefined &&
+		config.serviceAccountKey !== undefined
+	) {
+		throw new Error(
+			"LiteLLMProxy cloudSqlAuthProxy cannot set both credentials and serviceAccountKey",
+		);
+	}
+	if (config.credentials !== undefined) {
+		return config.credentials;
+	}
+	if (config.serviceAccountKey !== undefined) {
+		return {
+			mode: "inline-key",
+			serviceAccountKey: config.serviceAccountKey,
+		};
+	}
+	return { mode: "ambient-iam" };
 }
 
 function resolveProviderConfig(
@@ -374,12 +409,7 @@ export class LiteLLMProxy extends pulumi.ComponentResource {
 							provider: opts?.provider as k8s.Provider | undefined,
 							secretName: `${name}-cloudsql-sa-key`,
 						},
-						credentials: cloudSqlConfig.serviceAccountKey
-							? {
-									mode: "inline-key",
-									serviceAccountKey: cloudSqlConfig.serviceAccountKey,
-								}
-							: { mode: "ambient-iam" },
+						credentials: resolveLiteLLMCloudSqlCredentials(cloudSqlConfig),
 					},
 					parentAndProvider,
 				)

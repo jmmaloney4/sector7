@@ -2,6 +2,7 @@ import * as pulumi from "@pulumi/pulumi";
 import { beforeAll, beforeEach, describe, expect, it } from "vitest";
 import {
 	LiteLLMProxy,
+	resolveLiteLLMCloudSqlCredentials,
 	validateExtraEnvNameCollisions,
 } from "../litellm/litellm-proxy.ts";
 import {
@@ -160,6 +161,96 @@ describe("LiteLLMProxy", () => {
 		// Deployment should exist.
 		const deployment = findResource("sidecar-proxy-deployment");
 		expect(deployment?.type).toBe("kubernetes:apps/v1:Deployment");
+	});
+
+	it("mounts an existing Secret for cloudSqlAuthProxy existing-secret mode", async () => {
+		const proxy = new LiteLLMProxy("existing-secret-proxy", {
+			namespace: "litellm-prod",
+			providers: { anthropic: { apiKey: pulumi.secret("anthropic-secret") } },
+			deployments: [
+				{
+					id: "anthropic-smart",
+					provider: "anthropic",
+					providerModel: "anthropic/claude-sonnet-4-20250514",
+				},
+			],
+			modelGroups: [{ name: "smart", deploymentIds: ["anthropic-smart"] }],
+			databaseUrl: pulumi.secret(
+				"postgresql://user:pass@34.162.159.18:5432/mydb?sslmode=require",
+			),
+			cloudSqlAuthProxy: {
+				connectionName: "my-project:us-east5:my-instance",
+				credentials: {
+					mode: "existing-secret",
+					secretName: "litellm-postgres-proxy-key",
+				},
+			},
+		});
+
+		await Promise.all([
+			resolveOutput(proxy.proxyUrl),
+			resolveOutput(proxy.deployment.id),
+		]);
+
+		expect(proxy.cloudSqlSaKeySecret).toBeUndefined();
+		expect(
+			findResource("existing-secret-proxy-cloudsql-credentials"),
+		).toBeUndefined();
+
+		const deployment = findResource("existing-secret-proxy-deployment");
+		const spec = (await resolveRecord(
+			deployment?.inputs.spec as Record<string, unknown> | undefined,
+		)) as {
+			template: {
+				spec: {
+					volumes?: Array<{
+						name: string;
+						secret?: { secretName: string };
+					}>;
+					containers: Array<{
+						name: string;
+						args?: string[];
+					}>;
+				};
+			};
+		};
+		expect(spec.template.spec.volumes).toEqual(
+			expect.arrayContaining([
+				{
+					name: "cloudsql-credentials",
+					secret: { secretName: "litellm-postgres-proxy-key" },
+				},
+			]),
+		);
+		const sidecar = spec.template.spec.containers.find(
+			(container) => container.name === "cloud-sql-proxy",
+		);
+		expect(sidecar?.args).toEqual(
+			expect.arrayContaining(["--credentials-file=/cloudsql/credentials.json"]),
+		);
+
+		const runtimeSecret = findResource("existing-secret-proxy-runtime");
+		const runtimeData = runtimeSecret?.inputs.stringData as {
+			value: Record<string, string>;
+		};
+		expect(runtimeData.value.DATABASE_URL).toBe(
+			"postgresql://user:pass@127.0.0.1:5432/mydb?sslmode=disable",
+		);
+	});
+
+	it("refuses cloudSqlAuthProxy credentials together with serviceAccountKey", () => {
+		expect(() =>
+			resolveLiteLLMCloudSqlCredentials({
+				connectionName: "my-project:us-east5:my-instance",
+				serviceAccountKey: "copied-key",
+				credentials: {
+					mode: "existing-secret",
+					secretName: "litellm-postgres-proxy-key",
+				},
+			}),
+		).toThrow(
+			"LiteLLMProxy cloudSqlAuthProxy cannot set both credentials and serviceAccountKey",
+		);
 	});
 
 	it("can skip namespace creation", async () => {
