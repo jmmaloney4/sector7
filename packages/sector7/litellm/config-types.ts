@@ -1,5 +1,6 @@
 import type * as k8s from "@pulumi/kubernetes";
 import type * as pulumi from "@pulumi/pulumi";
+import type { CloudSqlAuthProxyCredentials } from "../cloudsql/index.ts";
 
 export type LiteLLMModelMode =
 	| "chat"
@@ -160,12 +161,20 @@ export interface CloudSqlAuthProxy {
 	/**
 	 * GCP service account key (JSON) for IAM authentication.
 	 * When provided, the key is stored in a Kubernetes secret and mounted
-	 * as an environment variable in the sidecar.
+	 * into the sidecar (`inline-key` mode).
 	 *
-	 * If omitted, the sidecar relies on Workload Identity or the node's
-	 * default service account.
+	 * Shorthand for `credentials: { mode: "inline-key", serviceAccountKey }`.
+	 * Mutually exclusive with `credentials`. If both are omitted, the sidecar
+	 * uses `ambient-iam` (Workload Identity or the node's default SA).
 	 */
 	serviceAccountKey?: pulumi.Input<string>;
+
+	/**
+	 * Full CloudSqlAuthProxySidecar credential mode. Prefer this when the
+	 * key already lives in a Kubernetes Secret (OnePasswordItem sync, chat's
+	 * `existing-secret` pattern). Mutually exclusive with `serviceAccountKey`.
+	 */
+	credentials?: CloudSqlAuthProxyCredentials;
 
 	/** Extra args passed to the cloud-sql-proxy binary. */
 	extraArgs?: pulumi.Input<pulumi.Input<string>[]>;

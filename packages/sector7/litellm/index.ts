@@ -1,3 +1,4 @@
+export type { CloudSqlAuthProxyCredentials } from "../cloudsql/index.ts";
 export { LiteLLMApiKey, LiteLLMTeam } from "./admin.ts";
 export { generateLiteLLMConfig } from "./config.ts";
 export type {
