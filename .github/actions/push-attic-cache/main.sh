@@ -32,4 +32,6 @@ run_attic() {
 run_attic login "$server_name" "$attic_endpoint" "$attic_token"
 
 echo "Realizing flake output for Attic push: $flake_attr"
-nix build "$flake_attr" --no-link --print-out-paths -L | run_attic push --stdin "$server_name:$attic_cache_name"
+# Cap upload jobs at 1. attic defaults to 5 parallel uploads and atticd has
+# no server-side concurrency limit, which OOMs the cache (room-of-requirement/seven#81).
+nix build "$flake_attr" --no-link --print-out-paths -L | run_attic push -j 1 --stdin "$server_name:$attic_cache_name"

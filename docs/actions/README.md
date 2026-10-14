@@ -118,6 +118,7 @@ This contract keeps the reusable workflow generic:
 - placement stays in the caller's `runs-on`
 - the caller decides which cache to use
 - Sector7 only wires the supplied cache into `nix.conf`, cache probing, and post-build Attic pushes
+- `nix-setup` runs `attic watch-store -j 1` and `push-attic-cache` runs `attic push -j 1 --stdin`. The attic client defaults to 5 parallel uploads; atticd has no server-side limit, so unbounded concurrency OOMs the cache (room-of-requirement/seven#81)
 
 ### 📦 `pnpm.yml`
 

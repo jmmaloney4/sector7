@@ -75,7 +75,7 @@ jobs:
       BINARY_CACHE_TOKEN: ${{ secrets.ATTIC_CACHE_TOKEN }}
 ```
 
-`binary-cache-url` is the full Nix substituter URL (for example `https://attic.example.com/cache`). `binary-cache-endpoint` is the Attic server root URL used for `attic login` before pushes.
+`binary-cache-url` is the full Nix substituter URL (for example `https://attic.example.com/cache`). `binary-cache-endpoint` is the Attic server root URL used for `attic login` before pushes. Cache pushes (`attic watch-store` and `attic push --stdin`) pass `-j 1` because the attic client defaults to 5 parallel uploads and atticd has no server-side concurrency limit.
 
 ### Pulumi Components
 
