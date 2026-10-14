@@ -29,7 +29,7 @@
       jackpkgs.projectRoot = ./.;
       jackpkgs.nodejs = {
         enable = true;
-        pnpmDepsHash = "sha256-LeFkdfR+2ilF+O2PnAHUY9vjAdn3JB41RIifDabMxao=";
+        pnpmDepsHash = "sha256-6DzCfmJPU9qcdDXO7SS3thKZ1+V0Fm3aATFE6W1Ohus=";
         projectRoot = ./.;
       };
       jackpkgs.checks.typescript.tsc.enable = true;
@@ -113,7 +113,7 @@
           # this tree is 83 MB / 6518 files (client-go + the Pulumi SDK), which
           # would roughly triple the repo. A stale hash reds this repo's CI,
           # never a consumer's.
-          vendorHash = "sha256-sGg1c8lDx94MqpEPIlVB1YHp/ZouJnphyz0+BWhnffI=";
+          vendorHash = "sha256-VRSMLEQA9Yc+hP1mBY2YsUrg2Ihnx8deVAF3fyzqPc8=";
           subPackages = ["cmd/pulumi-resource-sector7"];
           meta.mainProgram = "pulumi-resource-sector7";
           # provider/version/version.go defaults Version to "dev" precisely so
