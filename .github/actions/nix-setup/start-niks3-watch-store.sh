@@ -96,6 +96,7 @@ setsid env \
   NIKS3_AUTH_TOKEN_PATH="$token_path" \
   NIKS3_MAX_UPLOADS="$max_uploads" \
   NIKS3_FIFO="$fifo" \
+  NIKS3_STATE_DIR="$state_dir" \
   bash -c '
     set -euo pipefail
     # FIFO open(O_WRONLY) blocks until a reader exists. Start niks3 (the
@@ -109,12 +110,17 @@ setsid env \
     exec 3>"$NIKS3_FIFO"
     "$INOTIFYWAIT_BIN" -m -e moved_to,create --format "%f" /nix/store |
       while IFS= read -r name; do
+        # RUNNER_TEMP cleanup unlinks files but never kills this setsid
+        # watcher; stop once the state dir is gone so it cannot keep
+        # pushing paths built by later jobs on persistent runners.
+        [ -d "$NIKS3_STATE_DIR" ] || break
         case "$name" in
           .* | *.lock) continue ;;
         esac
-        # Nix store path names are <32-char hash>-<name>. Skip *.lock:
-        # those match the same pattern and niks3 push --stdin exiting on a
-        # non-path would SIGPIPE the rest of the watcher.
+        # Nix store path names are <32-char hash>-<name>. Keep .drv
+        # (real store paths); skip *.lock (transient realisation locks)
+        # so niks3 push --stdin cannot SIGPIPE the watcher.
+
         case "$name" in
           ????????????????????????????????-*) ;;
           *) continue ;;
@@ -125,5 +131,13 @@ setsid env \
       done
     kill "$niks3_pid" 2>/dev/null || true
   ' </dev/null >"$log" 2>&1 &
+watch_pid=$!
 disown || true
-echo "niks3 incremental push started (pid $!, state $state_dir)"
+# Startup crashes (bad flag, rejected token, unreachable endpoint) would
+# otherwise push nothing for the whole job with no visible signal.
+sleep 2
+if ! kill -0 "$watch_pid" 2>/dev/null; then
+  echo "::warning::niks3 incremental pusher exited during startup; see $log"
+  tail -n 20 "$log" 2>/dev/null || true
+fi
+echo "niks3 incremental push started (pid $watch_pid, state $state_dir)"

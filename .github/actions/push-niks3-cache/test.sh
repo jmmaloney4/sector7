@@ -47,4 +47,10 @@ out="$(
 )"
 printf '%s\n' "$out" | grep -q 'endpoint not set' || fail "niks3 backend without endpoint should skip: $out"
 
+grep -F '.* | *.lock' "$watch_script" >/dev/null || fail "watch script should skip .* and *.lock names"
+grep -F 'NIKS3_STATE_DIR' "$watch_script" >/dev/null || fail "watch script should export NIKS3_STATE_DIR for teardown"
+grep -F 'kill -0 "$watch_pid"' "$watch_script" >/dev/null || fail "watch script should probe watcher liveness after start"
+grep -F "cache-push-backend must be one of" "${actions_root}/nix-setup/action.yml" >/dev/null ||
+  fail "nix-setup should fail fast on unknown cache-push-backend"
+
 echo "gha-niks3-helpers skip paths ok"

@@ -130,6 +130,13 @@ runs:
         INPUT_EXTRA_SUBSTITUTERS: ${{ inputs.extra-substituters }}
         INPUT_EXTRA_TRUSTED_PUBLIC_KEYS: ${{ inputs.extra-trusted-public-keys }}
       run: bash "${{ github.action_path }}/configure-binary-cache.sh"
+    # Fail fast on a misspelled backend; otherwise both pusher steps are
+    # silently skipped and the job caches nothing.
+    - if: ${{ inputs.cache-push-backend != '' && inputs.cache-push-backend != 'attic' && inputs.cache-push-backend != 'niks3' && inputs.cache-push-backend != 'both' }}
+      shell: bash
+      run: |
+        echo "::error::cache-push-backend must be one of: attic, niks3, both (got '${{ inputs.cache-push-backend }}')"
+        exit 1
     # Best-effort incremental cache push: when Attic push creds are provided,
     # start `attic watch-store -j 1` in the background so every store path built
     # in this job is uploaded as it appears (survives concurrency cancellation
