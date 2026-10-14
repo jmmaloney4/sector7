@@ -135,7 +135,9 @@ runs:
     # in this job is uploaded as it appears (survives concurrency cancellation
     # and seeds the detect job's nix-eval-jobs closure). Serial uploads avoid
     # OOM on atticd, which has no server-side job limit. Never fails the job.
-    - if: ${{ (inputs.cache-push-backend == 'attic' || inputs.cache-push-backend == 'both') && inputs.attic-endpoint != '' && inputs.attic-cache-name != '' && inputs.attic-token != '' }}
+    # Treat unset/empty backend as attic so an explicit empty expression cannot
+    # skip watch-store for existing callers (script default is also attic).
+    - if: ${{ (inputs.cache-push-backend == 'attic' || inputs.cache-push-backend == 'both' || inputs.cache-push-backend == '') && inputs.attic-endpoint != '' && inputs.attic-cache-name != '' && inputs.attic-token != '' }}
       shell: bash
       env:
         INPUT_ATTIC_ENDPOINT: ${{ inputs.attic-endpoint }}

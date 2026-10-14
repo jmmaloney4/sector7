@@ -69,6 +69,8 @@ fi
 workdir="${RUNNER_TEMP:-${TMPDIR:-/tmp}}"
 state_dir="$(mktemp -d "${workdir}/niks3-watch-XXXXXX")"
 if [ -n "$token" ]; then
+  # Job-scoped: GHA deletes RUNNER_TEMP after the job. The detached watcher
+  # must keep this file until job end, so we cannot trap-rm it here.
   token_path="${state_dir}/auth-token"
   umask 077
   printf '%s\n' "$token" >"$token_path"
