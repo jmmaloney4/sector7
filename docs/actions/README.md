@@ -137,11 +137,11 @@ Test server (hagrid, Tailnet only): `https://niks3-test.mellori-delta.ts.net`. T
 
 `nix-setup` input `cache-push-backend`:
 
-| Value | Incremental pusher |
-| --- | --- |
-| `attic` (default) | `attic watch-store -j 1` when Attic creds are set. Existing callers unchanged. |
-| `niks3` | niks3 stdin/inotify pusher when niks3 endpoint + token are set. Attic watch-store does not start. |
-| `both` | Start each helper whose creds are present. |
+| Value             | Incremental pusher                                                                                |
+| ----------------- | ------------------------------------------------------------------------------------------------- |
+| `attic` (default) | `attic watch-store -j 1` when Attic creds are set. Existing callers unchanged.                    |
+| `niks3`           | niks3 stdin/inotify pusher when niks3 endpoint + token are set. Attic watch-store does not start. |
+| `both`            | Start each helper whose creds are present.                                                        |
 
 ```yaml
 - uses: jmmaloney4/sector7/.github/actions/nix-setup@main

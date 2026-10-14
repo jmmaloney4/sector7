@@ -22,11 +22,11 @@ token="${INPUT_NIKS3_AUTH_TOKEN:-}"
 max_uploads="${INPUT_NIKS3_MAX_CONCURRENT_UPLOADS:-30}"
 
 case "$backend" in
-  niks3 | both) ;;
-  *)
-    echo "niks3 watch-store: cache-push-backend=${backend}; skipping (Attic remains the default)."
-    exit 0
-    ;;
+niks3 | both) ;;
+*)
+  echo "niks3 watch-store: cache-push-backend=${backend}; skipping (Attic remains the default)."
+  exit 0
+  ;;
 esac
 
 if [ -z "$endpoint" ]; then
