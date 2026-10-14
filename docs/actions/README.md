@@ -120,6 +120,48 @@ This contract keeps the reusable workflow generic:
 - Sector7 only wires the supplied cache into `nix.conf`, cache probing, and post-build Attic pushes
 - `nix-setup` runs `attic watch-store -j 1` and `push-attic-cache` runs `attic push -j 1 --stdin`. The attic client defaults to 5 parallel uploads; atticd has no server-side limit, so unbounded concurrency OOMs the cache (room-of-requirement/seven#81)
 
+Attic remains the default cache backend. The reusable `nix.yml` / `push-nix-image.yml` workflows are unchanged.
+
+### Opt-in niks3 push helpers
+
+Composite actions (usable from a caller workflow without changing Sector7's reusable workflows):
+
+- `.github/actions/push-niks3-cache` — realize one flake output and `niks3 push --stdin`
+- `.github/actions/nix-setup` `cache-push-backend` + `niks3-*` inputs — incremental `niks3 push --stdin` from inotify on `/nix/store` (Linux), analog of `attic watch-store`
+
+niks3 authenticates with a bearer token via `--auth-token-path` (not Attic HS256 JWTs, not `--auth-token` on argv). The CLI also accepts `NIKS3_SERVER_URL` and `NIKS3_AUTH_TOKEN_FILE`.
+
+**Push only.** Do not pass the niks3-test URL as `extra-substituters` / `binary-cache-url`. Stock Nix substitution from this server is currently broken. The trusted public key for a later substituter trial is `niks3-test-1:cCyJ4sfbrAM8LbVW4IWX7kyAsx5CemWkld7XBlZaR0Y=`. NAR bodies are uploaded as path-style HTTP PUTs to `s3.roomofrequirement.xyz`.
+
+Test server (hagrid, Tailnet only): `https://niks3-test.mellori-delta.ts.net`. Trial approved 2026-10-14, goal of eventually replacing Attic (`room-of-requirement/seven#81`, seven ADR 023).
+
+`nix-setup` input `cache-push-backend`:
+
+| Value             | Incremental pusher                                                                                |
+| ----------------- | ------------------------------------------------------------------------------------------------- |
+| `attic` (default) | `attic watch-store -j 1` when Attic creds are set. Existing callers unchanged.                    |
+| `niks3`           | niks3 stdin/inotify pusher when niks3 endpoint + token are set. Attic watch-store does not start. |
+| `both`            | Start each helper whose creds are present.                                                        |
+
+```yaml
+- uses: jmmaloney4/sector7/.github/actions/nix-setup@main
+  with:
+    runs-on: ${{ matrix.runs-on }}
+    cache-push-backend: niks3
+    niks3-endpoint: https://niks3-test.mellori-delta.ts.net
+    niks3-auth-token-path: ${{ runner.temp }}/niks3-auth-token
+
+- uses: jmmaloney4/sector7/.github/actions/push-niks3-cache@main
+  with:
+    flake-attr: ${{ matrix.attr }}
+    niks3-endpoint: https://niks3-test.mellori-delta.ts.net
+    niks3-auth-token-path: ${{ runner.temp }}/niks3-auth-token
+```
+
+Write the bearer token to `niks3-auth-token-path` in an earlier step (`umask 077`). Alternatively pass `niks3-auth-token` and the helper writes a job-scoped file itself. Fork PRs with an empty token skip the push, matching Attic.
+
+Do not use `Mic92/niks3-action` / `niks3-hook` here: those register a Nix `post-build-hook`, which on these multi-user daemon runners runs as root and fails the build on upload errors. Same reason `nix-setup` uses `attic watch-store` instead of a post-build-hook.
+
 ### 📦 `pnpm.yml`
 
 - **Path**: `.github/workflows/pnpm.yml` (callable-only)

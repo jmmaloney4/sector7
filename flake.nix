@@ -208,6 +208,20 @@
           dontFixup = true;
         };
 
+        # Skip-path coverage for the opt-in niks3 GHA helpers. Does not contact
+        # niks3-test; live push is a follow-up once a token is on the runner.
+        checks.gha-niks3-helpers =
+          pkgs.runCommand "gha-niks3-helpers" {
+            nativeBuildInputs = [pkgs.bash pkgs.coreutils pkgs.gnugrep];
+            NIKS3_GHA_ROOT = "${./.github/actions}";
+          } ''
+            set -euo pipefail
+            bash -n "$NIKS3_GHA_ROOT/push-niks3-cache/main.sh"
+            bash -n "$NIKS3_GHA_ROOT/nix-setup/start-niks3-watch-store.sh"
+            bash "$NIKS3_GHA_ROOT/push-niks3-cache/test.sh"
+            touch $out
+          '';
+
         devShells.default = pkgs.mkShell {
           inputsFrom = [
             config.jackpkgs.outputs.devShell

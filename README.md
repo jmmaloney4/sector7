@@ -77,6 +77,8 @@ jobs:
 
 `binary-cache-url` is the full Nix substituter URL (for example `https://attic.example.com/cache`). `binary-cache-endpoint` is the Attic server root URL used for `attic login` before pushes. Cache pushes (`attic watch-store` and `attic push --stdin`) pass `-j 1` because the attic client defaults to 5 parallel uploads and atticd has no server-side concurrency limit.
 
+Attic is the default. Opt-in niks3 **push-only** helpers live beside the Attic ones (`push-niks3-cache`, `nix-setup` `cache-push-backend: niks3`). Do not wire niks3-test as a substituter. See [docs/actions/README.md](docs/actions/README.md#opt-in-niks3-push-helpers).
+
 ### Pulumi Components
 
 Install the Pulumi package:
