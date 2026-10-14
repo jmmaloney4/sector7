@@ -96,14 +96,15 @@ setsid env \
   NIKS3_FIFO="$fifo" \
   bash -c '
     set -euo pipefail
-    # Keep the FIFO writer open for the lifetime of the watcher.
-    exec 3>"$NIKS3_FIFO"
+    # FIFO open(O_WRONLY) blocks until a reader exists. Start niks3 (the
+    # reader) first so this writer cannot deadlock before inotify starts.
     "$NIKS3_BIN" push --stdin \
       --server-url "$NIKS3_ENDPOINT" \
       --auth-token-path "$NIKS3_AUTH_TOKEN_PATH" \
       --max-concurrent-uploads "$NIKS3_MAX_UPLOADS" \
       <"$NIKS3_FIFO" &
     niks3_pid=$!
+    exec 3>"$NIKS3_FIFO"
     "$INOTIFYWAIT_BIN" -m -e moved_to,create --format "%f" /nix/store |
       while IFS= read -r name; do
         case "$name" in
