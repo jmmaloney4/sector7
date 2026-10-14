@@ -1,0 +1,32 @@
+name: Push niks3 Cache
+description: Push one flake output path to a niks3 server (opt-in; Attic remains the default cache push helper)
+inputs:
+  flake-attr:
+    description: Flake attribute to realize and push (for example .#packages.x86_64-linux.foo)
+    required: true
+  niks3-endpoint:
+    description: niks3 server URL (for example https://niks3-test.mellori-delta.ts.net)
+    required: true
+  niks3-auth-token-path:
+    description: Path to a file containing the bearer token (passed to niks3 --auth-token-path)
+    required: false
+    default: ''
+  niks3-auth-token:
+    description: Bearer token contents. When set, written to a job-scoped file and passed via --auth-token-path. Prefer niks3-auth-token-path when the token is already a file.
+    required: false
+    default: ''
+  max-concurrent-uploads:
+    description: niks3 --max-concurrent-uploads (default 30; niks3's client default). Parallel NAR PUTs to S3 are the interesting load case versus Attic's serial -j 1.
+    required: false
+    default: '30'
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      env:
+        INPUT_FLAKE_ATTR: ${{ inputs.flake-attr }}
+        INPUT_NIKS3_ENDPOINT: ${{ inputs.niks3-endpoint }}
+        INPUT_NIKS3_AUTH_TOKEN_PATH: ${{ inputs.niks3-auth-token-path }}
+        INPUT_NIKS3_AUTH_TOKEN: ${{ inputs.niks3-auth-token }}
+        INPUT_NIKS3_MAX_CONCURRENT_UPLOADS: ${{ inputs.max-concurrent-uploads }}
+      run: bash "${{ github.action_path }}/main.sh"

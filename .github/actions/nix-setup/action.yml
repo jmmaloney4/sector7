@@ -29,6 +29,26 @@ inputs:
     description: Optional Attic token with push permission, used by watch-store.
     required: false
     default: ''
+  cache-push-backend:
+    description: Which incremental cache pusher to start when the matching creds are set. `attic` (default) preserves today's Attic watch-store. `niks3` starts the opt-in niks3 stdin/inotify pusher instead. `both` starts each helper whose creds are present (trial). Never configures niks3 as a Nix substituter.
+    required: false
+    default: attic
+  niks3-endpoint:
+    description: Optional niks3 server URL. When cache-push-backend is `niks3` or `both` and a token is also set, starts incremental `niks3 push --stdin` from inotify on /nix/store. Push-only; not a substituter.
+    required: false
+    default: ''
+  niks3-auth-token-path:
+    description: Optional path to a niks3 bearer token file (passed to `niks3 --auth-token-path`).
+    required: false
+    default: ''
+  niks3-auth-token:
+    description: Optional niks3 bearer token contents. When set, written to a job-scoped file and passed via `--auth-token-path`.
+    required: false
+    default: ''
+  niks3-max-concurrent-uploads:
+    description: niks3 --max-concurrent-uploads for the incremental pusher (default 30).
+    required: false
+    default: '30'
 runs:
   using: composite
   steps:
@@ -115,10 +135,21 @@ runs:
     # in this job is uploaded as it appears (survives concurrency cancellation
     # and seeds the detect job's nix-eval-jobs closure). Serial uploads avoid
     # OOM on atticd, which has no server-side job limit. Never fails the job.
-    - if: ${{ inputs.attic-endpoint != '' && inputs.attic-cache-name != '' && inputs.attic-token != '' }}
+    - if: ${{ (inputs.cache-push-backend == 'attic' || inputs.cache-push-backend == 'both') && inputs.attic-endpoint != '' && inputs.attic-cache-name != '' && inputs.attic-token != '' }}
       shell: bash
       env:
         INPUT_ATTIC_ENDPOINT: ${{ inputs.attic-endpoint }}
         INPUT_ATTIC_CACHE: ${{ inputs.attic-cache-name }}
         INPUT_ATTIC_TOKEN: ${{ inputs.attic-token }}
       run: bash "${{ github.action_path }}/start-attic-watch-store.sh"
+    # Opt-in niks3 incremental push. Independent of extra-substituters:
+    # niks3-test is a push target only until stock Nix substitution works.
+    - if: ${{ (inputs.cache-push-backend == 'niks3' || inputs.cache-push-backend == 'both') && inputs.niks3-endpoint != '' && (inputs.niks3-auth-token-path != '' || inputs.niks3-auth-token != '') }}
+      shell: bash
+      env:
+        INPUT_CACHE_PUSH_BACKEND: ${{ inputs.cache-push-backend }}
+        INPUT_NIKS3_ENDPOINT: ${{ inputs.niks3-endpoint }}
+        INPUT_NIKS3_AUTH_TOKEN_PATH: ${{ inputs.niks3-auth-token-path }}
+        INPUT_NIKS3_AUTH_TOKEN: ${{ inputs.niks3-auth-token }}
+        INPUT_NIKS3_MAX_CONCURRENT_UPLOADS: ${{ inputs.niks3-max-concurrent-uploads }}
+      run: bash "${{ github.action_path }}/start-niks3-watch-store.sh"
