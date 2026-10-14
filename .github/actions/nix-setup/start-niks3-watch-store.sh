@@ -90,17 +90,28 @@ echo "Starting niks3 push --stdin from inotify on /nix/store (log: $log)"
 # cleanup) and keeps pushing for the rest of the job. `setsid` alone is not
 # enough on GitHub-hosted / actions/runner jobs: the worker still reaps
 # children that inherit RUNNER_TRACKING_ID when this composite step ends.
-# Drop that id (and the raw token env, which is already on disk at 0600)
-# so later job builds still get incremental uploads. Failures land in the
-# log and never affect the job. Attic's watch-store is left unchanged.
-setsid env -u RUNNER_TRACKING_ID -u INPUT_NIKS3_AUTH_TOKEN \
-  NIKS3_BIN="$niks3_bin" \
-  INOTIFYWAIT_BIN="$inotifywait_bin" \
-  NIKS3_ENDPOINT="$endpoint" \
-  NIKS3_AUTH_TOKEN_PATH="$token_path" \
-  NIKS3_MAX_UPLOADS="$max_uploads" \
-  NIKS3_FIFO="$fifo" \
-  NIKS3_STATE_DIR="$state_dir" \
+# `env -i` drops that id, GITHUB_TOKEN, INPUT_*, and other job secrets from
+# a process that outlives this step. The bearer token is only on the 0600
+# file passed via --auth-token-path. Failures land in the log and never
+# affect the job. Attic's watch-store is left unchanged.
+watch_env=(
+  PATH="$PATH"
+  TMPDIR="${TMPDIR:-${RUNNER_TEMP:-/tmp}}"
+  NIKS3_BIN="$niks3_bin"
+  INOTIFYWAIT_BIN="$inotifywait_bin"
+  NIKS3_ENDPOINT="$endpoint"
+  NIKS3_AUTH_TOKEN_PATH="$token_path"
+  NIKS3_MAX_UPLOADS="$max_uploads"
+  NIKS3_FIFO="$fifo"
+  NIKS3_STATE_DIR="$state_dir"
+)
+[ -n "${HOME:-}" ] && watch_env+=("HOME=$HOME")
+for v in SSL_CERT_FILE NIX_SSL_CERT_FILE SSL_CERT_DIR CURL_CA_BUNDLE; do
+  if [ -n "${!v:-}" ]; then
+    watch_env+=("$v=${!v}")
+  fi
+done
+setsid env -i "${watch_env[@]}" \
   bash -c '
     set -euo pipefail
     # FIFO open(O_WRONLY) blocks until a reader exists. Start niks3 (the
