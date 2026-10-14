@@ -110,9 +110,11 @@ setsid env \
     "$INOTIFYWAIT_BIN" -m -e moved_to,create --format "%f" /nix/store |
       while IFS= read -r name; do
         case "$name" in
-          .*) continue ;;
+          .* | *.lock) continue ;;
         esac
-        # Nix store path names are <32-char hash>-<name>.
+        # Nix store path names are <32-char hash>-<name>. Skip *.lock:
+        # those match the same pattern and niks3 push --stdin exiting on a
+        # non-path would SIGPIPE the rest of the watcher.
         case "$name" in
           ????????????????????????????????-*) ;;
           *) continue ;;
