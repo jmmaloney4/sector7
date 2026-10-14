@@ -111,9 +111,10 @@ runs:
         INPUT_EXTRA_TRUSTED_PUBLIC_KEYS: ${{ inputs.extra-trusted-public-keys }}
       run: bash "${{ github.action_path }}/configure-binary-cache.sh"
     # Best-effort incremental cache push: when Attic push creds are provided,
-    # start `attic watch-store` in the background so every store path built in
-    # this job is uploaded as it appears (survives concurrency cancellation and
-    # seeds the detect job's nix-eval-jobs closure). Never fails the job.
+    # start `attic watch-store -j 1` in the background so every store path built
+    # in this job is uploaded as it appears (survives concurrency cancellation
+    # and seeds the detect job's nix-eval-jobs closure). Serial uploads avoid
+    # OOM on atticd, which has no server-side job limit. Never fails the job.
     - if: ${{ inputs.attic-endpoint != '' && inputs.attic-cache-name != '' && inputs.attic-token != '' }}
       shell: bash
       env:

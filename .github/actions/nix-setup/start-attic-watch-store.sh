@@ -57,13 +57,16 @@ if ! "$attic" login "$server" "$endpoint" "$token"; then
 fi
 
 log=/tmp/attic-watch-store.log
-echo "Starting 'attic watch-store $server:$cache' in the background (log: $log)"
+echo "Starting 'attic watch-store -j 1 $server:$cache' in the background (log: $log)"
 # Fully detach so the watcher survives this step (and step-boundary process
 # cleanup) and keeps pushing for the rest of the job: `setsid` puts it in its
 # own session/process group, stdin is closed (</dev/null) and stdout/stderr go
 # to a file so the step never hangs on an open pipe. It is still reaped at job
 # end. Failures land in the log and never affect the job. XDG_CONFIG_HOME is
 # inherited so the watcher reads the isolated login config.
-setsid "$attic" watch-store "$server:$cache" </dev/null >"$log" 2>&1 &
+#
+# Cap upload jobs at 1. attic defaults to 5 parallel uploads and atticd has
+# no server-side concurrency limit, which OOMs the cache (room-of-requirement/seven#81).
+setsid "$attic" watch-store -j 1 "$server:$cache" </dev/null >"$log" 2>&1 &
 disown || true
 echo "attic watch-store started (pid $!)"
