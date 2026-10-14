@@ -87,9 +87,13 @@ mkfifo "$fifo"
 
 echo "Starting niks3 push --stdin from inotify on /nix/store (log: $log)"
 # Fully detach so the watcher survives this step (and step-boundary process
-# cleanup) and keeps pushing for the rest of the job, matching attic
-# watch-store. Failures land in the log and never affect the job.
-setsid env \
+# cleanup) and keeps pushing for the rest of the job. `setsid` alone is not
+# enough on GitHub-hosted / actions/runner jobs: the worker still reaps
+# children that inherit RUNNER_TRACKING_ID when this composite step ends.
+# Drop that id (and the raw token env, which is already on disk at 0600)
+# so later job builds still get incremental uploads. Failures land in the
+# log and never affect the job. Attic's watch-store is left unchanged.
+setsid env -u RUNNER_TRACKING_ID -u INPUT_NIKS3_AUTH_TOKEN \
   NIKS3_BIN="$niks3_bin" \
   INOTIFYWAIT_BIN="$inotifywait_bin" \
   NIKS3_ENDPOINT="$endpoint" \
