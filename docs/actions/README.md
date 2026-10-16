@@ -203,7 +203,7 @@ jobs:
 ### ☁️ `pulumi.yml`
 
 - **Path**: `.github/workflows/pulumi.yml` (callable-only)
-- **Purpose**: Preview and deploy Pulumi stacks with PR commenting
+- **Purpose**: Preview and deploy Pulumi stacks. Preview artifacts are uploaded; this workflow does not post a PR comment.
 - **Required inputs**:
   - **repository**: Repository to checkout (`owner/repo`), typically `${{ github.repository }}`
   - **ref**: Git ref to build, typically `${{ github.ref }}`
@@ -213,14 +213,29 @@ jobs:
   - **nodejs_package_manager**: `pnpm`, `npm`, or `none`
 - **Optional inputs**:
   - **runs-on**: Runner label (defaults to `self-hosted`)
-  - **stack-filter**: Regex to limit which stack directories run
-  - **stack-config-passphrase**: Passphrase for Pulumi secrets when using passphrase backend
-  - **pr_number**: Pull request number for comment posting
-  - **is_fork**: Whether the PR comes from a fork
+  - **pr_number**: Declared unused. Accepted for caller compatibility; the workflow never reads it and nothing posts a comment.
+  - **is_fork**: Whether the PR comes from a fork. When true, Attic push credentials are blanked even if a token is supplied.
+  - **ignore_projects**: Comma-separated list of Pulumi project paths to skip when detecting stacks
+  - **binary-cache-url**: Full substituter URL for an extra binary cache (for example `https://attic.example.com/cache`)
+  - **binary-cache-public-key**: Trusted public key for that binary cache
+  - **binary-cache-endpoint**: Attic server root URL used for `attic login` before cache pushes
+  - **binary-cache-name**: Attic cache name used for cache pushes
   - **preview_only**: Boolean. Default **`true`**. When true, every caller event (PR, `main` push, `v*` tag, `workflow_dispatch`) still runs `pulumi preview` and uploads artifacts, but **never** `pulumi up`. Consumers must pass `preview_only: false` to enable stage/prod deploys.
-  - **working_directory**: Relative path to the Pulumi project root inside the caller repo
+- **Optional secrets**:
+  - **BINARY_CACHE_TOKEN**: Attic token with push permission for `binary-cache-name`. Ignored for forks (`inputs.is_fork` blanks `attic-token` even if the caller supplies a token).
 
 **Safe by default.** Until a consumer opts in, CI cannot apply. Pass `preview_only: false` only when you intend `pulumi up` on `main` (stage) and `v*` tags (prod).
+
+#### Migrating existing callers (sector7#410)
+
+`preview_only` now defaults to `true` (`c18c673`). A caller that used to deploy on `main` or `v*` tags now only previews unless it passes `preview_only: false`.
+
+To keep the new default explicit in a consumer workflow (so a later `workflow_call` default change cannot silently start applying):
+
+```yaml
+# 2026-10-16: pin the sector7#410 default (preview only; no pulumi up).
+preview_only: true
+```
 
 | Caller event                  | `preview_only: true` (default) | `preview_only: false`                                  |
 | ----------------------------- | ------------------------------ | ------------------------------------------------------ |
@@ -266,8 +281,10 @@ jobs:
       # Default is true (previews only; zero chance of pulumi up).
       # Uncomment to enable stage/prod deploys:
       # preview_only: false
+      # 2026-10-16: explicit pin of the sector7#410 default (optional; same as omitting).
+      # preview_only: true
 
-      # PR context (enables commenting on PRs)
+      # pr_number is declared on the reusable workflow but unused (nothing posts a comment).
       pr_number: ${{ (github.event_name == 'pull_request' || github.event_name == 'pull_request_target') && github.event.pull_request.number || 0 }}
       is_fork: ${{ (github.event_name == 'pull_request' || github.event_name == 'pull_request_target') && github.event.pull_request.head.repo.fork }}
 ```
