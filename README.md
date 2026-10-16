@@ -25,7 +25,9 @@ jobs:
       runs-on: ubuntu-latest
       repository: ${{ github.repository }}
       ref: ${{ github.ref }}
+```
 
+```yaml
 # Nix builds
 jobs:
   nix-build:
@@ -34,7 +36,9 @@ jobs:
       runs-on: ubuntu-latest
       repository: ${{ github.repository }}
       ref: ${{ github.ref }}
+```
 
+```yaml
 # Pulumi preview (default). Pass preview_only: false to enable pulumi up.
 jobs:
   pulumi:

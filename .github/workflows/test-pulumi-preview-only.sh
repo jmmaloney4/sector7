@@ -23,18 +23,18 @@ step_if() {
   ' "$workflow"
 }
 
+preview_only_block() {
+  awk '
+    /^      preview_only:/ {in_input=1; next}
+    in_input && /^ {0,6}[^ #]/ {exit}
+    in_input {print}
+  ' "$1"
+}
+
 # Input exists, boolean, default true (safe until a consumer opts into deploys).
 grep -q '^      preview_only:' "$workflow" || fail "missing workflow_call input preview_only"
-awk '
-  /^      preview_only:/ {in_input=1; next}
-  in_input && /^      [a-z_]+:/ {exit}
-  in_input {print}
-' "$workflow" | grep -q 'type: boolean' || fail "preview_only must be type: boolean"
-awk '
-  /^      preview_only:/ {in_input=1; next}
-  in_input && /^      [a-z_]+:/ {exit}
-  in_input {print}
-' "$workflow" | grep -Eq 'default:[[:space:]]*true' || fail "preview_only must default to true"
+preview_only_block "$workflow" | grep -q 'type: boolean' || fail "preview_only must be type: boolean"
+preview_only_block "$workflow" | grep -Eq 'default:[[:space:]]*true' || fail "preview_only must default to true"
 
 stage_if="$(step_if 'pulumi up (stage)')"
 [[ -n $stage_if ]] || fail "pulumi up (stage) has no if:"
@@ -109,6 +109,25 @@ if [[ ${SKIP_NEGATIVE_CONTROLS:-0} -eq 0 ]]; then
   )" || rc=$?
   [[ $rc -ne 0 ]] || fail "missing action file should fail; got: $out"
   [[ $out == *'action file not found:'* ]] || fail "missing action file wrong error: $out"
+
+  # preview_only is the last input; the old stop rule skipped secrets: (four
+  # spaces) and would accept an eight-space default: true under it. Relocate
+  # default: true there and the check must fail.
+  awk '
+    /^      preview_only:/ {in_po=1}
+    in_po && /default:[[:space:]]*true/ {in_po=0; next}
+    /^    secrets:/ {print; print "        default: true"; next}
+    {print}
+  ' "$workflow" >"$tmpdir/preview-only-default-moved.yml"
+  rc=0
+  out="$(
+    SKIP_NEGATIVE_CONTROLS=1 \
+      PULUMI_WORKFLOW="$tmpdir/preview-only-default-moved.yml" \
+      PULUMI_ACTIONS_ROOT="$actions_root" \
+      bash "$self" 2>&1
+  )" || rc=$?
+  [[ $rc -ne 0 ]] || fail "preview_only default relocated later should fail; got: $out"
+  [[ $out == *'preview_only must default to true'* ]] || fail "relocated default: true wrong error: $out"
 fi
 
 echo "gha-pulumi-preview-only ok"
