@@ -145,6 +145,8 @@ jobs:
       google_service_account_email: ${{ vars.GOOGLE_SERVICE_ACCOUNT_EMAIL }}
       pulumi_backend_url: ${{ vars.PULUMI_BACKEND_URL }} # e.g., gs://my-pulumi-state
       nodejs_package_manager: pnpm  # Required: "pnpm", "npm", or "none"
+      # Default is true (previews only). Pass false to enable pulumi up:
+      # preview_only: false
 ```
 
 Notes:
@@ -153,6 +155,7 @@ Notes:
 - The reusable workflow checks out the caller repo/ref you pass via `repository`/`ref`, so the Pulumi projects and `flake.lock` referenced by the workflow should live in the caller repository.
 - The workflow requires a `ci-pulumi` dev shell in the caller repository. That shell must provide `pulumi`, `jq`, and the selected `nodejs_package_manager` (`pnpm` or `npm`; no package manager is required for `none`).
 - The workflow requires the inputs shown above; variables/secrets are not implicitly inherited, so pass them explicitly as inputs as shown.
+- `preview_only` defaults to `true`: CI previews on every event and never runs `pulumi up` until the caller passes `preview_only: false`. See [docs/actions/README.md](../../docs/actions/README.md).
 
 #### Configuration
 

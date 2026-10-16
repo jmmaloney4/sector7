@@ -34,6 +34,19 @@ jobs:
       runs-on: ubuntu-latest
       repository: ${{ github.repository }}
       ref: ${{ github.ref }}
+
+# Pulumi preview (default). Pass preview_only: false to enable pulumi up.
+jobs:
+  pulumi:
+    uses: jmmaloney4/sector7/.github/workflows/pulumi.yml@main
+    with:
+      repository: ${{ github.repository }}
+      ref: ${{ github.ref }}
+      google_workload_identity_provider: ${{ vars.GOOGLE_WORKLOAD_IDENTITY_PROVIDER }}
+      google_service_account_email: ${{ vars.GOOGLE_SERVICE_ACCOUNT_EMAIL }}
+      pulumi_backend_url: ${{ vars.PULUMI_BACKEND_URL }}
+      nodejs_package_manager: pnpm
+      # preview_only: false
 ```
 
 #### Multi-platform (self-hosted) example

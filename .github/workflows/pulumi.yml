@@ -63,6 +63,12 @@ on:
         required: false
         default: ''
         type: string
+      preview_only:
+        description: >-
+          When true (the default), run previews and upload artifacts on every caller event but never `pulumi up`. Consumers must pass preview_only: false to enable stage/prod deploys.
+        required: false
+        default: true
+        type: boolean
     secrets:
       BINARY_CACHE_TOKEN:
         description: 'Optional Attic token used to push built store paths into the binary cache'
@@ -110,13 +116,20 @@ jobs:
       matrix:
         include: ${{ fromJson(needs.detect-pulumi-stacks.outputs.matrix) }}
     concurrency:
-      group: ${{ github.event_name == 'workflow_call' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v')) && format('pulumi-deploy-{0}-{1}', matrix.project, matrix.stack) || format('pulumi-preview-{0}-{1}-{2}', matrix.project, matrix.stack, github.ref_name) }}
+      # github.event_name here is the *caller* event (push / pull_request /
+      # workflow_dispatch / …), never workflow_call. Use preview_only so
+      # preview-only runs on main and v* tags share the preview group instead
+      # of serializing on the deploy group.
+      group: ${{ !inputs.preview_only && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v')) && format('pulumi-deploy-{0}-{1}', matrix.project, matrix.stack) || format('pulumi-preview-{0}-{1}-{2}', matrix.project, matrix.stack, github.ref_name) }}
       cancel-in-progress: false
     permissions:
       packages: read
       id-token: write
       contents: read
       actions: write
+      # GHA cannot condition permissions on inputs, so this stays even when
+      # preview_only is true. This workflow does not call the Deployments API;
+      # the grant is unused for preview-only runs.
       deployments: write
     env:
       GOOGLE_WORKLOAD_IDENTITY_PROVIDER: ${{ inputs.google_workload_identity_provider }}
@@ -241,11 +254,11 @@ jobs:
           path: previews/*
           if-no-files-found: ignore
       - name: pulumi up (stage)
-        if: ${{ steps.preview.outcome == 'success' && github.ref == 'refs/heads/main' && matrix.stack == 'stage' }}
+        if: ${{ steps.preview.outcome == 'success' && !inputs.preview_only && github.ref == 'refs/heads/main' && matrix.stack == 'stage' }}
         run: nix develop .#ci-pulumi --command pulumi up -C ${{ matrix.project }} --stack ${{ matrix.stack }} --yes --non-interactive
         shell: bash
       - name: pulumi up (prod)
-        if: ${{ steps.preview.outcome == 'success' && startsWith(github.ref, 'refs/tags/v') && matrix.stack == 'prod' }}
+        if: ${{ steps.preview.outcome == 'success' && !inputs.preview_only && startsWith(github.ref, 'refs/tags/v') && matrix.stack == 'prod' }}
         run: nix develop .#ci-pulumi --command pulumi up -C ${{ matrix.project }} --stack ${{ matrix.stack }} --yes --non-interactive
         shell: bash
       - name: fail job if preview failed

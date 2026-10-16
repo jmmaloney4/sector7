@@ -217,8 +217,21 @@ jobs:
   - **stack-config-passphrase**: Passphrase for Pulumi secrets when using passphrase backend
   - **pr_number**: Pull request number for comment posting
   - **is_fork**: Whether the PR comes from a fork
-  - **preview_only**: Skip `pulumi up` on pushes and run previews only
+  - **preview_only**: Boolean. Default **`true`**. When true, every caller event (PR, `main` push, `v*` tag, `workflow_dispatch`) still runs `pulumi preview` and uploads artifacts, but **never** `pulumi up`. Consumers must pass `preview_only: false` to enable stage/prod deploys.
   - **working_directory**: Relative path to the Pulumi project root inside the caller repo
+
+**Safe by default.** Until a consumer opts in, CI cannot apply. Pass `preview_only: false` only when you intend `pulumi up` on `main` (stage) and `v*` tags (prod).
+
+| Caller event                  | `preview_only: true` (default) | `preview_only: false`                                  |
+| ----------------------------- | ------------------------------ | ------------------------------------------------------ |
+| `pull_request`                | preview + artifacts            | preview + artifacts (no up; not main / not a `v*` tag) |
+| `push` to `main`              | preview + artifacts            | preview, then `pulumi up` for `stage`                  |
+| `push` of `v*` tag            | preview + artifacts            | preview, then `pulumi up` for `prod`                   |
+| `workflow_dispatch` on `main` | preview + artifacts            | same as `push` to `main`                               |
+
+Concurrency: preview-only runs on `main` / `v*` tags use the **preview** group. The deploy group is used only when `preview_only` is false *and* the ref is `main` or a `v*` tag. (`github.event_name` in this called workflow is the **caller** event, never `workflow_call`.)
+
+Permissions cannot be conditional in GitHub Actions, so `deployments: write` stays on the job even for preview-only runs. This workflow does not call the GitHub Deployments API; the grant is unused unless a future step does.
 
 #### Minimal consumer workflow (copy-paste)
 
@@ -250,6 +263,9 @@ jobs:
       google_service_account_email: ${{ vars.GCP_SERVICE_ACCOUNT_EMAIL }}
       pulumi_backend_url: gs://${{ vars.PULUMI_BACKEND_BUCKET }}
       nodejs_package_manager: pnpm  # Required: "pnpm", "npm", or "none"
+      # Default is true (previews only; zero chance of pulumi up).
+      # Uncomment to enable stage/prod deploys:
+      # preview_only: false
 
       # PR context (enables commenting on PRs)
       pr_number: ${{ (github.event_name == 'pull_request' || github.event_name == 'pull_request_target') && github.event.pull_request.number || 0 }}
