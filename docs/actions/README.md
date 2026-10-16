@@ -212,7 +212,7 @@ jobs:
   - **pulumi_backend_url**: GCS bucket URL for Pulumi backend (e.g., `gs://my-bucket-name`)
   - **nodejs_package_manager**: `pnpm`, `npm`, or `none`
 - **Optional inputs**:
-  - **runs-on**: Runner label (defaults to `self-hosted`)
+  - **runs-on**: Runner label (defaults to `self-hosted`). For multiple labels, pass a JSON array string like `["self-hosted","linux","x64"]`.
   - **pr_number**: Declared unused. Accepted for caller compatibility; the workflow never reads it and nothing posts a comment.
   - **is_fork**: Whether the PR comes from a fork. When true, Attic push credentials are blanked even if a token is supplied.
   - **ignore_projects**: Comma-separated list of Pulumi project paths to skip when detecting stacks
