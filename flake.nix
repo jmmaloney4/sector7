@@ -222,6 +222,22 @@
             touch $out
           '';
 
+        # preview_only default-true: both pulumi up steps must keep the
+        # !inputs.preview_only guard, and concurrency must not key off
+        # github.event_name == workflow_call (never true in a called workflow).
+        checks.gha-pulumi-preview-only =
+          pkgs.runCommand "gha-pulumi-preview-only" {
+            nativeBuildInputs = [pkgs.bash pkgs.coreutils pkgs.gawk pkgs.gnugrep];
+            PULUMI_WORKFLOW = "${./.github/workflows/pulumi.yml}";
+            PULUMI_ACTIONS_ROOT = "${./.github/actions}";
+            TEST_SCRIPT = ./.github/workflows/test-pulumi-preview-only.sh;
+          } ''
+            set -euo pipefail
+            bash -n "$TEST_SCRIPT"
+            bash "$TEST_SCRIPT"
+            touch $out
+          '';
+
         devShells.default = pkgs.mkShell {
           inputsFrom = [
             config.jackpkgs.outputs.devShell
