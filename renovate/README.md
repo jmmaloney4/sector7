@@ -7,10 +7,11 @@ This directory contains composable Renovate presets that can be shared across pr
 ### Core Presets
 
 - **`default.json`** - Base Renovate configuration with common settings
-- **`all.json`** - Aggregate preset that includes all presets in this repo
+- **`all.json`** - Aggregate preset that extends every preset in this repo, including `major-updates.json` and `minor-patch-automerge.json`
+- **`major-updates.json`** - Forces every major update into its own non-automerged PR
+- **`minor-patch-automerge.json`** - Per-ecosystem PR groups for minor/patch/digest updates, most with automerge enabled
 - **`security.json`** - Security-focused package rules and vulnerability handling
 - **`lock-maintenance.json`** - Lock file maintenance configuration
-- **`package-groups.json`** - Package groupings for common technology stacks
 
 ### Technology-Specific Presets
 
@@ -28,8 +29,8 @@ To use these presets in your Renovate configuration, extend them using the GitHu
 {
   "extends": [
     "github>jmmaloney4/sector7//renovate/default.json",
-    "github>jmmaloney4/sector7//renovate:nix",
-    "github>jmmaloney4/sector7//renovate:security"
+    "github>jmmaloney4/sector7//renovate/nix.json",
+    "github>jmmaloney4/sector7//renovate/security.json"
   ]
 }
 ```
@@ -83,8 +84,9 @@ The presets are designed to be composable. Common combinations:
 {
   "extends": [
     "github>jmmaloney4/sector7//renovate/default.json",
+    "github>jmmaloney4/sector7//renovate/major-updates.json",
+    "github>jmmaloney4/sector7//renovate/minor-patch-automerge.json",
     "github>jmmaloney4/sector7//renovate/security.json",
-    "github>jmmaloney4/sector7//renovate/package-groups.json",
     "github>jmmaloney4/sector7//renovate/lock-maintenance.json"
   ]
 }
