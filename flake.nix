@@ -230,10 +230,11 @@
             nativeBuildInputs = [pkgs.bash pkgs.coreutils pkgs.gawk pkgs.gnugrep];
             PULUMI_WORKFLOW = "${./.github/workflows/pulumi.yml}";
             PULUMI_ACTIONS_ROOT = "${./.github/actions}";
+            TEST_SCRIPT = ./.github/workflows/test-pulumi-preview-only.sh;
           } ''
             set -euo pipefail
-            bash -n ${./.github/workflows/test-pulumi-preview-only.sh}
-            bash ${./.github/workflows/test-pulumi-preview-only.sh}
+            bash -n "$TEST_SCRIPT"
+            bash "$TEST_SCRIPT"
             touch $out
           '';
 

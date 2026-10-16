@@ -3,8 +3,9 @@
 # opts in with preview_only: false. Does not invoke GitHub or Pulumi.
 set -euo pipefail
 
-workflow="${PULUMI_WORKFLOW:-$(cd "$(dirname "$0")" && pwd)/pulumi.yml}"
-actions_root="${PULUMI_ACTIONS_ROOT:-$(cd "$(dirname "$0")/../actions" && pwd)}"
+self="${BASH_SOURCE[0]}"
+workflow="${PULUMI_WORKFLOW:-$(cd "$(dirname "$self")" && pwd)/pulumi.yml}"
+actions_root="${PULUMI_ACTIONS_ROOT:-$(cd "$(dirname "$self")/../actions" && pwd)}"
 
 fail() {
   echo "FAIL: $*" >&2
@@ -16,7 +17,8 @@ fail() {
 step_if() {
   local name="$1"
   awk -v name="$name" '
-    index($0, "- name: " name) {found=1}
+    index($0, "- name: " name) {found=1; next}
+    found && /^[[:space:]]*- (name|uses|run):/ {exit}
     found && /if:/ {print; exit}
   ' "$workflow"
 }
@@ -53,21 +55,60 @@ concurrency="$(awk '/^    concurrency:/{c=1} c{print} c && /^    [a-z]/ && !/^  
 
 # No other mutating Pulumi / Deployments-API paths in this workflow or the
 # composite actions it calls. Previews and artifact uploads are allowed.
+action_files=(
+  "$actions_root/pulumi-preview/action.yml"
+  "$actions_root/pulumi-preview/main.sh"
+  "$actions_root/pulumi-setup/action.yml"
+  "$actions_root/pulumi-collect/action.yml"
+  "$actions_root/detect-pulumi-stacks/action.yml"
+  "$actions_root/detect-pulumi-stacks/main.sh"
+)
+for f in "${action_files[@]}"; do
+  [[ -f $f ]] || fail "action file not found: $f"
+done
+
 mutating_hits="$(
   grep -nE '[[:space:]]pulumi[[:space:]]+(up|destroy|refresh)|pulumi[[:space:]]+stack[[:space:]]+init|repos/.*/deployments' \
-    "$workflow" \
-    "$actions_root/pulumi-preview/action.yml" \
-    "$actions_root/pulumi-preview/main.sh" \
-    "$actions_root/pulumi-setup/action.yml" \
-    "$actions_root/pulumi-collect/action.yml" \
-    "$actions_root/detect-pulumi-stacks/action.yml" \
-    "$actions_root/detect-pulumi-stacks/main.sh" ||
-    true
+    "$workflow" "${action_files[@]}" || {
+    rc=$?
+    [[ $rc -eq 1 ]] || fail "grep error rc=$rc"
+  }
 )"
 allowed_up_runs="$(printf '%s\n' "$mutating_hits" | grep -cE 'pulumi up -C' || true)"
 [[ $allowed_up_runs -eq 2 ]] || fail "expected exactly 2 pulumi up run lines, got $allowed_up_runs: $mutating_hits"
 if printf '%s\n' "$mutating_hits" | grep -vE 'pulumi up \(stage\)|pulumi up \(prod\)|pulumi up -C' | grep -q .; then
   fail "unexpected mutating path: $(printf '%s\n' "$mutating_hits" | grep -vE 'pulumi up \(stage\)|pulumi up \(prod\)|pulumi up -C')"
+fi
+
+if [[ ${SKIP_NEGATIVE_CONTROLS:-0} -eq 0 ]]; then
+  tmpdir=$(mktemp -d)
+  trap 'rm -rf "$tmpdir"' EXIT
+
+  awk '
+    index($0, "- name: pulumi up (stage)") {print; skip_if=1; next}
+    skip_if && /if:/ {skip_if=0; next}
+    {print}
+  ' "$workflow" >"$tmpdir/pulumi.yml"
+  rc=0
+  out="$(
+    SKIP_NEGATIVE_CONTROLS=1 \
+      PULUMI_WORKFLOW="$tmpdir/pulumi.yml" \
+      PULUMI_ACTIONS_ROOT="$actions_root" \
+      bash "$self" 2>&1
+  )" || rc=$?
+  [[ $rc -ne 0 ]] || fail "stage step with if: deleted should fail; got: $out"
+  [[ $out == *'pulumi up (stage) has no if:'* ]] || fail "stage missing if: wrong error: $out"
+
+  mkdir -p "$tmpdir/empty-actions"
+  rc=0
+  out="$(
+    SKIP_NEGATIVE_CONTROLS=1 \
+      PULUMI_WORKFLOW="$workflow" \
+      PULUMI_ACTIONS_ROOT="$tmpdir/empty-actions" \
+      bash "$self" 2>&1
+  )" || rc=$?
+  [[ $rc -ne 0 ]] || fail "missing action file should fail; got: $out"
+  [[ $out == *'action file not found:'* ]] || fail "missing action file wrong error: $out"
 fi
 
 echo "gha-pulumi-preview-only ok"
