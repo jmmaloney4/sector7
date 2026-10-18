@@ -4,7 +4,7 @@
 	"addLabels": ["renovate"],
 	"vulnerabilityAlerts": {
 		"enabled": true,
-		"automerge": true,
+		"automerge": false,
 		"addLabels": ["security", "vulnerability", "deps/security", "renovate"]
 	}
 }
