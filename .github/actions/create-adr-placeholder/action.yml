@@ -18,7 +18,7 @@ inputs:
     required: false
     default: main
   post-generate-command:
-    description: Optional bash command run in the consumer checkout after writing the stub and before commit (e.g. `nix fmt && python scripts/generate_internal_indexes.py`). Empty skips the hook. On failure the action exits without committing or pushing. After the hook, only the ADR stub(s) this action wrote plus paths the command created or modified are staged; pre-existing dirty or untracked paths the hook did not change are left unstaged.
+    description: Optional bash command run in the consumer checkout after writing the stub and before commit (e.g. `nix fmt && python scripts/generate_internal_indexes.py`). Empty skips the hook. On failure the action exits without committing or pushing. After the hook, only the ADR stub(s) this action wrote plus paths the command created or modified are staged; pre-existing dirty or untracked paths the hook did not change are left unstaged. The hook expects a clean checkout and does not preserve pre-existing staged changes.
     required: false
     default: ''
 runs:
