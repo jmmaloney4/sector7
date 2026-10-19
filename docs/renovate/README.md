@@ -2,8 +2,8 @@
 
 sector7 ships a set of **composable Renovate presets** that a consumer repo
 extends in one line to get a complete, opinionated dependency-update policy:
-shared defaults, per-ecosystem PR groups, a single update schedule, an automerge
-policy, and custom managers for dependencies that Renovate's built-in managers
+shared defaults, per-ecosystem PR groups, a single update schedule, automerge
+off everywhere, and custom managers for dependencies that Renovate's built-in managers
 don't see (Docker image literals, Helm chart pins, Nix hashes, Pulumi versions).
 
 See also: [configuration](./configuration.md) (every default, group, and knob),
@@ -19,19 +19,19 @@ See also: [configuration](./configuration.md) (every default, group, and knob),
 The presets live in [`renovate/`](../../renovate/) at the repo root, one JSON
 file per concern, plus an aggregate that composes them:
 
-| Preset                          | Role                                                                                                                                                         |
-| ------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `default.json`                  | Base config: timezone, schedule, automerge policy, rate limits, labels, stability delay, digest pinning, dependency dashboard, and repo-wide `packageRules`. |
-| `minor-patch-automerge.json`    | The per-ecosystem **PR groups** for minor/patch/digest updates, most with automerge enabled.                                                                 |
-| `major-updates.json`            | Forces every **major** update into its own non-automerged PR with a reviewer.                                                                                |
-| `security.json`                 | Vulnerability-alert handling (automerged, labelled).                                                                                                         |
-| `lock-maintenance.json`         | Weekly lock-file maintenance.                                                                                                                                |
-| `nix.json`                      | Custom regex managers for Nix (`fetchPypi`, `mkHelmChartFromGitHub`, `nix run github:` pins).                                                                |
-| `pulumi.json`                   | Custom regex manager for annotated versions in `Pulumi.*.yaml`.                                                                                              |
-| `docker-images.json`            | Custom regex manager for annotated container-image string literals in `.ts` sources.                                                                         |
-| `yaml-manifests.json`           | Custom regex managers for annotated container images and Helm chart versions in `.yaml`.                                                                     |
-| `sector7-release-tarballs.json` | Updates `@jmmaloney4/sector7` GitHub release-tarball URLs in `package.json`.                                                                                 |
-| `all.json`                      | **Aggregate** — extends every preset above. Most consumers use only this.                                                                                    |
+| Preset                          | Role                                                                                                                                                                                                                                                    |
+| ------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `default.json`                  | Base config: timezone, schedule, automerge *type/strategy* knobs (unused while automerge is off), rate limits, labels, stability delay, digest pinning, dependency dashboard, and repo-wide `packageRules`. `vulnerabilityAlerts.automerge` is `false`. |
+| `minor-patch-automerge.json`    | **Legacy filename.** The per-ecosystem **PR groups** for minor/patch/digest updates. Every group sets `automerge: false`. It groups PRs; it does not automerge.                                                                                         |
+| `major-updates.json`            | Forces every **major** update into its own non-automerged PR with a reviewer.                                                                                                                                                                           |
+| `security.json`                 | Vulnerability-alert handling (`automerge: false`, labelled).                                                                                                                                                                                            |
+| `lock-maintenance.json`         | Weekly lock-file maintenance (`automerge: false`).                                                                                                                                                                                                      |
+| `nix.json`                      | Custom regex managers for Nix (`fetchPypi`, `mkHelmChartFromGitHub`, `nix run github:` pins).                                                                                                                                                           |
+| `pulumi.json`                   | Custom regex manager for annotated versions in `Pulumi.*.yaml`.                                                                                                                                                                                         |
+| `docker-images.json`            | Custom regex manager for annotated container-image string literals in `.ts` sources.                                                                                                                                                                    |
+| `yaml-manifests.json`           | Custom regex managers for annotated container images and Helm chart versions in `.yaml`.                                                                                                                                                                |
+| `sector7-release-tarballs.json` | Updates `@jmmaloney4/sector7` GitHub release-tarball URLs in `package.json`.                                                                                                                                                                            |
+| `all.json`                      | **Aggregate** — extends every preset above. Most consumers use only this. Ends with top-level `automerge: false` and a last-wins catch-all `{ matchPackageNames: ["*"], automerge: false }`.                                                            |
 
 A consumer's own configuration file always wins: settings declared directly in
 the repo override anything inherited from a preset (Renovate merge precedence).
@@ -50,9 +50,11 @@ default ─ major-updates ─ minor-patch-automerge ─ security ─ pulumi
         ─ sector7-release-tarballs
 ```
 
-Order matters: later presets layer on top of earlier ones, and within
-`minor-patch-automerge.json` the catch-all group is declared first so the more
-specific groups below it win for their packages.
+Order matters: later presets layer on top of earlier ones. Within
+`minor-patch-automerge.json` the JS/TS catch-all **group** is declared first so
+the more specific groups below it win for their packages. `all.json` then
+appends a last-wins catch-all **rule** (`matchPackageNames: ["*"]`,
+`automerge: false`) so no inherited group can re-enable automerge.
 
 ## Data flow: a dependency update, end to end
 
@@ -61,16 +63,15 @@ specific groups below it win for their packages.
 2. It detects updates via built-in managers **and** the custom regex managers
    (`nix`, `pulumi`, `docker-images`, `yaml-manifests`, `sector7-release-tarballs`).
 3. Each update is matched against the `packageRules` to pick a **group**, labels,
-   automerge flag, and reviewers.
+   automerge flag (`false` in every shared preset), and reviewers.
 4. The update waits out the **stability delay** (`minimumReleaseAge`), then opens
    (or is held on the [Dependency Dashboard](./faq.md#what-does-rate-limited-mean-on-the-dashboard)).
-5. A PR opens within the **schedule** window (`before 4:00 am`), CI runs, and if
-   the group has automerge enabled **and the branch goes green**, Renovate merges
-   it on a later run.
+5. A PR opens within the **schedule** window (`before 4:00 am`). CI may run; the
+   PR stays open for a human. Shared presets do not automerge.
 
 See [configuration](./configuration.md) for the exact value of every step above,
 and [faq → Why didn't my automerge PR merge?](./faq.md#why-didnt-my-automerge-pr-merge)
-for the most common failure.
+if a consumer overrode automerge back on.
 
 ## Where things live
 

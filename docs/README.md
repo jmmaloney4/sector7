@@ -32,7 +32,7 @@ rather than padding them):
 
 - **[renovate](./renovate/README.md)** — composable Renovate presets for
   dependency management: the shared defaults, the per-ecosystem PR groups, the
-  schedule/automerge policy, and the custom managers for Docker, Helm, Nix, and
+  schedule, automerge-off policy, and the custom managers for Docker, Helm, Nix, and
   Pulumi pins. *(Full five-page shape.)*
 - **[actions](./actions/README.md)** — reusable GitHub Actions workflows and
   composite actions for Rust, Nix, Pulumi, and Claude AI.

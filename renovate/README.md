@@ -7,11 +7,11 @@ This directory contains composable Renovate presets that can be shared across pr
 ### Core Presets
 
 - **`default.json`** - Base Renovate configuration with common settings
-- **`all.json`** - Aggregate preset that extends every preset in this repo, including `major-updates.json` and `minor-patch-automerge.json`
+- **`all.json`** - Aggregate preset that extends every preset in this repo, including `major-updates.json` and `minor-patch-automerge.json`. Top-level `automerge: false`, plus a last-wins catch-all `packageRules` entry (`matchPackageNames: ["*"]`, `automerge: false`) so earlier preset rules cannot automerge.
 - **`major-updates.json`** - Forces every major update into its own non-automerged PR
-- **`minor-patch-automerge.json`** - Per-ecosystem PR groups for minor/patch/digest updates, most with automerge enabled
-- **`security.json`** - Security-focused package rules and vulnerability handling
-- **`lock-maintenance.json`** - Lock file maintenance configuration
+- **`minor-patch-automerge.json`** - Legacy filename. Per-ecosystem PR groups for minor/patch/digest updates; every group sets `automerge: false`. It groups PRs. It does not automerge.
+- **`security.json`** - Security-focused package rules and vulnerability handling (`vulnerabilityAlerts.automerge: false`)
+- **`lock-maintenance.json`** - Lock file maintenance configuration (`lockFileMaintenance.automerge: false`)
 
 ### Technology-Specific Presets
 
