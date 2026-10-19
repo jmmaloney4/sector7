@@ -6,7 +6,64 @@ PR_URL="${PR_URL:?PR_URL env var is required}"
 BASE_BRANCH="${BASE_BRANCH:-main}"
 PR_NUMBER="${PR_NUMBER:-}"
 COMMIT_MESSAGE="${COMMIT_MESSAGE:-}"
+POST_GENERATE_COMMAND="${POST_GENERATE_COMMAND:-}"
 created_numbers=()
+
+# Quote a YAML plain scalar only when YAML requires it (leading indicator,
+# colon-space, comment start, quotes, or surrounding whitespace).
+yaml_format_scalar() {
+  local value=$1
+  local first=${value:0:1}
+  local needs_quotes=0
+  if [ -z "$value" ]; then
+    needs_quotes=1
+  elif [[ $value =~ ^[[:space:]] ]] || [[ $value =~ [[:space:]]$ ]]; then
+    needs_quotes=1
+  else
+    case $first in
+    '-' | ':' | '?' | ',' | '[' | ']' | '{' | '}' | '#' | '&' | '*' | '!' | '|' | '>' | "'" | '"' | '%' | '@' | '`')
+      needs_quotes=1
+      ;;
+    esac
+    if [[ $value == *": "* ]] || [[ $value == *" #"* ]] || [[ $value == *\"* ]] || [[ $value == *"'"* ]]; then
+      needs_quotes=1
+    fi
+  fi
+  if [ "$needs_quotes" -eq 1 ]; then
+    value=${value//\\/\\\\}
+    value=${value//\"/\\\"}
+    printf '"%s"' "$value"
+  else
+    printf '%s' "$value"
+  fi
+}
+
+write_placeholder() {
+  local adr_file=$1
+  local adr_number=$2
+  local adr_title=$3
+  local current_date=$4
+  local yaml_title
+  yaml_title=$(yaml_format_scalar "$adr_title")
+  cat >"$adr_file" <<EOF
+---
+id: ADR-${adr_number}
+title: ${yaml_title}
+status: proposed
+date: ${current_date}
+---
+
+# ADR ${adr_number}: ${adr_title}
+
+*Date:* ${current_date}
+*Status:* proposed
+
+**Related PR:** ${PR_URL}
+
+This ADR is currently being developed in linked pull request above.
+Please refer to that PR for current content and discussion.
+EOF
+}
 
 if [ ! -f "$ADR_FILES" ]; then
   echo "Error: ADR_FILES '$ADR_FILES' does not exist" >&2
@@ -59,27 +116,24 @@ while IFS= read -r adr_file; do
   fi
   # Create directory if needed
   mkdir -p "$(dirname "$adr_file")"
-  # Create placeholder file
-  cat >"$adr_file" <<EOF
----
-id: ADR-${adr_number}
-title: "${adr_title}"
-status: proposed
-date: ${current_date}
----
-
-# ADR ${adr_number}: ${adr_title}
-*Date:* ${current_date}
-*Status:* proposed
-
-**Related PR:** ${PR_URL}
-
-This ADR is currently being developed in linked pull request above.
-Please refer to that PR for current content and discussion.
-EOF
+  write_placeholder "$adr_file" "$adr_number" "$adr_title" "$current_date"
   git add "$adr_file"
   echo "Created placeholder: $adr_file"
 done <"$ADR_FILES"
+
+if [ -n "$POST_GENERATE_COMMAND" ]; then
+  if [ "${#created_numbers[@]}" -eq 0 ]; then
+    echo "Skipping post-generate-command (no placeholders written)"
+  else
+    echo "Running post-generate-command"
+    if ! bash -euo pipefail -c "$POST_GENERATE_COMMAND"; then
+      echo "Error: post-generate-command failed" >&2
+      exit 1
+    fi
+    repo_root=$(git rev-parse --show-toplevel)
+    git add -A -- "$repo_root"
+  fi
+fi
 
 # Commit and push if there are changes
 if git diff --cached --quiet; then
