@@ -5,11 +5,22 @@ Real gotchas, ordered roughly by how often they come up. For settings, see
 
 ## Why didn't my automerge PR merge?
 
-Almost always: **the branch isn't green.** With `automergeType: "pr"` +
-`platformAutomerge: false`, Renovate merges the PR itself during one of its own
-runs, and only once all checks pass. It never force-merges a failing or pending
-PR. So "automerge enabled but never merges" = look at the PR's checks first, not
-the Renovate config.
+**Shared presets do not automerge.** `minor-patch-automerge.json` is a legacy
+filename: groups still exist, but every group sets `automerge: false`, and
+`all.json` ends with a last-wins catch-all (`matchPackageNames: ["*"]`,
+`automerge: false`). `vulnerabilityAlerts` and `lockFileMaintenance` are also
+`automerge: false`. An open Renovate PR waiting for a human is expected.
+
+If a consumer re-enabled automerge in its own config and the PR still does not
+merge, the usual cause is **the branch isn't green.** With `automergeType: "pr"`
+and `platformAutomerge: false`, Renovate merges the PR itself during one of its
+own runs, and only once all checks pass. It never force-merges a failing or
+pending PR.
+
+If automerge still does not take effect after a consumer override:
+
+- Nested keys (`lockFileMaintenance`, `vulnerabilityAlerts`) are not flipped by
+  the `all.json` package-rule catch-all; they must be set on those objects.
 
 Other contributors once CI is green:
 
