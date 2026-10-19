@@ -12,5 +12,13 @@
 		"github>jmmaloney4/sector7//renovate/nix.json",
 		"github>jmmaloney4/sector7//renovate/lock-maintenance.json",
 		"github>jmmaloney4/sector7//renovate/sector7-release-tarballs.json"
+	],
+	"automerge": false,
+	"packageRules": [
+		{
+			"description": "Last-wins kill switch: hosted Renovate cannot refresh FOD hashes, so no consumer of this preset may automerge",
+			"matchPackageNames": ["*"],
+			"automerge": false
+		}
 	]
 }

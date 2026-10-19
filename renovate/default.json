@@ -31,7 +31,7 @@
 	"prFooter": "---\n\n\ud83e\udd16 This PR was generated automatically by Renovate.\n\nSee [dashboard]({{platform}}/{{repository}}/issues?q=is%3Aissue+is%3Aopen+label%3Arenovate) for all Renovate PRs.",
 	"vulnerabilityAlerts": {
 		"enabled": true,
-		"automerge": true,
+		"automerge": false,
 		"addLabels": ["security", "vulnerability", "deps/security", "renovate"]
 	},
 	"nix": {

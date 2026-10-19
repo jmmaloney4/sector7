@@ -8,7 +8,7 @@
 			"groupName": "JS/TS Dependencies",
 			"matchManagers": ["npm"],
 			"matchUpdateTypes": ["minor", "patch", "pin"],
-			"automerge": true,
+			"automerge": false,
 			"addLabels": ["deps/npm"]
 		},
 		{
@@ -16,7 +16,7 @@
 			"matchManagers": ["cargo"],
 			"matchDatasources": ["crate"],
 			"matchUpdateTypes": ["minor", "patch"],
-			"automerge": true
+			"automerge": false
 		},
 		{
 			"groupName": "Python Dependencies",
@@ -29,25 +29,25 @@
 			],
 			"matchDatasources": ["pypi"],
 			"matchUpdateTypes": ["minor", "patch"],
-			"automerge": true
+			"automerge": false
 		},
 		{
 			"groupName": "Node.js Core",
 			"matchPackageNames": ["@types/node", "node", "ts-node"],
 			"matchUpdateTypes": ["minor", "patch"],
-			"automerge": true
+			"automerge": false
 		},
 		{
 			"groupName": "TypeScript Dependencies",
 			"matchPackageNames": ["typescript", "@types/*"],
 			"matchUpdateTypes": ["minor", "patch"],
-			"automerge": true
+			"automerge": false
 		},
 		{
 			"groupName": "Arrow Ecosystem",
 			"matchPackageNames": ["arrow*", "parquet*"],
 			"matchUpdateTypes": ["minor", "patch"],
-			"automerge": true
+			"automerge": false
 		},
 		{
 			"groupName": "Docker Images",
@@ -69,14 +69,14 @@
 			"matchManagers": ["github-actions"],
 			"matchDatasources": ["github-tags", "github-digest"],
 			"matchUpdateTypes": ["minor", "patch", "digest"],
-			"automerge": true,
+			"automerge": false,
 			"addLabels": ["deps/github-actions"]
 		},
 		{
 			"groupName": "Pulumi Dependencies",
 			"matchPackageNames": ["/@pulumi/*/", "/pulumi*/"],
 			"matchUpdateTypes": ["minor", "patch"],
-			"automerge": true,
+			"automerge": false,
 			"addLabels": ["deps/pulumi"]
 		},
 		{
@@ -92,14 +92,14 @@
 			"groupName": "Nix Dependencies",
 			"matchManagers": ["nix"],
 			"matchUpdateTypes": ["minor", "patch"],
-			"automerge": true
+			"automerge": false
 		},
 		{
 			"groupName": "Nix PyPI Dependencies",
 			"matchFileNames": ["nix/**/*.nix"],
 			"matchDatasources": ["pypi"],
 			"matchUpdateTypes": ["minor", "patch"],
-			"automerge": true,
+			"automerge": false,
 			"addLabels": ["deps/nix/pypi"]
 		},
 		{
@@ -107,7 +107,7 @@
 			"matchFileNames": ["nix/**/*.nix"],
 			"matchDatasources": ["github-releases"],
 			"matchUpdateTypes": ["minor", "patch"],
-			"automerge": true,
+			"automerge": false,
 			"addLabels": ["deps/nix/github"]
 		}
 	]
