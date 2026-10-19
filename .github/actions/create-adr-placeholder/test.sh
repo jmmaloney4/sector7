@@ -75,6 +75,25 @@ assert_file_equals() {
   fi
 }
 
+assert_yaml_title_is_string() {
+  local md_path="$1"
+  python3 - "$md_path" <<'PY'
+import sys
+from pathlib import Path
+
+import yaml
+
+text = Path(sys.argv[1]).read_text()
+parts = text.split("---")
+if len(parts) < 3:
+    raise SystemExit(f"no YAML frontmatter in {sys.argv[1]}")
+doc = yaml.safe_load(parts[1])
+title = doc["title"]
+if not isinstance(title, str):
+    raise SystemExit(f"{sys.argv[1]}: title is {type(title).__name__}: {title!r}")
+PY
+}
+
 today=$(date -u +%Y-%m-%d)
 
 # --- formatting: colon-space title must be quoted; blank line after H1; trailing newline ---
@@ -130,6 +149,57 @@ EOF
 assert_file_equals "$workdir/tricky.md" "$workdir/tricky.expected.md"
 assert_file_equals "$workdir/plain.md" "$workdir/plain.expected.md"
 
+# --- formatting: trailing colon, numeric, and YAML 1.1 bool/null titles ---
+edge_repo="$workdir/yaml-edge"
+setup_consumer "$edge_repo"
+edge_list="$workdir/edge-adrs.txt"
+colon_rel='docs/internal/designs/342-key:.md'
+num_rel='docs/internal/designs/343-2026.md'
+float_rel='docs/internal/designs/344-1.5.md'
+sexagesimal_rel='docs/internal/designs/345-12:30.md'
+yes_rel='docs/internal/designs/346-yes.md'
+true_rel='docs/internal/designs/347-TRUE.md'
+off_rel='docs/internal/designs/348-off.md'
+printf '%s\n' "$colon_rel" "$num_rel" "$float_rel" "$sexagesimal_rel" "$yes_rel" "$true_rel" "$off_rel" >"$edge_list"
+POST_GENERATE_COMMAND="" run_action "$edge_repo" "$edge_list"
+git -C "$edge_repo" fetch origin main >/dev/null
+
+expect_quoted_stub() {
+  local repo=$1
+  local rel=$2
+  local adr_number=$3
+  local adr_title=$4
+  git -C "$repo" show "origin/main:$rel" >"$workdir/${adr_number}.md"
+  cat >"$workdir/${adr_number}.expected.md" <<EOF
+---
+id: ADR-${adr_number}
+title: "${adr_title}"
+status: proposed
+date: ${today}
+---
+
+# ADR ${adr_number}: ${adr_title}
+
+*Date:* ${today}
+*Status:* proposed
+
+**Related PR:** https://github.com/example/repo/pull/4097
+
+This ADR is currently being developed in linked pull request above.
+Please refer to that PR for current content and discussion.
+EOF
+  assert_file_equals "$workdir/${adr_number}.md" "$workdir/${adr_number}.expected.md"
+  assert_yaml_title_is_string "$workdir/${adr_number}.md"
+}
+
+expect_quoted_stub "$edge_repo" "$colon_rel" 342 "Key:"
+expect_quoted_stub "$edge_repo" "$num_rel" 343 "2026"
+expect_quoted_stub "$edge_repo" "$float_rel" 344 "1.5"
+expect_quoted_stub "$edge_repo" "$sexagesimal_rel" 345 "12:30"
+expect_quoted_stub "$edge_repo" "$yes_rel" 346 "Yes"
+expect_quoted_stub "$edge_repo" "$true_rel" 347 "TRUE"
+expect_quoted_stub "$edge_repo" "$off_rel" 348 "Off"
+
 # --- hook success: command runs after stub write, extra files are committed ---
 ok_repo="$workdir/hook-ok"
 setup_consumer "$ok_repo"
@@ -143,6 +213,33 @@ git -C "$ok_repo" cat-file -e "origin/main:docs/internal/indexes.md" ||
   fail "successful hook should stage new files"
 git -C "$ok_repo" show "origin/main:$ok_rel" | grep -q '# extra' ||
   fail "successful hook should stage edits to the stub"
+
+# --- hook staging: pre-existing dirt stays out; hook-created files are committed ---
+dirt_repo="$workdir/hook-dirt"
+setup_consumer "$dirt_repo"
+printf 'init\npre-existing dirty README\n' >"$dirt_repo/README"
+printf 'not-a-real-secret\n' >"$dirt_repo/credentials.env"
+mkdir -p "$dirt_repo/scratch"
+printf 'leftover\n' >"$dirt_repo/scratch/untracked.txt"
+dirt_list="$workdir/dirt-adrs.txt"
+dirt_rel='docs/internal/designs/003-hook-dirt.md'
+printf '%s\n' "$dirt_rel" >"$dirt_list"
+POST_GENERATE_COMMAND='printf "index\n" > docs/internal/indexes.md && printf "\n# extra\n" >> docs/internal/designs/003-hook-dirt.md' \
+  run_action "$dirt_repo" "$dirt_list"
+git -C "$dirt_repo" fetch origin main >/dev/null
+git -C "$dirt_repo" cat-file -e "origin/main:docs/internal/indexes.md" ||
+  fail "hook-created files must be committed"
+git -C "$dirt_repo" show "origin/main:$dirt_rel" | grep -q '# extra' ||
+  fail "hook edits to the stub must be committed"
+if git -C "$dirt_repo" cat-file -e "origin/main:credentials.env" 2>/dev/null; then
+  fail "pre-existing untracked file must not be committed"
+fi
+if git -C "$dirt_repo" cat-file -e "origin/main:scratch/untracked.txt" 2>/dev/null; then
+  fail "pre-existing untracked file must not be committed"
+fi
+git -C "$dirt_repo" show origin/main:README >"$workdir/pushed-readme"
+printf 'init\n' >"$workdir/clean-readme"
+assert_file_equals "$workdir/pushed-readme" "$workdir/clean-readme"
 
 # --- hook failure: no commit, no push ---
 fail_repo="$workdir/hook-fail"

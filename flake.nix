@@ -242,7 +242,15 @@
         # post-generate-command must not commit. Local git remotes only.
         checks.gha-create-adr-placeholder =
           pkgs.runCommand "gha-create-adr-placeholder" {
-            nativeBuildInputs = [pkgs.bash pkgs.coreutils pkgs.diffutils pkgs.gawk pkgs.git pkgs.gnugrep];
+            nativeBuildInputs = [
+              pkgs.bash
+              pkgs.coreutils
+              pkgs.diffutils
+              pkgs.gawk
+              pkgs.git
+              pkgs.gnugrep
+              (pkgs.python3.withPackages (ps: [ps.pyyaml]))
+            ];
             ADR_PLACEHOLDER_ROOT = "${./.github/actions/create-adr-placeholder}";
           } ''
             set -euo pipefail
