@@ -238,6 +238,20 @@
             touch $out
           '';
 
+        # ADR placeholder stubs must stay mdformat-clean, and a failing
+        # post-generate-command must not commit. Local git remotes only.
+        checks.gha-create-adr-placeholder =
+          pkgs.runCommand "gha-create-adr-placeholder" {
+            nativeBuildInputs = [pkgs.bash pkgs.coreutils pkgs.diffutils pkgs.gawk pkgs.git pkgs.gnugrep];
+            ADR_PLACEHOLDER_ROOT = "${./.github/actions/create-adr-placeholder}";
+          } ''
+            set -euo pipefail
+            bash -n "$ADR_PLACEHOLDER_ROOT/script.sh"
+            bash -n "$ADR_PLACEHOLDER_ROOT/test.sh"
+            bash "$ADR_PLACEHOLDER_ROOT/test.sh"
+            touch $out
+          '';
+
         devShells.default = pkgs.mkShell {
           inputsFrom = [
             config.jackpkgs.outputs.devShell
