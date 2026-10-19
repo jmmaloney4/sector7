@@ -15,9 +15,12 @@ If a consumer re-enabled automerge in its own config and the PR still does not
 merge, the usual cause is **the branch isn't green.** With `automergeType: "pr"`
 and `platformAutomerge: false`, Renovate merges the PR itself during one of its
 own runs, and only once all checks pass. It never force-merges a failing or
-pending PR. Nested keys (`lockFileMaintenance`, `vulnerabilityAlerts`) are not
-flipped by the `all.json` package-rule catch-all; they must be set on those
-objects.
+pending PR.
+
+If automerge still does not take effect after a consumer override:
+
+- Nested keys (`lockFileMaintenance`, `vulnerabilityAlerts`) are not flipped by
+  the `all.json` package-rule catch-all; they must be set on those objects.
 
 Other contributors once CI is green:
 
