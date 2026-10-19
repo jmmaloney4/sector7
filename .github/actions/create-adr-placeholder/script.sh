@@ -11,8 +11,9 @@ created_numbers=()
 created_files=()
 
 # Quote a YAML plain scalar only when YAML requires it (leading indicator,
-# colon-space, trailing colon, number-like values, YAML 1.1 bool/null words,
-# comment start, quotes, or surrounding whitespace).
+# colon-space, trailing colon, whitespace-free digit-containing values,
+# YAML 1.1 .inf/.nan spellings, bool/null words, comment start, quotes, or
+# surrounding whitespace).
 yaml_format_scalar() {
   local value=$1
   local first=${value:0:1}
@@ -35,12 +36,14 @@ yaml_format_scalar() {
   if [ "$needs_quotes" -eq 0 ]; then
     if [[ $value == *: ]]; then
       needs_quotes=1
-    elif [[ $value =~ ^[+-]?[0-9]+([.][0-9]*)?$ ]] || [[ $value =~ ^[+-]?[0-9]+(:[0-9]+)+$ ]]; then
+    elif [[ $value != *[[:space:]]* && $value == *[0-9]* ]]; then
+      # Conservative: YAML 1.1 (e.g. PyYAML) also resolves scientific notation,
+      # leading-dot floats, and hex/octal/underscore ints as non-strings.
       needs_quotes=1
     else
       folded=$(printf '%s' "$value" | tr '[:upper:]' '[:lower:]')
       case $folded in
-      yes | no | true | false | on | off | null | ~)
+      yes | no | true | false | on | off | null | ~ | .inf | +.inf | -.inf | .nan | +.nan | -.nan)
         needs_quotes=1
         ;;
       esac
@@ -57,10 +60,18 @@ yaml_format_scalar() {
 
 # Snapshot worktree file hashes (tracked + untracked, excluding ignored).
 # Records are hash<TAB>path, one per line. Paths with newlines are skipped.
+# File hashes are computed in one git hash-object --stdin-paths invocation.
 snapshot_worktree() {
   local out=$1
-  local path hash
-  : >"$out"
+  local path dir files hashes kinds paths
+  dir=$(mktemp -d)
+  files="$dir/files"
+  hashes="$dir/hashes"
+  kinds="$dir/kinds"
+  paths="$dir/paths"
+  : >"$files"
+  : >"$kinds"
+  : >"$paths"
   {
     git ls-files -z
     git ls-files -z --others --exclude-standard
@@ -69,13 +80,29 @@ snapshot_worktree() {
     if [[ $path == *$'\n'* ]]; then
       continue
     fi
+    printf '%s\n' "$path" >>"$paths"
     if [[ -f $path || -L $path ]]; then
-      hash=$(git hash-object -- "$path")
+      printf 'F\n' >>"$kinds"
+      printf '%s\n' "$path" >>"$files"
     else
-      hash=ABSENT
+      printf 'A\n' >>"$kinds"
     fi
-    printf '%s\t%s\n' "$hash" "$path"
-  done >"$out"
+  done
+  if [[ -s $files ]]; then
+    git hash-object --stdin-paths <"$files" >"$hashes"
+  else
+    : >"$hashes"
+  fi
+  awk -F '\t' '
+    NR == FNR { hashes[++nh] = $0; next }
+    {
+      kind = $1
+      path = substr($0, index($0, "\t") + 1)
+      if (kind == "F") print hashes[++hi] "\t" path
+      else print "ABSENT\t" path
+    }
+  ' "$hashes" <(paste -d $'\t' "$kinds" "$paths") >"$out"
+  rm -rf "$dir"
 }
 
 # After the hook, keep the ADR stubs staged and add only paths whose contents

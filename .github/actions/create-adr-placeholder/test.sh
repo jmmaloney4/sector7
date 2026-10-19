@@ -200,6 +200,28 @@ expect_quoted_stub "$edge_repo" "$yes_rel" 346 "Yes"
 expect_quoted_stub "$edge_repo" "$true_rel" 347 "TRUE"
 expect_quoted_stub "$edge_repo" "$off_rel" 348 "Off"
 
+# --- formatting: YAML 1.1 number-like titles missed by decimal/sexagesimal regexes ---
+yaml11_repo="$workdir/yaml11-num"
+setup_consumer "$yaml11_repo"
+yaml11_list="$workdir/yaml11-adrs.txt"
+sci_rel='docs/internal/designs/349-1e5.md'
+dotfloat_rel='docs/internal/designs/350-.5.md'
+inf_rel='docs/internal/designs/351-.inf.md'
+nan_rel='docs/internal/designs/352-.nan.md'
+hex_rel='docs/internal/designs/353-0x1f.md'
+oct_rel='docs/internal/designs/354-0755.md'
+underscore_rel='docs/internal/designs/355-1_000.md'
+printf '%s\n' "$sci_rel" "$dotfloat_rel" "$inf_rel" "$nan_rel" "$hex_rel" "$oct_rel" "$underscore_rel" >"$yaml11_list"
+POST_GENERATE_COMMAND="" run_action "$yaml11_repo" "$yaml11_list"
+git -C "$yaml11_repo" fetch origin main >/dev/null
+expect_quoted_stub "$yaml11_repo" "$sci_rel" 349 "1e5"
+expect_quoted_stub "$yaml11_repo" "$dotfloat_rel" 350 ".5"
+expect_quoted_stub "$yaml11_repo" "$inf_rel" 351 ".inf"
+expect_quoted_stub "$yaml11_repo" "$nan_rel" 352 ".nan"
+expect_quoted_stub "$yaml11_repo" "$hex_rel" 353 "0x1f"
+expect_quoted_stub "$yaml11_repo" "$oct_rel" 354 "0755"
+expect_quoted_stub "$yaml11_repo" "$underscore_rel" 355 "1_000"
+
 # --- hook success: command runs after stub write, extra files are committed ---
 ok_repo="$workdir/hook-ok"
 setup_consumer "$ok_repo"
