@@ -13,10 +13,11 @@ filename: groups still exist, but every group sets `automerge: false`, and
 
 If a consumer re-enabled automerge in its own config and the PR still does not
 merge, the usual cause is **the branch isn't green.** With `automergeType: "pr"`
-
-- `platformAutomerge: false`, Renovate merges the PR itself during one of its
-  own runs, and only once all checks pass. It never force-merges a failing or
-  pending PR.
+and `platformAutomerge: false`, Renovate merges the PR itself during one of its
+own runs, and only once all checks pass. It never force-merges a failing or
+pending PR. Nested keys (`lockFileMaintenance`, `vulnerabilityAlerts`) are not
+flipped by the `all.json` package-rule catch-all; they must be set on those
+objects.
 
 Other contributors once CI is green:
 
@@ -25,8 +26,6 @@ Other contributors once CI is green:
   miss the window and wait for the next run).
 - The repo must allow the merge. There's no GitHub-native auto-merge here
   (`platformAutomerge: false`), so Renovate uses its own merge via the API.
-- Nested keys (`lockFileMaintenance`, `vulnerabilityAlerts`) are not flipped by
-  the `all.json` package-rule catch-all; they must be set on those objects.
 
 ## What does "rate-limited" mean on the dashboard?
 
