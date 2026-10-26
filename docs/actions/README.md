@@ -427,6 +427,40 @@ jobs:
   - **base_ref**: Base branch/ref to compare against (defaults to `main`)
   - **adr_glob**: ADR file glob to watch (defaults to `docs/internal/decisions/*.md`)
 
+The reusable workflow's `Create and push placeholder` step calls the composite action
+`.github/actions/create-adr-placeholder` (also usable directly from a caller workflow).
+On `@main` today that step does not forward `post-generate-command`; [sector7#427](https://github.com/jmmaloney4/sector7/pull/427) adds the matching `workflow_call` input and wires it through after merge. Until then, pass `post-generate-command` only when invoking the composite action yourself, or wait for that follow-up and a consumer pin bump.
+
+#### Placeholder stub shape (formatter-clean)
+
+Stubs are written to match what **mdformat** and **treefmt** expect on a clean tree:
+
+- YAML front matter with `id`, `title`, `status: proposed`, and `date` (UTC `YYYY-MM-DD`).
+- `title` is a YAML plain scalar when safe; quoted only when YAML would mis-parse it (for example titles containing `: `, trailing `:`, digit-only or bool/null-like tokens, or other YAML 1.1 edge cases). Plain titles such as `Plain Title` stay unquoted.
+- A blank line after the closing `---`, then `# ADR <n>: <title>`, another blank line, metadata lines, the related PR link, and the standard placeholder body.
+- A trailing newline at end of file.
+
+#### Composite action: `create-adr-placeholder`
+
+- **Path**: `.github/actions/create-adr-placeholder`
+- **Inputs** (in addition to `adr_files`, `pr_url`, and the existing optional fields): **`post-generate-command`** (default empty).
+
+When non-empty, the action runs the value as a **bash** command in the consumer checkout after writing stub(s) and before commit/push. Empty skips the hook. If the command fails, the action exits without committing or pushing. After a successful hook, staging is limited to the stub file(s) this action wrote plus paths the hook created or modified; pre-existing dirty or untracked files the hook did not touch stay unstaged. The hook expects a clean checkout and does not preserve pre-existing staged changes.
+
+Example hook (also cited in `action.yml`):
+
+```yaml
+- uses: jmmaloney4/sector7/.github/actions/create-adr-placeholder@main
+  with:
+    adr_files: /tmp/new_adrs.txt
+    pr_url: ${{ github.event.pull_request.html_url }}
+    pr_number: ${{ github.event.pull_request.number }}
+    base_branch: main
+    post-generate-command: nix fmt && python scripts/generate_internal_indexes.py
+```
+
+Once sector7#427 merges, the same `post-generate-command` value can be passed through `adr-management.yml` instead of calling the composite action directly.
+
 #### Minimal consumer workflow (copy-paste)
 
 ```yaml
