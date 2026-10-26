@@ -436,7 +436,7 @@ On `@main` today that step does not forward `post-generate-command`; [sector7#42
 Stubs are written to match what **mdformat** and **treefmt** expect on a clean tree:
 
 - YAML front matter with `id`, `title`, `status: proposed`, and `date` (UTC `YYYY-MM-DD`).
-- `title` is a YAML plain scalar when safe; quoted only when YAML would mis-parse it (for example titles containing `: `, trailing `:`, digit-only or bool/null-like tokens, or other YAML 1.1 edge cases). Plain titles such as `Plain Title` stay unquoted.
+- `title` is a YAML plain scalar when safe; quoted only when YAML would mis-parse it (for example titles containing `: `, trailing `:`, whitespace-free titles that contain a digit, bool/null-like tokens, or other YAML 1.1 edge cases). Plain titles such as `Plain Title` stay unquoted.
 - A blank line after the closing `---`, then `# ADR <n>: <title>`, another blank line, metadata lines, the related PR link, and the standard placeholder body.
 - A trailing newline at end of file.
 
