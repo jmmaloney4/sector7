@@ -10,6 +10,14 @@ POST_GENERATE_COMMAND="${POST_GENERATE_COMMAND:-}"
 created_numbers=()
 created_files=()
 
+git_add_literal() {
+  git add -- ":(literal)${1}"
+}
+
+git_ls_tracked_literal() {
+  git ls-files --error-unmatch --literal-pathspecs -- ":(literal)${1}" >/dev/null 2>&1
+}
+
 # Quote a YAML plain scalar only when YAML requires it (leading indicator,
 # colon-space, trailing colon, whitespace-free digit-containing values,
 # YAML 1.1 .inf/.nan spellings, bool/null words, comment start, quotes, or
@@ -63,14 +71,16 @@ yaml_format_scalar() {
 # File hashes are computed in one git hash-object --stdin-paths invocation.
 snapshot_worktree() {
   local out=$1
-  local path dir files hashes kinds paths
+  local path dir files hashes kinds modes paths
   dir=$(mktemp -d)
   files="$dir/files"
   hashes="$dir/hashes"
   kinds="$dir/kinds"
+  modes="$dir/modes"
   paths="$dir/paths"
   : >"$files"
   : >"$kinds"
+  : >"$modes"
   : >"$paths"
   {
     git ls-files -z
@@ -84,8 +94,14 @@ snapshot_worktree() {
     if [[ -f $path || -L $path ]]; then
       printf 'F\n' >>"$kinds"
       printf '%s\n' "$path" >>"$files"
+      if [[ -x $path ]]; then
+        printf '1\n' >>"$modes"
+      else
+        printf '0\n' >>"$modes"
+      fi
     else
       printf 'A\n' >>"$kinds"
+      printf '-\n' >>"$modes"
     fi
   done
   if [[ -s $files ]]; then
@@ -97,11 +113,13 @@ snapshot_worktree() {
     NR == FNR { hashes[++nh] = $0; next }
     {
       kind = $1
+      ex = $2
       path = substr($0, index($0, "\t") + 1)
-      if (kind == "F") print hashes[++hi] "\t" path
+      path = substr(path, index(path, "\t") + 1)
+      if (kind == "F") print hashes[++hi] ":" ex "\t" path
       else print "ABSENT\t" path
     }
-  ' "$hashes" <(paste -d $'\t' "$kinds" "$paths") >"$out"
+  ' "$hashes" <(paste -d $'\t' "$kinds" "$modes" "$paths") >"$out"
   rm -rf "$dir"
 }
 
@@ -116,14 +134,26 @@ stage_hook_delta() {
   git reset --quiet
 
   for adr in "${created_files[@]}"; do
-    git add -- "$adr"
+    git_add_literal "$adr"
   done
 
-  awk -F '\t' '
-    NR == FNR { pre[$2] = $1; next }
+  awk '
+    function key_field(line,    key) {
+      key = substr(line, 1, index(line, "\t") - 1)
+      return key
+    }
+    function path_field(line,    path) {
+      return substr(line, index(line, "\t") + 1)
+    }
+    NR == FNR {
+      pre[path_field($0)] = key_field($0)
+      next
+    }
     {
-      post[$2] = $1
-      if (pre[$2] != $1) print $2
+      p = path_field($0)
+      h = key_field($0)
+      post[p] = h
+      if (pre[p] != h) print p
     }
     END {
       for (p in pre) if (!(p in post)) print p
@@ -131,9 +161,9 @@ stage_hook_delta() {
   ' "$pre" "$post" | while IFS= read -r path; do
     [[ -n $path ]] || continue
     if [[ -e $path || -L $path ]]; then
-      git add -- "$path"
-    elif git ls-files --error-unmatch -- "$path" >/dev/null 2>&1; then
-      git add -- "$path"
+      git_add_literal "$path"
+    elif git_ls_tracked_literal "$path"; then
+      git_add_literal "$path"
     fi
   done
 
@@ -220,7 +250,7 @@ while IFS= read -r adr_file; do
   # Create directory if needed
   mkdir -p "$(dirname "$adr_file")"
   write_placeholder "$adr_file" "$adr_number" "$adr_title" "$current_date"
-  git add "$adr_file"
+  git_add_literal "$adr_file"
   echo "Created placeholder: $adr_file"
 done <"$ADR_FILES"
 

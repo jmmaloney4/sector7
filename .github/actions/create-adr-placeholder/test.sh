@@ -263,6 +263,38 @@ git -C "$dirt_repo" show origin/main:README >"$workdir/pushed-readme"
 printf 'init\n' >"$workdir/clean-readme"
 assert_file_equals "$workdir/pushed-readme" "$workdir/clean-readme"
 
+# --- hook staging: bracketed pathspec (glob metacharacters in filename) ---
+bracket_repo="$workdir/hook-bracket"
+setup_consumer "$bracket_repo"
+bracket_list="$workdir/bracket-adrs.txt"
+bracket_rel='docs/internal/designs/004-hook-bracket.md'
+printf '%s\n' "$bracket_rel" >"$bracket_list"
+POST_GENERATE_COMMAND='printf "{}\n" > "out[1].json"' \
+  run_action "$bracket_repo" "$bracket_list"
+git -C "$bracket_repo" fetch origin main >/dev/null
+git -C "$bracket_repo" cat-file -e "origin/main:out[1].json" ||
+  fail "hook-created file with brackets must be committed"
+
+# --- hook staging: mode-only change (executable bit) is staged ---
+mode_repo="$workdir/hook-mode"
+setup_consumer "$mode_repo"
+mkdir -p "$mode_repo/scripts"
+printf '#!/bin/sh\necho ok\n' >"$mode_repo/scripts/run.sh"
+chmod -x "$mode_repo/scripts/run.sh"
+git -C "$mode_repo" add scripts/run.sh
+git -C "$mode_repo" commit -m 'add script' >/dev/null
+git -C "$mode_repo" push origin main >/dev/null
+mode_list="$workdir/mode-adrs.txt"
+mode_rel='docs/internal/designs/005-hook-mode.md'
+printf '%s\n' "$mode_rel" >"$mode_list"
+POST_GENERATE_COMMAND='chmod +x scripts/run.sh' \
+  run_action "$mode_repo" "$mode_list"
+git -C "$mode_repo" fetch origin main >/dev/null
+git -C "$mode_repo" show "origin/main:scripts/run.sh" >/dev/null
+mode_on_index=$(git -C "$mode_repo" ls-tree origin/main scripts/run.sh | awk '{print $1}')
+[[ $mode_on_index == 100755 ]] ||
+  fail "mode-only hook change must commit executable bit (got $mode_on_index)"
+
 # --- hook failure: no commit, no push ---
 fail_repo="$workdir/hook-fail"
 setup_consumer "$fail_repo"
