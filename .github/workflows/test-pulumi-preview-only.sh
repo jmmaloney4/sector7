@@ -54,17 +54,21 @@ concurrency="$(awk '/^    concurrency:/{c=1} c{print} c && /^    [a-z]/ && !/^  
   fail "concurrency still keys off github.event_name == workflow_call (never true in a called workflow)"
 
 # No other mutating Pulumi / Deployments-API paths in this workflow or the
-# composite actions it calls. Previews and artifact uploads are allowed.
-action_files=(
-  "$actions_root/pulumi-preview/action.yml"
-  "$actions_root/pulumi-preview/main.sh"
-  "$actions_root/pulumi-setup/action.yml"
-  "$actions_root/pulumi-collect/action.yml"
-  "$actions_root/detect-pulumi-stacks/action.yml"
-  "$actions_root/detect-pulumi-stacks/main.sh"
+# composite actions it references via uses:. Previews and artifact uploads are allowed.
+mapfile -t action_names < <(
+  grep -E '[[:space:]]uses:[[:space:]]+' "$workflow" |
+    grep -oE '\.github/actions/[^@[:space:]]+' |
+    sed 's|.github/actions/||' |
+    sort -u
 )
-for f in "${action_files[@]}"; do
-  [[ -f $f ]] || fail "action file not found: $f"
+[[ ${#action_names[@]} -gt 0 ]] || fail "no .github/actions/ uses: refs in workflow"
+action_files=()
+for name in "${action_names[@]}"; do
+  dir="$actions_root/$name"
+  yml="$dir/action.yml"
+  [[ -f $yml ]] || fail "action file not found: $yml"
+  action_files+=("$yml")
+  [[ -f $dir/main.sh ]] && action_files+=("$dir/main.sh")
 done
 
 mutating_hits="$(

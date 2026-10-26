@@ -127,10 +127,6 @@ jobs:
       id-token: write
       contents: read
       actions: write
-      # GHA cannot condition permissions on inputs, so this stays even when
-      # preview_only is true. This workflow does not call the Deployments API;
-      # the grant is unused for preview-only runs.
-      deployments: write
     env:
       GOOGLE_WORKLOAD_IDENTITY_PROVIDER: ${{ inputs.google_workload_identity_provider }}
       GOOGLE_SERVICE_ACCOUNT_EMAIL: ${{ inputs.google_service_account_email }}
