@@ -11,6 +11,8 @@ superseded_by: []
 links: []
 ---
 
+> **Current policy (verified on `main` at `a4c1d45bb364510a5f471e7975c4b122da23798a`, PR #413):** shared presets do not automerge. `minor-patch-automerge.json` is a **legacy filename** — grouping remains, but every group, `vulnerabilityAlerts`, `lockFileMaintenance`, and a last-wins catch-all in `all.json` set `automerge: false`. The decision below records the original restructuring, which did enable automerge.
+
 # Context
 
 ## Problem Statement

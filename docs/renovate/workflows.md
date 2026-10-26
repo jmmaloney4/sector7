@@ -62,11 +62,15 @@ To change just one repo, set the same keys in that repo's config instead.
 
 ## Add or change a PR group
 
-1. Edit `renovate/minor-patch-automerge.json`.
+1. Edit `renovate/minor-patch-automerge.json` (legacy filename: grouping only;
+   it does not automerge).
 2. Add a `packageRules` entry with `groupName`, a matcher (`matchManagers` /
-   `matchPackageNames` / `matchDatasources`), `matchUpdateTypes`, and `automerge`.
+   `matchPackageNames` / `matchDatasources`), `matchUpdateTypes`, and
+   `automerge: false` unless a later, explicit decision re-enables automerge
+   for a hash-free ecosystem.
 3. Placement matters: the catch-all **JS/TS Dependencies** group is first so more
-   specific groups must come **after** it to win for their packages.
+   specific groups must come **after** it to win for their packages. `all.json`'s
+   last catch-all still forces `automerge: false` for every package name.
 4. Leave `schedule` off so the group inherits the global `before 4:00 am`.
 5. [Validate locally](#validate-config-changes-locally), commit, open a PR.
 

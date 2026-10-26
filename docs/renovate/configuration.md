@@ -19,29 +19,29 @@ Everything the presets set, and where to change it. The sources are
 
 The base every consumer inherits.
 
-| Key                         | Value                                                                                                                                                                   | Role                                                                                                                                                      |
-| --------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `extends`                   | `config:best-practices`, `:semanticCommits`, `helpers:pinGitHubActionDigestsToSemver`, `:enableVulnerabilityAlertsWithLabel(security)`, `:pinAllExceptPeerDependencies` | Renovate's recommended baseline + semantic commit messages + digest-pin GitHub Actions to a semver comment + vuln alerts + pin all deps except peer deps. |
-| `timezone`                  | `America/Chicago`                                                                                                                                                       | Anchors every `schedule` window.                                                                                                                          |
-| `schedule`                  | `["before 4:00 am on Friday"]`                                                                                                                                          | Global weekly update window. See [Schedules](#schedules).                                                                                                 |
-| `prHourlyLimit`             | `0`                                                                                                                                                                     | No hourly cap. See [Automerge & rate limits](#automerge--rate-limits).                                                                                    |
-| `prConcurrentLimit`         | `0`                                                                                                                                                                     | No concurrent-PR cap.                                                                                                                                     |
-| `rebaseWhen`                | `conflicted`                                                                                                                                                            | Only rebase a branch when it actually conflicts (avoids churn).                                                                                           |
-| `automergeType`             | `pr`                                                                                                                                                                    | Renovate merges the PR itself (not GitHub native auto-merge).                                                                                             |
-| `automergeStrategy`         | `merge`                                                                                                                                                                 | Merge commit, matching the house preference.                                                                                                              |
-| `platformAutomerge`         | `false`                                                                                                                                                                 | Do **not** use GitHub's native auto-merge.                                                                                                                |
-| `rangeStrategy`             | `pin`                                                                                                                                                                   | Pin exact versions rather than widening ranges.                                                                                                           |
-| `minimumReleaseAge`         | `4 days`                                                                                                                                                                | Stability delay before an update is proposed.                                                                                                             |
-| `internalChecksFilter`      | `strict`                                                                                                                                                                | Hold updates that haven't cleared internal checks (e.g. the stability delay) instead of opening them early.                                               |
-| `pinDigests`                | `true`                                                                                                                                                                  | Pin image/action digests and keep them refreshed.                                                                                                         |
-| `dependencyDashboard`       | `true`                                                                                                                                                                  | Maintain the "Renovate Dashboard 🤖" tracking issue.                                                                                                      |
-| `dependencyDashboardTitle`  | `Renovate Dashboard 🤖`                                                                                                                                                 | Title of that issue.                                                                                                                                      |
-| `dependencyDashboardLabels` | `["chore/deps"]`                                                                                                                                                        | Labels on that issue.                                                                                                                                     |
-| `labels`                    | `["chore/deps", "renovate"]`                                                                                                                                            | Default labels on every PR.                                                                                                                               |
-| `commitMessagePrefix`       | `deps: `                                                                                                                                                                | Commit/PR title prefix.                                                                                                                                   |
-| `commitMessageAction`       | `update`                                                                                                                                                                | Verb in the commit message.                                                                                                                               |
-| `prHeader` / `prFooter`     | (boilerplate)                                                                                                                                                           | Header/footer text on every PR body.                                                                                                                      |
-| `nix.enabled`               | `true`                                                                                                                                                                  | Turn on Renovate's built-in Nix manager.                                                                                                                  |
+| Key                         | Value                                                                                                                                                                   | Role                                                                                                                                                           |
+| --------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `extends`                   | `config:best-practices`, `:semanticCommits`, `helpers:pinGitHubActionDigestsToSemver`, `:enableVulnerabilityAlertsWithLabel(security)`, `:pinAllExceptPeerDependencies` | Renovate's recommended baseline + semantic commit messages + digest-pin GitHub Actions to a semver comment + vuln alerts + pin all deps except peer deps.      |
+| `timezone`                  | `America/Chicago`                                                                                                                                                       | Anchors every `schedule` window.                                                                                                                               |
+| `schedule`                  | `["before 4:00 am on Friday"]`                                                                                                                                          | Global weekly update window. See [Schedules](#schedules).                                                                                                      |
+| `prHourlyLimit`             | `0`                                                                                                                                                                     | No hourly cap. See [Automerge & rate limits](#automerge--rate-limits).                                                                                         |
+| `prConcurrentLimit`         | `0`                                                                                                                                                                     | No concurrent-PR cap.                                                                                                                                          |
+| `rebaseWhen`                | `conflicted`                                                                                                                                                            | Only rebase a branch when it actually conflicts (avoids churn).                                                                                                |
+| `automergeType`             | `pr`                                                                                                                                                                    | How a merge would happen if a consumer re-enabled automerge: Renovate merges the PR itself (not GitHub native auto-merge). Shared presets leave automerge off. |
+| `automergeStrategy`         | `merge`                                                                                                                                                                 | Merge commit, matching the house preference. Unused while automerge is off.                                                                                    |
+| `platformAutomerge`         | `false`                                                                                                                                                                 | Do **not** use GitHub's native auto-merge.                                                                                                                     |
+| `rangeStrategy`             | `pin`                                                                                                                                                                   | Pin exact versions rather than widening ranges.                                                                                                                |
+| `minimumReleaseAge`         | `4 days`                                                                                                                                                                | Stability delay before an update is proposed.                                                                                                                  |
+| `internalChecksFilter`      | `strict`                                                                                                                                                                | Hold updates that haven't cleared internal checks (e.g. the stability delay) instead of opening them early.                                                    |
+| `pinDigests`                | `true`                                                                                                                                                                  | Pin image/action digests and keep them refreshed.                                                                                                              |
+| `dependencyDashboard`       | `true`                                                                                                                                                                  | Maintain the "Renovate Dashboard 🤖" tracking issue.                                                                                                           |
+| `dependencyDashboardTitle`  | `Renovate Dashboard 🤖`                                                                                                                                                 | Title of that issue.                                                                                                                                           |
+| `dependencyDashboardLabels` | `["chore/deps"]`                                                                                                                                                        | Labels on that issue.                                                                                                                                          |
+| `labels`                    | `["chore/deps", "renovate"]`                                                                                                                                            | Default labels on every PR.                                                                                                                                    |
+| `commitMessagePrefix`       | `deps: `                                                                                                                                                                | Commit/PR title prefix.                                                                                                                                        |
+| `commitMessageAction`       | `update`                                                                                                                                                                | Verb in the commit message.                                                                                                                                    |
+| `prHeader` / `prFooter`     | (boilerplate)                                                                                                                                                           | Header/footer text on every PR body.                                                                                                                           |
+| `nix.enabled`               | `true`                                                                                                                                                                  | Turn on Renovate's built-in Nix manager.                                                                                                                       |
 
 ### Repo-wide `packageRules` in `default.json`
 
@@ -69,20 +69,32 @@ it for one consumer, set `schedule` in that repo's config.
 
 ## Automerge & rate limits
 
-**How automerge works here.** `automergeType: "pr"` + `platformAutomerge: false`
-means **Renovate itself** merges the PR during one of its own runs — and only
-once the branch is **fully green**. It never force-merges a PR whose checks are
-failing or pending. So an automerge-enabled PR that isn't merging almost always
-means red/incomplete CI, not a config problem — see
+**Automerge is off in every shared preset.** Hosted Renovate cannot refresh
+fixed-output-derivation hashes, so extending these presets does not automerge.
+`automergeType: "pr"` and `platformAutomerge: false` in `default.json` only
+describe how a merge would happen if a consumer re-enabled automerge; they do
+not merge anything on their own.
+
+Kill switches (all `automerge: false`):
+
+- Top-level `automerge` plus a last `packageRules` catch-all
+  `{ matchPackageNames: ["*"], automerge: false }` in `all.json`
+- Every ecosystem group in `minor-patch-automerge.json` (legacy filename —
+  grouping only; it does not automerge)
+- `vulnerabilityAlerts` in `default.json` and `security.json`
+- `lockFileMaintenance` in `lock-maintenance.json`
+- All major updates in `major-updates.json`
+
+Which updates automerge: **none** from these presets. A consumer can still
+re-enable automerge in its own config (repo `packageRules` are appended after
+presets, so they can beat `all.json`'s catch-all). Nested keys such as
+`lockFileMaintenance` and `vulnerabilityAlerts` are not flipped by that
+catch-all; they are already `false` on those objects.
+
+If a consumer does re-enable automerge, `automergeType: "pr"` +
+`platformAutomerge: false` means **Renovate itself** merges during one of its
+own runs, and only once the branch is **fully green**. See
 [faq → Why didn't my automerge PR merge?](./faq.md#why-didnt-my-automerge-pr-merge).
-
-Which updates automerge:
-
-- **Automerged:** minor/patch/digest updates in the groups marked automerge in
-  [PR groups](#pr-groups-minor-patch-automergejson), lock-file maintenance, and
-  security alerts.
-- **Not automerged:** all **major** updates, and the **Docker Images** group
-  (image bumps get a human look).
 
 **Rate limits.** `prHourlyLimit: 0` and `prConcurrentLimit: 0` both mean
 **unlimited**. Note the trap: *deleting* these keys does **not** mean unlimited —
@@ -104,25 +116,28 @@ positive integer.
 
 ## PR groups (`minor-patch-automerge.json`)
 
-Minor, patch, and (for Actions) digest updates are bucketed into ecosystem
-groups so related bumps travel together in one PR. **All inherit the global
-`before 4:00 am on Friday` schedule.** The catch-all JS/TS group is declared first so the
-specific groups below it win for their packages.
+This filename is **legacy**. The file still buckets minor, patch, and (for
+Actions) digest updates into ecosystem groups so related bumps travel together
+in one PR. **It does not automerge.** Every group sets `automerge: false`.
+**All inherit the global `before 4:00 am on Friday` schedule.** The catch-all
+JS/TS group is declared first so the specific groups below it win for their
+packages.
 
 | Group                       | Matches                                                                      | Update types             | Automerge   | Extra labels          |
 | --------------------------- | ---------------------------------------------------------------------------- | ------------------------ | ----------- | --------------------- |
-| **JS/TS Dependencies**      | manager `npm` (catch-all)                                                    | minor, patch, pin        | ✅          | `deps/npm`            |
-| **Rust Dependencies**       | manager `cargo`, datasource `crate`                                          | minor, patch             | ✅          | —                     |
-| **Python Dependencies**     | `pip_requirements`/`pip_setup`/`pipenv`/`poetry`/`pep621`, datasource `pypi` | minor, patch             | ✅          | —                     |
-| **Node.js Core**            | `@types/node`, `node`, `ts-node`                                             | minor, patch             | ✅          | —                     |
-| **TypeScript Dependencies** | `typescript`, `@types/*`                                                     | minor, patch             | ✅          | —                     |
-| **Arrow Ecosystem**         | `arrow*`, `parquet*`                                                         | minor, patch             | ✅          | —                     |
+| **JS/TS Dependencies**      | manager `npm` (catch-all)                                                    | minor, patch, pin        | ❌ (manual) | `deps/npm`            |
+| **Rust Dependencies**       | manager `cargo`, datasource `crate`                                          | minor, patch             | ❌ (manual) | —                     |
+| **Python Dependencies**     | `pip_requirements`/`pip_setup`/`pipenv`/`poetry`/`pep621`, datasource `pypi` | minor, patch             | ❌ (manual) | —                     |
+| **Node.js Core**            | `@types/node`, `node`, `ts-node`                                             | minor, patch             | ❌ (manual) | —                     |
+| **TypeScript Dependencies** | `typescript`, `@types/*`                                                     | minor, patch             | ❌ (manual) | —                     |
+| **Arrow Ecosystem**         | `arrow*`, `parquet*`                                                         | minor, patch             | ❌ (manual) | —                     |
 | **Docker Images**           | datasource `docker`                                                          | minor, patch             | ❌ (manual) | `deps/docker`         |
-| **GitHub Actions**          | manager `github-actions`, datasources `github-tags`/`github-digest`          | minor, patch, **digest** | ✅          | `deps/github-actions` |
-| **Pulumi Dependencies**     | `@pulumi/*`, `pulumi*`                                                       | minor, patch             | ✅          | `deps/pulumi`         |
-| **Nix Dependencies**        | manager `nix`                                                                | minor, patch             | ✅          | —                     |
-| **Nix PyPI Dependencies**   | datasource `pypi` in `nix/**/*.nix`                                          | minor, patch             | ✅          | `deps/nix/pypi`       |
-| **Nix GitHub Dependencies** | datasource `github-releases` in `nix/**/*.nix`                               | minor, patch             | ✅          | `deps/nix/github`     |
+| **Helm Releases**           | datasource `helm`                                                            | minor, patch             | ❌ (manual) | `deps/helm`           |
+| **GitHub Actions**          | manager `github-actions`, datasources `github-tags`/`github-digest`          | minor, patch, **digest** | ❌ (manual) | `deps/github-actions` |
+| **Pulumi Dependencies**     | `@pulumi/*`, `pulumi*`                                                       | minor, patch             | ❌ (manual) | `deps/pulumi`         |
+| **Nix Dependencies**        | manager `nix`                                                                | minor, patch             | ❌ (manual) | —                     |
+| **Nix PyPI Dependencies**   | datasource `pypi` in `nix/**/*.nix`                                          | minor, patch             | ❌ (manual) | `deps/nix/pypi`       |
+| **Nix GitHub Dependencies** | datasource `github-releases` in `nix/**/*.nix`                               | minor, patch             | ❌ (manual) | `deps/nix/github`     |
 
 There is also a non-group rule: Pulumi npm updates touching a `pnpm-lock.yaml`
 get `postUpdateOptions: ["pnpmDedupe"]` so the lockfile is deduplicated after the
@@ -144,16 +159,18 @@ bump.
 
 ## Security alerts (`security.json`)
 
-`vulnerabilityAlerts` is enabled with `automerge: true` and labels `security`,
+`vulnerabilityAlerts` is enabled with `automerge: false` and labels `security`,
 `vulnerability`, `deps/security`, `renovate`. Security updates **bypass the
-schedule**. (The same block is also present in `default.json`; this preset keeps
-it usable standalone.)
+schedule** but still need a human merge. (The same block is also present in
+`default.json`; this preset keeps it usable standalone.)
 
 ## Lock-file maintenance (`lock-maintenance.json`)
 
-`lockFileMaintenance` is enabled, `automerge: true`, scheduled
+`lockFileMaintenance` is enabled, `automerge: false`, scheduled
 `before 4:00 am on Sunday` (weekly). A nested rule sets `allowedVersions: ">=0"`
-for the `nix` manager so lock refreshes aren't version-constrained.
+for the `nix` manager so lock refreshes aren't version-constrained. This nested
+key is not overridden by `packageRules`, which is why it is set false here and
+not only in `all.json`.
 
 ## Custom managers
 
