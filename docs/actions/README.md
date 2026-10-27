@@ -429,8 +429,7 @@ jobs:
   - **post-generate-command**: Optional bash run after the placeholder stub is written and before commit (forwarded to `create-adr-placeholder`; default empty)
 
 The reusable workflow's `Create and push placeholder` step calls the composite action
-`.github/actions/create-adr-placeholder` (also usable directly from a caller workflow).
-On `@main` today that step does not forward `post-generate-command`; [sector7#427](https://github.com/jmmaloney4/sector7/pull/427) adds the matching `workflow_call` input and wires it through after merge. Until then, pass `post-generate-command` only when invoking the composite action yourself, or wait for that follow-up and a consumer pin bump.
+`.github/actions/create-adr-placeholder` (also usable directly from a caller workflow) and forwards the `post-generate-command` input to it.
 
 #### Placeholder stub shape (formatter-clean)
 
@@ -460,7 +459,7 @@ Example hook (also cited in `action.yml`):
     post-generate-command: nix fmt && python scripts/generate_internal_indexes.py
 ```
 
-Once sector7#427 merges, the same `post-generate-command` value can be passed through `adr-management.yml` instead of calling the composite action directly.
+When you call `adr-management.yml`, pass the same `post-generate-command` value on the workflow's `with:` map (see below) instead of invoking the composite action directly.
 
 #### Minimal consumer workflow (copy-paste)
 
@@ -487,6 +486,7 @@ jobs:
       adr_glob: 'docs/internal/decisions/*.md'
       pr_number: ${{ github.event.pull_request.number }}
       pr_url: ${{ github.event.pull_request.html_url }}
+      # post-generate-command: nix fmt && python scripts/generate_internal_indexes.py
 ```
 
 #### Security: `pull_request_target` and fork PRs
