@@ -426,6 +426,7 @@ jobs:
   - **runs-on**: Runner label (defaults to `ubuntu-latest`)
   - **base_ref**: Base branch/ref to compare against (defaults to `main`)
   - **adr_glob**: ADR file glob to watch (defaults to `docs/internal/decisions/*.md`)
+  - **post-generate-command**: Optional bash run after the placeholder stub is written and before commit (forwarded to `create-adr-placeholder`; default empty)
 
 The reusable workflow's `Create and push placeholder` step calls the composite action
 `.github/actions/create-adr-placeholder` (also usable directly from a caller workflow).
