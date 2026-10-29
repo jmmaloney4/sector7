@@ -1,13 +1,19 @@
 export {
+	type ConnectTransport,
 	type ContractChannel,
+	type ContractTransport,
 	clearContractItemCacheForTesting,
 	getContractChannel,
+	type OpExec,
+	type OpExecResult,
+	type OpTransport,
 	readContract,
 	readContractField,
 	readContractItem,
 	readContractItemAsync,
 	requireContractField,
 	requireJsonContractField,
+	type ResolvedContractChannel,
 } from "./contract.ts";
 export {
 	apiServerHostFromContractFields,
