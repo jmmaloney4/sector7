@@ -71,8 +71,9 @@ A stack is in **contract mode** iff the Pulumi config key `contract:vault`
 is set on that stack. Otherwise it is in **stackref mode**. Nothing else —
 not read success, not credential presence — influences the mode:
 
-- `contract:vault` set but the item is missing, a field is absent, Connect is
-  unreachable, or credentials are absent → **loud failure**. A silent
+- `contract:vault` set but the item is missing, a field is absent, the
+  transport (Connect or `op`) is unreachable, or credentials are absent →
+  **loud failure**. A silent
   fallback would mask exactly the contract-drift failure mode garden#1784
   documents, and would turn a misconfigured stack into a stack quietly
   depending on a channel scheduled for deletion (wave 5).
@@ -87,6 +88,25 @@ Contract-mode configuration (all read once, at the chokepoint):
 | `contract:connectToken` (secret)  | Connect bearer token                                          | `OP_CONNECT_TOKEN` env |
 | `contract:maxAgeHours` (optional) | Reject items whose `producedAt` is older                      | no freshness check     |
 
+## Transport selection (the second chokepoint)
+
+Within contract mode, reads travel over exactly one of two transports,
+chosen **once**, in `getContractChannel`, from the Connect coordinates alone
+— never per call, never by "try one, fall back to the other":
+
+| Connect host | Connect token | Transport                                                             |
+| ------------ | ------------- | --------------------------------------------------------------------- |
+| set          | set           | `connect` — Connect REST (CI; anywhere Connect is reachable)          |
+| unset        | unset         | `op` — the 1Password CLI under the operator's own session             |
+| set          | unset         | **throws** — partial Connect configuration                            |
+| unset        | set           | **throws** — partial Connect configuration                            |
+
+A partial Connect configuration is a configuration error, not a signal to
+use `op`: reading it as one would turn a typo into a different credential
+path. The channel's `transport` is a closed union (`{ kind: "connect", host,
+token } | { kind: "op", exec }`), so downstream code cannot hold a Connect
+channel without a host and token, or an `op` channel with a stray one.
+
 ## Contract item shapes (pinned here; the publisher must match)
 
 | Item title   | Field labels                                                                                                               | Replaces                                                |
@@ -100,10 +120,35 @@ already carries the coordinate, and a second item could drift from it.
 
 ## Read mechanism
 
-A minimal 1Password **Connect REST** client (`fetch`, no new dependencies):
-vault lookup by UUID or by `filter=name eq`, item lookup by
-`filter=title eq`, then field extraction by label. Reads are cached per
-`(vault, title)` for the life of the process (same posture as the existing
+One reader, one item parser, two transports.
+
+**`connect`** — a minimal 1Password **Connect REST** client (`fetch`, no new
+dependencies): vault lookup by UUID or by `filter=name eq`, item lookup by
+`filter=title eq`, then the item document.
+
+**`op`** — `op item get <title> --vault <vault> --format json`, run with
+`execFile` (argv, never a shell string) and a 60 s timeout, inheriting the
+operator's environment: the desktop-app integration, an `op signin` session,
+or `OP_SERVICE_ACCOUNT_TOKEN`. `op` resolves the vault by name or UUID and
+the item by exact title, and refuses an ambiguous title itself. Failures are
+classified into fixed messages and **stderr is never echoed**: `op` missing
+from PATH, not signed in, timeout, vault not found, item not found (zero
+matches), more than one match, output that is not JSON, and JSON that is not
+shaped like an item are each a distinct error. A vault or title beginning
+with `-` is refused outright (it would parse as a flag).
+
+**Shared parser.** Both transports hand the raw item document to one parser
+that returns a `label -> value` map from `fields[]` (`label`/`value`; fields
+without a label or value are skipped; a duplicate label across sections is
+last-wins, as the Connect reader always was). Connect's item JSON and
+`op --format json` agree on everything consumed here; op's extras
+(`reference`, `section.label`, `vault.name`, timestamps) are ignored.
+Concealed fields carry their value inline on both and are treated like any
+other. The parser throws if the document is not an object, its `title` is not
+the requested one, `fields` is not an array, or a labeled value is not a
+string — naming the label, never the value.
+
+Reads are cached per `(transport, vault, title)` for the life of the process (same posture as the existing
 `stackRefCache`), wrapped in `pulumi.secret(...)`, and performed inside
 `pulumi.output` so failures surface as resource errors on the consuming
 stack's preview — with messages naming the vault, item, and field.
@@ -148,10 +193,16 @@ today: `new k8s.Provider("k8s-platform", { kubeconfig, enablePatchForce })`.
   larger change coupled to provider releases, and buys no consumer-visible
   difference over a TypeScript reader. Remains the natural home if the read
   path ever needs closure serialization or multi-language consumers.
-- **`op` CLI subprocess (service accounts)** — would also work from CI, but
-  adds a binary prerequisite to every consumer environment and makes the
-  failure surface a subprocess exit code. Connect REST is one `fetch` and the
-  cluster already runs Connect.
+- **`op` CLI subprocess as the *only* transport** — adds a binary
+  prerequisite to every consumer environment and makes the failure surface a
+  subprocess exit code, so it was rejected as the sole mechanism when Connect
+  REST was one `fetch` against a Connect the cluster already runs. It was
+  **adopted as the second transport** (2026-10-29, see Status Transitions)
+  because in-cluster Connect is unreachable from operator workstations by
+  design, while the operator's `op` session is already there. The sharpness
+  of the original objection is contained rather than denied: the binary is
+  only required when no Connect coordinates are configured, and exit codes
+  are classified at one boundary into specific errors.
 - **Mode selection by "try contract, fall back on failure"** — maximally
   convenient, and rejected outright: it converts every contract outage or
   typo into a silent dependence on the channel that wave 5 deletes, and makes
@@ -171,7 +222,11 @@ today: `new k8s.Provider("k8s-platform", { kubeconfig, enablePatchForce })`.
   a supported configuration.
 - No credential material is written anywhere by this module — it is
   read-only against Connect.
-- Error messages include vault/item/field *names*, never values.
+- Error messages include vault/item/field *names*, never values. On the `op`
+  transport this includes `op`'s own stderr and stdout, which are never
+  reproduced in an error.
+- The `op` transport holds no credential of its own: it uses whatever session
+  the operator's `op` already has, and adds none to config or logs.
 
 # Operational Notes
 
@@ -179,9 +234,19 @@ today: `new k8s.Provider("k8s-platform", { kubeconfig, enablePatchForce })`.
   garden re-exports it from `deploy/lib` behind a version pin; stacks flip by
   setting `contract:*` config; wave 5 deletes the stackref path.
 - Rollback per stack = unset `contract:vault`.
+- Operator workstation: set `contract:vault` only (no Connect coordinates,
+  and make sure `OP_CONNECT_HOST`/`OP_CONNECT_TOKEN` are unset) and be signed
+  in to `op`. CI keeps setting the Connect coordinates.
 - Observability: contract-mode failures fail the preview/update with the
   op:// coordinate in the message; there is no partial state.
 
 # Status Transitions
 
 - 2026-09-17: Proposed (this PR).
+- 2026-10-29: Amended (still Proposed). Added the `op` CLI as a second
+  transport, selected when `contract:vault` is set and no Connect
+  coordinates are (operator decision "Dual: Connect or op CLI",
+  garden#2075). A partial Connect configuration still throws. The
+  `ContractChannel` shape changed: `connectHost`/`connectToken` moved under
+  `transport`, and `readContractItemAsync` no longer takes a separate token
+  argument (it takes a `ResolvedContractChannel`).

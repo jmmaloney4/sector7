@@ -1,11 +1,12 @@
 import * as pulumi from "@pulumi/pulumi";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
-	type ContractChannel,
 	clearContractItemCacheForTesting,
 	getContractChannel,
 	readContractItemAsync,
+	type ResolvedContractChannel,
 	requireContractField,
+	setOpExecForTesting,
 } from "../deploy-lib/contract.js";
 import {
 	apiServerHostFromContractFields,
@@ -174,6 +175,7 @@ beforeEach(() => {
 
 afterEach(() => {
 	vi.unstubAllGlobals();
+	setOpExecForTesting(undefined);
 	delete process.env.OP_CONNECT_HOST;
 	delete process.env.OP_CONNECT_TOKEN;
 });
@@ -187,11 +189,11 @@ describe("mode selection (the chokepoint)", () => {
 		setContractConfig();
 		expect(getContractChannel()).toMatchObject({
 			vault: VAULT_ID,
-			connectHost: "https://connect.example",
+			transport: { kind: "connect", host: "https://connect.example" },
 		});
 	});
 
-	it("throws when contract:vault is set without a Connect host", () => {
+	it("throws when a Connect token is set without a Connect host", () => {
 		pulumi.runtime.setAllConfig({
 			"contract:vault": VAULT_ID,
 			"contract:connectToken": "test-token",
@@ -199,7 +201,7 @@ describe("mode selection (the chokepoint)", () => {
 		expect(() => getContractChannel()).toThrow(/connectHost|OP_CONNECT_HOST/);
 	});
 
-	it("throws when contract:vault is set without a Connect token", () => {
+	it("throws when a Connect host is set without a Connect token", () => {
 		pulumi.runtime.setAllConfig({
 			"contract:vault": VAULT_ID,
 			"contract:connectHost": "https://connect.example",
@@ -210,7 +212,7 @@ describe("mode selection (the chokepoint)", () => {
 	it("normalizes a protocol-less connectHost to https", () => {
 		setContractConfig({ "contract:connectHost": "connect.example" });
 		expect(getContractChannel()).toMatchObject({
-			connectHost: "https://connect.example",
+			transport: { kind: "connect", host: "https://connect.example" },
 		});
 	});
 
@@ -231,8 +233,11 @@ describe("mode selection (the chokepoint)", () => {
 		process.env.OP_CONNECT_HOST = "https://env.example";
 		process.env.OP_CONNECT_TOKEN = "env-token";
 		expect(getContractChannel()).toMatchObject({
-			connectHost: "https://env.example",
-			connectToken: "env-token",
+			transport: {
+				kind: "connect",
+				host: "https://env.example",
+				token: "env-token",
+			},
 		});
 	});
 
@@ -241,8 +246,11 @@ describe("mode selection (the chokepoint)", () => {
 		process.env.OP_CONNECT_HOST = "https://env.example\n";
 		process.env.OP_CONNECT_TOKEN = " env-token\n";
 		expect(getContractChannel()).toMatchObject({
-			connectHost: "https://env.example",
-			connectToken: "env-token",
+			transport: {
+				kind: "connect",
+				host: "https://env.example",
+				token: "env-token",
+			},
 		});
 	});
 });
@@ -359,26 +367,25 @@ describe("contract mode", () => {
 // unhandled rejections in vitest whenever the value promise rejects, even
 // with the value promise itself properly awaited.
 describe("contract failure modes (loud, never a silent fallback)", () => {
-	const channel: ContractChannel = {
+	const channel: ResolvedContractChannel = {
 		vault: VAULT_ID,
-		connectHost: "https://connect.example",
-		connectToken: "test-token",
+		transport: {
+			kind: "connect",
+			host: "https://connect.example",
+			token: "test-token",
+		},
 	};
 
 	it("fails when the item is missing, pointing at the publisher", async () => {
 		mockConnect([]);
-		await expect(
-			readContractItemAsync(channel, "test-token", "kubeconfig"),
-		).rejects.toThrow(/exactly one item titled "kubeconfig".*found 0/s);
+		await expect(readContractItemAsync(channel, "kubeconfig")).rejects.toThrow(
+			/exactly one item titled "kubeconfig".*found 0/s,
+		);
 	});
 
 	it("fails when the field is missing, naming the op:// coordinate", async () => {
 		mockConnect([{ title: "kubeconfig", fields: { producedBy: "x" } }]);
-		const fields = await readContractItemAsync(
-			channel,
-			"test-token",
-			"kubeconfig",
-		);
+		const fields = await readContractItemAsync(channel, "kubeconfig");
 		expect(() =>
 			requireContractField(channel, "kubeconfig", "kubeconfig", fields),
 		).toThrow(`op://${VAULT_ID}/kubeconfig/kubeconfig`);
@@ -391,9 +398,9 @@ describe("contract failure modes (loud, never a silent fallback)", () => {
 				throw new Error("ECONNREFUSED");
 			}),
 		);
-		await expect(
-			readContractItemAsync(channel, "test-token", "kubeconfig"),
-		).rejects.toThrow(/unreachable/);
+		await expect(readContractItemAsync(channel, "kubeconfig")).rejects.toThrow(
+			/unreachable/,
+		);
 	});
 
 	it("surfaces the cause behind Node's generic 'fetch failed'", async () => {
@@ -405,9 +412,9 @@ describe("contract failure modes (loud, never a silent fallback)", () => {
 				});
 			}),
 		);
-		await expect(
-			readContractItemAsync(channel, "test-token", "kubeconfig"),
-		).rejects.toThrow(/fetch failed — connect ECONNREFUSED 10\.0\.0\.1:443/);
+		await expect(readContractItemAsync(channel, "kubeconfig")).rejects.toThrow(
+			/fetch failed — connect ECONNREFUSED 10\.0\.0\.1:443/,
+		);
 	});
 
 	it("fails clearly when a 200 response carries a non-JSON body", async () => {
@@ -422,9 +429,9 @@ describe("contract failure modes (loud, never a silent fallback)", () => {
 				text: async () => "<html>proxy error page</html>",
 			})),
 		);
-		await expect(
-			readContractItemAsync(channel, "test-token", "kubeconfig"),
-		).rejects.toThrow(/invalid JSON body/);
+		await expect(readContractItemAsync(channel, "kubeconfig")).rejects.toThrow(
+			/invalid JSON body/,
+		);
 	});
 
 	it("fails when the vault name matches no vault", async () => {
@@ -432,7 +439,6 @@ describe("contract failure modes (loud, never a silent fallback)", () => {
 		await expect(
 			readContractItemAsync(
 				{ ...channel, vault: "tenant-vault" },
-				"test-token",
 				"kubeconfig",
 			),
 		).rejects.toThrow(/exactly one 1Password vault named "tenant-vault"/);
@@ -472,10 +478,13 @@ describe("contract failure modes (loud, never a silent fallback)", () => {
 });
 
 describe("freshness (contract:maxAgeHours)", () => {
-	const fresh = (maxAgeHours: number): ContractChannel => ({
+	const fresh = (maxAgeHours: number): ResolvedContractChannel => ({
 		vault: VAULT_ID,
-		connectHost: "https://connect.example",
-		connectToken: "test-token",
+		transport: {
+			kind: "connect",
+			host: "https://connect.example",
+			token: "test-token",
+		},
 		maxAgeHours,
 	});
 
@@ -497,17 +506,17 @@ describe("freshness (contract:maxAgeHours)", () => {
 				},
 			},
 		]);
-		await expect(
-			readContractItemAsync(fresh(1), "test-token", "kubeconfig"),
-		).rejects.toThrow(/stale/);
+		await expect(readContractItemAsync(fresh(1), "kubeconfig")).rejects.toThrow(
+			/stale/,
+		);
 	});
 
 	it("rejects an item with no producedAt when a freshness bound is set", async () => {
 		mockConnect([
 			{ title: "kubeconfig", fields: { kubeconfig: CONTRACT_KUBECONFIG } },
 		]);
-		await expect(
-			readContractItemAsync(fresh(1), "test-token", "kubeconfig"),
-		).rejects.toThrow(/producedAt/);
+		await expect(readContractItemAsync(fresh(1), "kubeconfig")).rejects.toThrow(
+			/producedAt/,
+		);
 	});
 });
