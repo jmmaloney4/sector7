@@ -129,6 +129,7 @@ const OP_MAX_BUFFER = 16 * 1024 * 1024;
 
 const defaultOpExec: OpExec = (args, { timeoutMs }) =>
 	new Promise((resolve) => {
+		const startedAt = Date.now();
 		const child = execFile(
 			"op",
 			[...args],
@@ -148,7 +149,10 @@ const defaultOpExec: OpExec = (args, { timeoutMs }) =>
 					resolve({ kind: "not-found" });
 				} else if (e.code === "ERR_CHILD_PROCESS_STDIO_MAXBUFFER") {
 					resolve({ kind: "exit", code: null, stderr: "" });
-				} else if (e.killed) {
+				} else if (e.killed && Date.now() - startedAt >= timeoutMs) {
+					// Only our own timeout kill counts as a timeout. Node sets
+					// `killed` for any signal, so a crash or an external kill
+					// must not be reported as "waiting on an unlock prompt".
 					resolve({ kind: "timeout" });
 				} else {
 					resolve({
