@@ -426,7 +426,7 @@ jobs:
   - **pr_number**: Pull request number (for commenting)
   - **pr_url**: Pull request URL (for placeholder content)
 - **Optional inputs**:
-  - **runs-on**: Runner label (defaults to `ubuntu-latest`)
+  - **runs-on**: Runner label(s) (defaults to `["self-hosted","heavy"]`). Self-hosted ARC runners must include a tier label: `light` or `heavy`.
   - **base_ref**: Base branch/ref to compare against (defaults to `main`)
   - **adr_glob**: ADR file glob to watch (defaults to `docs/internal/decisions/*.md`)
   - **post-generate-command**: Optional bash run after the placeholder stub is written and before commit (forwarded to `create-adr-placeholder`; default empty)
