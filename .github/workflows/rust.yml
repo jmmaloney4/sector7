@@ -5,7 +5,7 @@ on:
       runs-on:
         description: 'Runner label for all jobs'
         required: false
-        default: 'self-hosted'
+        default: '["self-hosted","heavy"]'
         type: string
       repository:
         description: 'Repository to checkout and build (owner/repo)'

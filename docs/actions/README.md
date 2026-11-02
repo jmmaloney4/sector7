@@ -9,7 +9,7 @@ This repository provides reusable GitHub Actions workflows for common CI/CD task
 - **Path**: `.github/workflows/rust.yml` (callable-only)
 - **Purpose**: Run Rust CI (cargo check, test with nextest + JUnit, clippy formatting)
 - **Required inputs**:
-  - **runs-on**: Runner label (e.g., `ubuntu-latest` or your self-hosted label)
+  - **runs-on**: Runner label (e.g., `ubuntu-latest` or a self-hosted label list). Self-hosted ARC runners must include a tier label: `light` or `heavy` (for example `["self-hosted","heavy"]`).
   - **repository**: Repository to checkout (`owner/repo`), typically `${{ github.repository }}`
   - **ref**: Git ref to build, typically `${{ github.ref }}`
 
@@ -42,7 +42,7 @@ jobs:
 - **Path**: `.github/workflows/nix.yml` (callable-only)
 - **Purpose**: Build uncached Nix flake outputs for the calling repository
 - **Required inputs**:
-  - **runs-on**: Runner label (e.g., `ubuntu-latest` or your self-hosted label). For multiple labels, pass a JSON array string like `["self-hosted","linux","x64"]`.
+  - **runs-on**: Runner label (e.g., `ubuntu-latest` or a self-hosted label list). Self-hosted ARC runners must include a tier label: `light` or `heavy` (for example `["self-hosted","heavy"]`). For multiple labels, pass a JSON array string like `["self-hosted","heavy","linux","x64"]`.
   - **repository**: Repository to build (`owner/repo`), typically `${{ github.repository }}`
   - **ref**: Git ref to build, typically `${{ github.ref }}`
 - **Optional inputs**:
@@ -85,9 +85,9 @@ jobs:
       matrix:
         include:
           - name: linux
-            runs-on: '["self-hosted","linux","x64"]'
+            runs-on: '["self-hosted","heavy","linux","x64"]'
           - name: darwin
-            runs-on: '["self-hosted","macos","arm64"]'
+            runs-on: '["self-hosted","heavy","macos","arm64"]'
     uses: jmmaloney4/sector7/.github/workflows/nix.yml@main
     with:
       runs-on: ${{ matrix.runs-on }}
@@ -102,7 +102,7 @@ jobs:
   nix:
     uses: jmmaloney4/sector7/.github/workflows/nix.yml@main
     with:
-      runs-on: '["self-hosted","room-of-requirement"]'
+      runs-on: '["self-hosted","heavy","room-of-requirement"]'
       repository: ${{ github.repository }}
       ref: ${{ github.ref }}
       binary-cache-url: ${{ vars.ATTIC_CACHE_URL }}
@@ -167,7 +167,7 @@ Do not use `Mic92/niks3-action` / `niks3-hook` here: those register a Nix `post-
 - **Path**: `.github/workflows/pnpm.yml` (callable-only)
 - **Purpose**: Publish pnpm packages to GitHub Container Registry (GHCR) with automatic version analysis
 - **Required inputs**:
-  - **runs-on**: Runner label (e.g., `ubuntu-latest` or your self-hosted label)
+  - **runs-on**: Runner label (e.g., `ubuntu-latest` or a self-hosted label list). Self-hosted ARC runners must include a tier label: `light` or `heavy` (for example `["self-hosted","heavy"]`).
   - **repository**: Repository to checkout (`owner/repo`), typically `${{ github.repository }}`
   - **ref**: Git ref to build, typically `${{ github.ref }}`
 - **Optional inputs**:
@@ -212,7 +212,7 @@ jobs:
   - **pulumi_backend_url**: GCS bucket URL for Pulumi backend (e.g., `gs://my-bucket-name`)
   - **nodejs_package_manager**: `pnpm`, `npm`, or `none`
 - **Optional inputs**:
-  - **runs-on**: Runner label (defaults to `self-hosted`). For multiple labels, pass a JSON array string like `["self-hosted","linux","x64"]`.
+  - **runs-on**: Runner label (defaults to `["self-hosted","heavy"]`). For multiple labels, pass a JSON array string like `["self-hosted","heavy","linux","x64"]`.
   - **pr_number**: Declared unused. Accepted for caller compatibility; the workflow never reads it and nothing posts a comment.
   - **is_fork**: Whether the PR comes from a fork. When true, Attic push credentials are blanked even if a token is supplied.
   - **ignore_projects**: Comma-separated list of Pulumi project paths to skip when detecting stacks
@@ -306,7 +306,7 @@ jobs:
 - **Purpose**: Automated Claude AI assistant for GitHub issues and comments
 - **Important**: Put all event-based `if:` conditions in the caller workflow. The reusable workflow runs under `workflow_call` and does not have access to original event payloads.
 - **Required inputs**:
-  - **runs-on**: Runner label (e.g., `ubuntu-latest` or your self-hosted label)
+  - **runs-on**: Runner label (e.g., `ubuntu-latest` or a self-hosted label list). Self-hosted ARC runners must include a tier label: `light` or `heavy` (for example `["self-hosted","heavy"]`).
   - **repository**: Repository to checkout (`owner/repo`), typically `${{ github.repository }}`
   - **ref**: Git ref to build, typically `${{ github.ref }}`
 
@@ -364,7 +364,7 @@ jobs:
 - **Purpose**: Automated Claude AI code review triggered by "claude review" comments
 - **Important**: Gate on event context in the caller workflow. The reusable workflow runs under `workflow_call` and cannot read `github.event.comment.*`.
 - **Required inputs**:
-  - **runs-on**: Runner label (e.g., `ubuntu-latest` or your self-hosted label)
+  - **runs-on**: Runner label (e.g., `ubuntu-latest` or a self-hosted label list). Self-hosted ARC runners must include a tier label: `light` or `heavy` (for example `["self-hosted","heavy"]`).
   - **repository**: Repository to checkout (`owner/repo`), typically `${{ github.repository }}`
   - **ref**: Git ref to build, typically `${{ github.ref }}`
 - **Required secrets**:

@@ -5,7 +5,7 @@ on:
       runs-on:
         description: 'Runner label for the job'
         required: false
-        default: 'self-hosted'
+        default: '["self-hosted","heavy"]'
         type: string
       project_url:
         description: 'GitHub Project URL (e.g. https://github.com/orgs/ORG/projects/N or https://github.com/users/USER/projects/N)'
