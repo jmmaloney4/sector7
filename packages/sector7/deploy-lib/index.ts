@@ -7,13 +7,13 @@ export {
 	type OpExec,
 	type OpExecResult,
 	type OpTransport,
+	type ResolvedContractChannel,
 	readContract,
 	readContractField,
 	readContractItem,
 	readContractItemAsync,
 	requireContractField,
 	requireJsonContractField,
-	type ResolvedContractChannel,
 } from "./contract.ts";
 export {
 	apiServerHostFromContractFields,

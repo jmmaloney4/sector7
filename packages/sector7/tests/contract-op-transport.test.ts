@@ -9,9 +9,9 @@ import {
 	type OpExec,
 	type OpExecResult,
 	parseContractItem,
+	type ResolvedContractChannel,
 	readContractItem,
 	readContractItemAsync,
-	type ResolvedContractChannel,
 	requireContractField,
 	setOpExecForTesting,
 } from "../deploy-lib/contract.js";
