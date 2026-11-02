@@ -9,9 +9,10 @@ This repository provides reusable GitHub Actions workflows for common CI/CD task
 - **Path**: `.github/workflows/rust.yml` (callable-only)
 - **Purpose**: Run Rust CI (cargo check, test with nextest + JUnit, clippy formatting)
 - **Required inputs**:
-  - **runs-on**: Runner label (e.g., `ubuntu-latest` or a self-hosted label list). Self-hosted ARC runners must include a tier label: `light` or `heavy` (for example `["self-hosted","heavy"]`).
   - **repository**: Repository to checkout (`owner/repo`), typically `${{ github.repository }}`
   - **ref**: Git ref to build, typically `${{ github.ref }}`
+- **Optional inputs**:
+  - **runs-on**: Defaults to `["self-hosted","heavy"]`. Runner label (e.g., `ubuntu-latest`) or a self-hosted label list. Self-hosted ARC runners must include a tier label: `light` or `heavy` (for example `["self-hosted","heavy"]`).
 
 #### Minimal consumer workflow (copy-paste)
 
@@ -42,10 +43,10 @@ jobs:
 - **Path**: `.github/workflows/nix.yml` (callable-only)
 - **Purpose**: Build uncached Nix flake outputs for the calling repository
 - **Required inputs**:
-  - **runs-on**: Runner label (e.g., `ubuntu-latest` or a self-hosted label list). Self-hosted ARC runners must include a tier label: `light` or `heavy` (for example `["self-hosted","heavy"]`). For multiple labels, pass a JSON array string like `["self-hosted","heavy","linux","x64"]`.
   - **repository**: Repository to build (`owner/repo`), typically `${{ github.repository }}`
   - **ref**: Git ref to build, typically `${{ github.ref }}`
 - **Optional inputs**:
+  - **runs-on**: Defaults to `["self-hosted","heavy"]`. Runner label (e.g., `ubuntu-latest`) or a self-hosted label list. Self-hosted ARC runners must include a tier label: `light` or `heavy` (for example `["self-hosted","heavy"]`). For multiple labels, pass a JSON array string like `["self-hosted","heavy","linux","x64"]`.
   - **binary-cache-url**: Full substituter URL for an extra binary cache (for example `https://attic.example.com/cache`)
   - **binary-cache-public-key**: Trusted public key for that binary cache
   - **binary-cache-endpoint**: Attic server root URL used for `attic login` before cache pushes
@@ -167,10 +168,10 @@ Do not use `Mic92/niks3-action` / `niks3-hook` here: those register a Nix `post-
 - **Path**: `.github/workflows/pnpm.yml` (callable-only)
 - **Purpose**: Publish pnpm packages to GitHub Container Registry (GHCR) with automatic version analysis
 - **Required inputs**:
-  - **runs-on**: Runner label (e.g., `ubuntu-latest` or a self-hosted label list). Self-hosted ARC runners must include a tier label: `light` or `heavy` (for example `["self-hosted","heavy"]`).
   - **repository**: Repository to checkout (`owner/repo`), typically `${{ github.repository }}`
   - **ref**: Git ref to build, typically `${{ github.ref }}`
 - **Optional inputs**:
+  - **runs-on**: Defaults to `["self-hosted","heavy"]`. Runner label (e.g., `ubuntu-latest`) or a self-hosted label list. Self-hosted ARC runners must include a tier label: `light` or `heavy` (for example `["self-hosted","heavy"]`).
   - **dry_run**: Run in dry-run mode (show analysis without publishing) - defaults to `false`
 
 #### Minimal consumer workflow (copy-paste)
@@ -306,9 +307,10 @@ jobs:
 - **Purpose**: Automated Claude AI assistant for GitHub issues and comments
 - **Important**: Put all event-based `if:` conditions in the caller workflow. The reusable workflow runs under `workflow_call` and does not have access to original event payloads.
 - **Required inputs**:
-  - **runs-on**: Runner label (e.g., `ubuntu-latest` or a self-hosted label list). Self-hosted ARC runners must include a tier label: `light` or `heavy` (for example `["self-hosted","heavy"]`).
   - **repository**: Repository to checkout (`owner/repo`), typically `${{ github.repository }}`
   - **ref**: Git ref to build, typically `${{ github.ref }}`
+- **Optional inputs**:
+  - **runs-on**: Defaults to `["self-hosted","heavy"]`. Runner label (e.g., `ubuntu-latest`) or a self-hosted label list. Self-hosted ARC runners must include a tier label: `light` or `heavy` (for example `["self-hosted","heavy"]`).
 
 #### Minimal consumer workflow (copy-paste)
 
@@ -364,9 +366,10 @@ jobs:
 - **Purpose**: Automated Claude AI code review triggered by "claude review" comments
 - **Important**: Gate on event context in the caller workflow. The reusable workflow runs under `workflow_call` and cannot read `github.event.comment.*`.
 - **Required inputs**:
-  - **runs-on**: Runner label (e.g., `ubuntu-latest` or a self-hosted label list). Self-hosted ARC runners must include a tier label: `light` or `heavy` (for example `["self-hosted","heavy"]`).
   - **repository**: Repository to checkout (`owner/repo`), typically `${{ github.repository }}`
   - **ref**: Git ref to build, typically `${{ github.ref }}`
+- **Optional inputs**:
+  - **runs-on**: Defaults to `["self-hosted","heavy"]`. Runner label (e.g., `ubuntu-latest`) or a self-hosted label list. Self-hosted ARC runners must include a tier label: `light` or `heavy` (for example `["self-hosted","heavy"]`).
 - **Required secrets**:
   - **CLAUDE_CODE_OAUTH_TOKEN**: Claude Code OAuth token for authentication
 

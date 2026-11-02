@@ -3,7 +3,7 @@ on:
   workflow_call:
     inputs:
       runs-on:
-        description: 'Runner label(s) for all jobs (string label or JSON array of labels)'
+        description: 'Runner label(s) for all jobs (string label or JSON array of labels; self-hosted must include light or heavy)'
         required: true
         type: string
       package-name:

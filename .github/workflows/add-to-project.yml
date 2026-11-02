@@ -3,7 +3,7 @@ on:
   workflow_call:
     inputs:
       runs-on:
-        description: 'Runner label for the job'
+        description: 'Runner label(s) for the job (string label or JSON array of labels; self-hosted must include light or heavy)'
         required: false
         default: '["self-hosted","heavy"]'
         type: string
