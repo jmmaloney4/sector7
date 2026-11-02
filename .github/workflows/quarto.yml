@@ -11,7 +11,7 @@ permissions: # required by the action
   pull-requests: write
 jobs:
   deploy:
-    runs-on: self-hosted
+    runs-on: [self-hosted, heavy]
     permissions:
       id-token: write
       actions: read
@@ -24,7 +24,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: jmmaloney4/sector7/.github/actions/nix-setup@main
         with:
-          runs-on: self-hosted
+          runs-on: '["self-hosted","heavy"]'
           cache: false
       - name: Build site with Nix
         run: |

@@ -68,7 +68,7 @@ on:
   workflow_call:
     inputs:
       runs-on:
-        default: 'self-hosted'
+        default: '["self-hosted","heavy"]'
         type: string
       project_url:
         default: 'https://github.com/orgs/ergodicsystems/projects/1'

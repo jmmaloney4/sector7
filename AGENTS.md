@@ -20,16 +20,17 @@ This guide shows how to convert an existing workflow into a callable (reusable) 
 
 ### 1) Replace triggers with `workflow_call` and define inputs
 
-Require explicit inputs so the caller controls execution context.
+Define inputs so callers control repository/ref; use optional inputs with tiered defaults where fleet policy applies.
 
 ```yaml
 on:
   workflow_call:
     inputs:
       runs-on:
-        description: 'Runner label for all jobs'
-        required: true
+        description: 'Runner label(s) for all jobs (string label or JSON array of labels; self-hosted must include light or heavy)'
+        required: false
         type: string
+        default: '["self-hosted","heavy"]'
       repository:
         description: 'Repository to checkout and build (owner/repo)'
         required: true
@@ -42,7 +43,7 @@ on:
 
 Remove other triggers like `push`, `pull_request`, `workflow_dispatch` if you want callable-only.
 
-The `runs-on` input is required and is not inherited from callers; define it as a string input and use `${{ inputs.runs-on }}` for all jobs.
+The `runs-on` input is optional (default `["self-hosted","heavy"]`) and is not inherited from callers; define it as a string input (JSON array string when multiple labels) and parse it on jobs—for example `${{ startsWith(inputs.runs-on, '[') && fromJson(inputs.runs-on) || inputs.runs-on }}`.
 
 ### 2) Use the input runner on all jobs
 

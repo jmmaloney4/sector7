@@ -94,17 +94,16 @@ Within contract mode, reads travel over exactly one of two transports,
 chosen **once**, in `getContractChannel`, from the Connect coordinates alone
 — never per call, never by "try one, fall back to the other":
 
-| Connect host | Connect token | Transport                                                             |
-| ------------ | ------------- | --------------------------------------------------------------------- |
-| set          | set           | `connect` — Connect REST (CI; anywhere Connect is reachable)          |
-| unset        | unset         | `op` — the 1Password CLI under the operator's own session             |
-| set          | unset         | **throws** — partial Connect configuration                            |
-| unset        | set           | **throws** — partial Connect configuration                            |
+| Connect host | Connect token | Transport                                                    |
+| ------------ | ------------- | ------------------------------------------------------------ |
+| set          | set           | `connect` — Connect REST (CI; anywhere Connect is reachable) |
+| unset        | unset         | `op` — the 1Password CLI under the operator's own session    |
+| set          | unset         | **throws** — partial Connect configuration                   |
+| unset        | set           | **throws** — partial Connect configuration                   |
 
 A partial Connect configuration is a configuration error, not a signal to
 use `op`: reading it as one would turn a typo into a different credential
-path. The channel's `transport` is a closed union (`{ kind: "connect", host,
-token } | { kind: "op", exec }`), so downstream code cannot hold a Connect
+path. The channel's `transport` is a closed union (`{ kind: "connect", host, token } | { kind: "op", exec }`), so downstream code cannot hold a Connect
 channel without a host and token, or an `op` channel with a stray one.
 
 ## Contract item shapes (pinned here; the publisher must match)

@@ -3,9 +3,9 @@ on:
   workflow_call:
     inputs:
       runs-on:
-        description: 'Runner label for all jobs'
+        description: 'Runner label(s) for all jobs (string label or JSON array of labels; self-hosted must include light or heavy)'
         required: false
-        default: 'self-hosted'
+        default: '["self-hosted","heavy"]'
         type: string
       repository:
         description: 'Repository to checkout and operate on (owner/repo)'

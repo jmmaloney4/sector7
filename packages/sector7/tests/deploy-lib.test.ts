@@ -3,8 +3,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
 	clearContractItemCacheForTesting,
 	getContractChannel,
-	readContractItemAsync,
 	type ResolvedContractChannel,
+	readContractItemAsync,
 	requireContractField,
 	setOpExecForTesting,
 } from "../deploy-lib/contract.js";

@@ -62,9 +62,9 @@ jobs:
       matrix:
         include:
           - name: linux
-            runs-on: '["self-hosted","linux","x64"]'
+            runs-on: '["self-hosted","heavy","linux","x64"]'
           - name: darwin
-            runs-on: '["self-hosted","macos","arm64"]'
+            runs-on: '["self-hosted","heavy","macos","arm64"]'
     uses: jmmaloney4/sector7/.github/workflows/nix.yml@main
     with:
       runs-on: ${{ matrix.runs-on }}
@@ -81,7 +81,7 @@ jobs:
   nix:
     uses: jmmaloney4/sector7/.github/workflows/nix.yml@main
     with:
-      runs-on: '["self-hosted","room-of-requirement"]'
+      runs-on: '["self-hosted","heavy","room-of-requirement"]'
       repository: ${{ github.repository }}
       ref: ${{ github.ref }}
       binary-cache-url: ${{ vars.ATTIC_CACHE_URL }}
