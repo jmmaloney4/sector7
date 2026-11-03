@@ -22,6 +22,7 @@ export {
 	getApiServerHost,
 	getConfigStack,
 	getK8sProvider,
+	PLATFORM_CLUSTER_IDENTIFIER,
 	getPlatformKubeconfig,
 	type PlatformStackOpts,
 } from "./resolver.ts";

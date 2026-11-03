@@ -14,6 +14,7 @@ import {
 	getApiServerHost,
 	getConfigStack,
 	getK8sProvider,
+	PLATFORM_CLUSTER_IDENTIFIER,
 	getPlatformKubeconfig,
 } from "../deploy-lib/resolver.js";
 
@@ -282,6 +283,17 @@ describe("stackref mode", () => {
 			r.type.startsWith("pulumi:providers:kubernetes"),
 		);
 		expect(prov?.name).toBe("k8s-platform");
+	});
+
+	it("carries the published clusterIdentifier, so a server rename is not a replace", async () => {
+		const provider = getK8sProvider();
+		await promiseOf(provider.urn);
+		const prov = resources.find((r) =>
+			r.type.startsWith("pulumi:providers:kubernetes"),
+		);
+		// Pinned as a literal: a changed value replaces every consumer resource.
+		expect(PLATFORM_CLUSTER_IDENTIFIER).toBe("room-of-requirement/rke2");
+		expect(prov?.inputs.clusterIdentifier).toBe(PLATFORM_CLUSTER_IDENTIFIER);
 	});
 
 	it("reads apiHost from the platform stack", async () => {
