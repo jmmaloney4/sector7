@@ -155,6 +155,11 @@ stack's preview — with messages naming the vault, item, and field.
 The resolver MUST keep the k8s provider construction identical to garden's
 today: `new k8s.Provider("k8s-platform", { kubeconfig, enablePatchForce })`.
 
+> **Amended (sector7#404):** the provider also carries
+> `clusterIdentifier: PLATFORM_CLUSTER_IDENTIFIER`. Adopting it needs its own
+> `up` with the kubeconfig unchanged; see the constant's comment in
+> `deploy-lib/resolver.ts`.
+
 # Consequences
 
 ## Positive

@@ -41,6 +41,20 @@ const DEFAULT_K8S_STACK_NAME = "k8s";
 const KUBECONFIG_ITEM = "kubeconfig";
 const CONFIG_ITEM = "config";
 
+/**
+ * Stable identity of the platform cluster, the same for every consumer.
+ *
+ * With this set, pulumi-kubernetes replaces the provider only when the value
+ * itself changes, so renaming the API server is an in-place provider update.
+ * LOAD-BEARING: changing the value replaces every resource under the provider.
+ *
+ * Adopting it needs its own `up` with the kubeconfig unchanged. Going from
+ * unset to set while the server also changes is still a replace, because the
+ * provider falls back to comparing the active cluster for that diff
+ * (jmmaloney4/sector7#404, measured against provider 4.32.0).
+ */
+export const PLATFORM_CLUSTER_IDENTIFIER = "room-of-requirement/rke2";
+
 const stackRefCache = new Map<string, pulumi.StackReference>();
 const configStackRefCache = new Map<string, pulumi.StackReference>();
 
@@ -109,6 +123,7 @@ export function getK8sProvider(
 	opts?: PlatformStackOpts & { enablePatchForce?: boolean },
 ): k8s.Provider {
 	return new k8s.Provider("k8s-platform", {
+		clusterIdentifier: PLATFORM_CLUSTER_IDENTIFIER,
 		kubeconfig: getPlatformKubeconfig(opts),
 		enablePatchForce: opts?.enablePatchForce,
 	});

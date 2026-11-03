@@ -23,5 +23,6 @@ export {
 	getConfigStack,
 	getK8sProvider,
 	getPlatformKubeconfig,
+	PLATFORM_CLUSTER_IDENTIFIER,
 	type PlatformStackOpts,
 } from "./resolver.ts";
