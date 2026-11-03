@@ -14,8 +14,8 @@ import {
 	getApiServerHost,
 	getConfigStack,
 	getK8sProvider,
-	PLATFORM_CLUSTER_IDENTIFIER,
 	getPlatformKubeconfig,
+	PLATFORM_CLUSTER_IDENTIFIER,
 } from "../deploy-lib/resolver.js";
 
 type MockResource = {
