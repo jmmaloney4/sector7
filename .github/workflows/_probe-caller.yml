@@ -1,0 +1,9 @@
+name: probe-concurrency
+on:
+  pull_request:
+  push:
+    branches: ['probe/nix-concurrency-do-not-merge']
+    tags: ['zz-concurrency-probe']
+jobs:
+  call:
+    uses: ./.github/workflows/_probe-called.yml
