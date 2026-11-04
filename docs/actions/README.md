@@ -53,6 +53,7 @@ jobs:
   - **binary-cache-name**: Attic cache name used for cache pushes
 - **Optional secrets**:
   - **BINARY_CACHE_TOKEN**: Attic token with push permission for `binary-cache-name`
+- **Concurrency**: One group per PR or ref. PRs and other branches cancel the superseded run. The default branch and tags never cancel a running job: GitHub keeps it plus only the newest pending run, so commits coalesce and each finished run covers everything merged so far.
 
 #### Minimal consumer workflow (copy-paste)
 
