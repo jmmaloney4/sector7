@@ -41,7 +41,9 @@ as namespaces (`access`, `d1`, `iam`, `monitor`, `nixImage`, `nixOutput`,
 | `@jmmaloney4/sector7/litellm`       | `LiteLLMProxy`, `LiteLLMTeam`, `LiteLLMApiKey`, `generateLiteLLMConfig`               | LiteLLM proxy deployment + team/virtual-key admin, dynamic (ADR-026; [details](#litellm)) |
 | `@jmmaloney4/sector7/onepassword`   | `OnePasswordItem`                                                                     | Write/update a 1Password item via Connect, dynamic (ADR-031; [details](#onepassword))     |
 | `@jmmaloney4/sector7/attic`         | `AtticCache`, `AtticToken`                                                            | Attic Nix binary cache + access-token admin, dynamic (ADR-032; [details](#attic))         |
-| `@jmmaloney4/sector7/gateway`       | `createServiceHttpRoute`, `createSharedGatewayReferenceGrant`, `createTailnetIngress` | Gateway API HTTPRoute / ReferenceGrant / Tailnet Ingress helpers (ADR-040/075)            |
+| `@jmmaloney4/sector7/gateway`       | `createServiceHttpRoute`, `createSharedGatewayReferenceGrant`, `createTailnetIngress` | Gateway API HTTPRoute / ReferenceGrant / Tailnet Ingress helpers (garden ADR-040/075)     |
+| `@jmmaloney4/sector7/tenancy`       | `Tenant`, `TenancyRegistry`, `namespacePolicy`, `resourceEnvelope`                    | Multi-tenant namespaces, quotas, and network policy helpers                               |
+| `@jmmaloney4/sector7/deploy-lib`    | `readContract`, `getK8sProvider`, `getConfigStack`, `getPlatformKubeconfig`           | Contract-channel reads and platform stack resolution (ADR-035; garden ADR-173)            |
 | `@jmmaloney4/sector7/pulumi-config` | `requireMixedConfig`                                                                  | Typed loader for mixed plain + secret Pulumi config                                       |
 | `@jmmaloney4/sector7/scripts`       | `getScriptPath`                                                                       | Resolve the path to a script bundled with the package                                     |
 

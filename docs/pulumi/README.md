@@ -16,6 +16,13 @@ Or pin to a specific version/commit:
 pnpm add "git+https://github.com/jmmaloney4/sector7.git#path:/packages/sector7#v0.1.0"
 ```
 
+## Subpath modules
+
+`@jmmaloney4/sector7` exposes one import path per module (`package.json`
+`exports`). The authoritative subpath table lives in
+[`packages/sector7/README.md`](../../packages/sector7/README.md#components).
+This page keeps selected deep dives; it does not duplicate every export.
+
 ## Components
 
 ### NixOutput
