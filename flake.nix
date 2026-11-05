@@ -91,6 +91,7 @@
 
         pre-commit.settings.hooks.mypy.enable = lib.mkForce false;
         pre-commit.settings.hooks.tsc.enable = lib.mkForce false;
+        pre-commit.settings.hooks.vitest.args = ["--configLoader" "runner"];
 
         checks.renovate-config = pkgs.runCommand "renovate-config" {} ''
           cd ${self.outPath}
