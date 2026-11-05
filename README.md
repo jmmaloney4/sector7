@@ -9,6 +9,7 @@ User-facing docs live in [`docs/`](docs/README.md) (one directory per system).
 - **[GitHub Actions Workflows](docs/actions/README.md)** - Reusable workflows for Rust, Nix, Pulumi, and Claude AI
 - **[Pulumi Components](docs/pulumi/README.md)** - `@jmmaloney4/sector7` package with reusable Pulumi components
 - **[Renovate Presets](docs/renovate/README.md)** - Composable Renovate configurations for dependency management
+- **[Quarto Site Toolchain](docs/quarto/README.md)** - Quarto static-site builds deployed to Cloudflare Pages
 
 ## 🚀 Quick Start
 
@@ -109,7 +110,7 @@ Until automated package release publishing lands, prefer a packed GitHub Release
 ```json
 {
   "dependencies": {
-    "@jmmaloney4/sector7": "https://github.com/jmmaloney4/sector7/releases/download/sector7-v0.6.0-a27687e/jmmaloney4-sector7-0.6.0.tgz"
+    "@jmmaloney4/sector7": "https://github.com/jmmaloney4/sector7/releases/download/v0.25.0/jmmaloney4-sector7-0.25.0.tgz"
   }
 }
 ```
