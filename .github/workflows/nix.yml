@@ -49,12 +49,11 @@ on:
         required: false
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
-  # The default branch and tags are never cancelled mid-run: GitHub keeps the
-  # running job plus only the newest pending one, so commits coalesce and each
-  # finished run covers everything merged so far. Keyed on the ref, not the
-  # event, so a workflow_dispatch on main cannot cancel a running push either.
-  # Everything else (PRs, other branches) still cancels the superseded run.
-  cancel-in-progress: ${{ github.ref != format('refs/heads/{0}', github.event.repository.default_branch) && !startsWith(github.ref, 'refs/tags/') }}
+  # Superseded runs are never cancelled: GitHub keeps the running job plus only
+  # the newest pending one, so pushes coalesce and each finished run covers
+  # everything pushed so far. (Jack, 2026-11-09: cancelling a running check
+  # when a new commit lands wasted more than it saved.)
+  cancel-in-progress: false
 permissions:
   contents: read
   id-token: write
