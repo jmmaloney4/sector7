@@ -17,7 +17,9 @@ on:
         type: string
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: true
+  # Never cancel a running job when a newer commit queues (Jack, 2026-11-09);
+  # GitHub keeps the running job plus the newest pending one.
+  cancel-in-progress: false
 permissions:
   contents: read
   id-token: write
