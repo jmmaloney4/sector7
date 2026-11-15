@@ -169,3 +169,25 @@ jobs:
     secrets:
       REGISTRY_PASSWORD: ${{ secrets.REGISTRY_PASSWORD || secrets.GITHUB_TOKEN }}
       BINARY_CACHE_TOKEN: ${{ secrets.BINARY_CACHE_TOKEN }}
+  gate:
+    # One stable check name for branch protection. The matrix jobs above are named
+    # per flake output, so requiring them one by one never covers a new check and
+    # blocks forever on a removed one. Skipped is fine (no checks, no images);
+    # failed or cancelled is not, and a skipped `build` after a failed `detect`
+    # still fails here because `detect` is in `needs`.
+    name: '✅ nix gate'
+    if: ${{ always() }}
+    needs: [detect, build, build-and-push-images]
+    runs-on: ${{ startsWith(inputs.runs-on, '[') && fromJson(inputs.runs-on) || inputs.runs-on }}
+    steps:
+      - name: Fail unless every nix job succeeded or was skipped
+        env:
+          NEEDS: ${{ toJSON(needs) }}
+        run: |-
+          set -euo pipefail
+          bad=$(echo "$NEEDS" | jq -r 'to_entries[] | select(.value.result != "success" and .value.result != "skipped") | "\(.key)=\(.value.result)"')
+          if [ -n "$bad" ]; then
+            echo "nix gate failed: $bad" >&2
+            exit 1
+          fi
+          echo "nix gate: all jobs succeeded or were skipped"
