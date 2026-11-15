@@ -222,6 +222,19 @@
             touch $out
           '';
 
+        # attic watch-store memory cap + restart (room-of-requirement/seven#378).
+        checks.gha-attic-watch-store =
+          pkgs.runCommand "gha-attic-watch-store" {
+            nativeBuildInputs = [pkgs.bash pkgs.coreutils pkgs.gnugrep];
+            ATTIC_SETUP_ROOT = "${./.github/actions/nix-setup}";
+          } ''
+            set -euo pipefail
+            bash -n "$ATTIC_SETUP_ROOT/start-attic-watch-store.sh"
+            bash -n "$ATTIC_SETUP_ROOT/supervise-attic-watch-store.sh"
+            bash "$ATTIC_SETUP_ROOT/test-supervise-attic-watch-store.sh"
+            touch $out
+          '';
+
         # preview_only default-true: both pulumi up steps must keep the
         # !inputs.preview_only guard, and concurrency must not key off
         # github.event_name == workflow_call (never true in a called workflow).
