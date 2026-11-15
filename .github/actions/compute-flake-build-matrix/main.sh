@@ -105,7 +105,13 @@ include_array=$(nix -L run nixpkgs#jq -- -c '
   | map({category, system, name, flake_attr} + (if .is_image then {is_image: .is_image} else {} end))
 ' <<<"$all_outputs")
 
-echo "Computed include (uncached only): $include_array"
+# Caller-specified first stage: mark these targets (see mark-build-first.sh).
+# jq is not on the runner's PATH, so run it under `nix shell` like the other steps.
+if [ -n "${INPUT_BUILD_FIRST//[[:space:]]/}" ]; then
+  include_array=$(BUILD_FIRST="$INPUT_BUILD_FIRST" nix -L shell nixpkgs#jq -c bash "${GITHUB_ACTION_PATH}/mark-build-first.sh" <<<"$include_array")
+fi
+
+echo "Computed include (uncached only, build-first marked): $include_array"
 
 # Compute boolean flag indicating whether there is any work to do
 has_work=$(nix -L run nixpkgs#jq -- -rc 'if (length > 0) then "true" else "false" end' <<<"$include_array")
