@@ -1,21 +1,27 @@
 #!/usr/bin/env bash
-# Reorder a build matrix so the caller's priority targets are dispatched first.
+# Mark the caller's priority targets in a build matrix so nix.yml can build them
+# in a first stage.
 #
 # stdin : matrix include JSON array (objects with .category and .name)
 # env   : BUILD_FIRST  newline-delimited shell globs, matched against
 #                      "<category>.<name>" (e.g. "packages.rust-test-deps",
 #                      "checks.*-tests"). `*` matches any characters, dots included.
-# stdout: the same array, stably sorted: entries matching an earlier pattern
-#         come first, unmatched entries keep their original relative order last.
+# stdout: the same array. With patterns set, every entry gains `first`
+#         (true when it matches a pattern), and entries matching earlier
+#         patterns come first (stable; unmatched keep their relative order).
+#         With no patterns, the array is passed through untouched.
 #
-# Why: with strategy.max-parallel, GitHub starts matrix jobs in array order. A
-# check that depends on a shared, expensive derivation (a Rust dependency
-# build) blocks on the daemon's lock for it, holding a runner slot idle. Putting
-# the shared build first means the dependents start once it is already built.
+# Why a stage and not just an order: GitHub does not start matrix jobs in
+# `include` order (zeus run 43747395023 started jobs 3, 7, 2, 6, 8 of a matrix
+# whose job 1 was still queued 45 minutes later). A check that depends on a
+# shared, expensive derivation (a Rust dependency build) blocks on the nix
+# daemon's lock for it, holding a runner slot idle. Building the shared
+# derivation in its own job stage, before the rest, is the only deterministic
+# way to keep dependents from taking a slot while it builds.
 #
-# Only order changes: never drops, duplicates or edits an entry. A pattern that
-# matches nothing is reported on stderr and is not an error: an uncached-only
-# matrix legitimately omits a target that is already cached.
+# Marks and orders only: never drops, duplicates or edits an entry otherwise. A
+# pattern that matches nothing is reported on stderr and is not an error: an
+# uncached-only matrix legitimately omits a target that is already cached.
 set -euo pipefail
 
 matrix="$(cat)"
@@ -57,4 +63,5 @@ for ((i = 0; i < none; i++)); do
 done
 
 ranks_json="$(printf '%s\n' "${ranks[@]}" | jq -s -c .)"
-jq -c --argjson ranks "$ranks_json" '[., $ranks] | transpose | sort_by(.[1]) | map(.[0])' <<<"$matrix"
+jq -c --argjson ranks "$ranks_json" --argjson none "$none" \
+  '[., $ranks] | transpose | sort_by(.[1]) | map(.[0] + {first: (.[1] < $none)})' <<<"$matrix"

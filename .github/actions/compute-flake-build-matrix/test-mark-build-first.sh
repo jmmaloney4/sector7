@@ -1,11 +1,12 @@
 #!/usr/bin/env bash
-# Tests for order-matrix.sh. Needs only bash and jq; no Nix, no GitHub.
+# Tests for mark-build-first.sh. Needs only bash and jq; no Nix, no GitHub.
 set -euo pipefail
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-order="$here/order-matrix.sh"
+order="$here/mark-build-first.sh"
 
 fail() { echo "FAIL: $*" >&2; exit 1; }
 names() { jq -r 'map("\(.category).\(.name)") | join(" ")'; }
+firsts() { jq -r 'map(.first | tostring) | join(" ")'; }
 
 m='[
  {"category":"checks","name":"a-tests"},
@@ -24,6 +25,10 @@ got="$(BUILD_FIRST=$'packages.rust-test-deps\nchecks.*-tests' "$order" <<<"$m" 2
 [ "$got" = "packages.rust-test-deps checks.a-tests checks.c-tests checks.b-lint packages.other" ] \
   || fail "glob ordering: $got"
 
+# the first flag is true exactly for matched entries
+got="$(BUILD_FIRST=$'packages.rust-test-deps\nchecks.*-tests' "$order" <<<"$m" 2>/dev/null | firsts)"
+[ "$got" = "true true true false false" ] || fail "first flags: $got"
+
 # no patterns: identical bytes in, identical value out
 [ "$(BUILD_FIRST= "$order" <<<"$m" | jq -c .)" = "$(jq -c . <<<"$m")" ] || fail "empty patterns changed matrix"
 [ "$(env -u BUILD_FIRST "$order" <<<"$m" | jq -c .)" = "$(jq -c . <<<"$m")" ] || fail "unset patterns changed matrix"
@@ -33,7 +38,7 @@ got="$(BUILD_FIRST=$'packages.rust-test-deps\nchecks.*-tests' "$order" <<<"$m" 2
 
 # only reorders: same multiset of entries
 a="$(jq -c 'sort_by(.category,.name)' <<<"$m")"
-b="$(BUILD_FIRST=$'checks.*-tests' "$order" <<<"$m" 2>/dev/null | jq -c 'sort_by(.category,.name)')"
+b="$(BUILD_FIRST=$'checks.*-tests' "$order" <<<"$m" 2>/dev/null | jq -c 'map(del(.first)) | sort_by(.category,.name)')"
 [ "$a" = "$b" ] || fail "entries were added, dropped or edited"
 
 # dots in a pattern are literal; whitespace and blank lines are tolerated

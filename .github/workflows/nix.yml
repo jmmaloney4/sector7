@@ -41,7 +41,7 @@ on:
         default: ''
         type: string
       build-first:
-        description: 'Newline-delimited globs of "<category>.<name>" targets (e.g. packages.rust-test-deps) to dispatch before the rest of the matrix. Name shared, expensive derivations that other checks depend on: a check that needs one blocks on the nix daemon lock while holding a runner slot, so building it first keeps both slots working. Order only; nothing is added or dropped.'
+        description: 'Newline-delimited globs of "<category>.<name>" targets (e.g. packages.rust-test-deps) built in a first stage; the rest of the matrix starts only after that stage finishes. Name shared, expensive derivations that other checks depend on: a check needing one blocks on the nix daemon lock while holding a runner slot, so a one-stage matrix wastes slots (GitHub does not start matrix jobs in include order, so ordering alone does not help). Stage only: nothing is added or dropped. A failed first stage does not skip the second.'
         required: false
         default: ''
         type: string
@@ -75,6 +75,8 @@ jobs:
     outputs:
       build_matrix_include: ${{ steps.split.outputs.build_matrix_include }}
       build_has_work: ${{ steps.split.outputs.build_has_work }}
+      first_matrix_include: ${{ steps.split.outputs.first_matrix_include }}
+      first_has_work: ${{ steps.split.outputs.first_has_work }}
       images_to_push: ${{ steps.split.outputs.image_matrix }}
     env:
       # Provided so nix-setup can start `attic watch-store`, which seeds the
@@ -108,55 +110,68 @@ jobs:
         run: |
           set -euo pipefail
           matrix='${{ steps.compute.outputs.matrix_include }}'
-          build_matrix=$(echo "$matrix" | jq -c '[ .[] | select(.is_image != true) ]')
+          build_matrix=$(echo "$matrix" | jq -c '[ .[] | select(.is_image != true and .first != true) ]')
+          first_matrix=$(echo "$matrix" | jq -c '[ .[] | select(.is_image != true and .first == true) ]')
           image_names=$(echo "$matrix" | jq -c '[ .[] | select(.is_image == true) | .name ]')
           build_has_work=$(if [ "$build_matrix" = '[]' ]; then echo false; else echo true; fi)
+          first_has_work=$(if [ "$first_matrix" = '[]' ]; then echo false; else echo true; fi)
+          echo "Found build-first entries: $first_matrix"
           echo "Found build entries: $build_matrix"
           echo "Found images: $image_names"
           echo "build_matrix_include=$build_matrix" >> "$GITHUB_OUTPUT"
           echo "build_has_work=$build_has_work" >> "$GITHUB_OUTPUT"
+          echo "first_matrix_include=$first_matrix" >> "$GITHUB_OUTPUT"
+          echo "first_has_work=$first_has_work" >> "$GITHUB_OUTPUT"
           echo "image_matrix=$image_names" >> "$GITHUB_OUTPUT"
-  build:
-    name: "👷‍♂️ ${{ matrix.category }}.${{ matrix.system }}.${{ matrix.name }}"
+  build-first:
+    # Stage 1: the caller's `build-first` targets (shared, expensive derivations).
+    # Empty unless the caller sets that input. See the input's description.
+    name: "🧱 ${{ matrix.category }}.${{ matrix.system }}.${{ matrix.name }}"
     needs: [detect]
     runs-on: ${{ startsWith(inputs.runs-on, '[') && fromJson(inputs.runs-on) || inputs.runs-on }}
-    if: ${{ needs.detect.outputs.build_has_work == 'true' }}
-    env:
-      BINARY_CACHE_TOKEN: ${{ secrets.BINARY_CACHE_TOKEN }}
+    if: ${{ needs.detect.outputs.first_has_work == 'true' }}
+    strategy:
+      fail-fast: false
+      max-parallel: ${{ inputs.max-parallel }}
+      matrix:
+        include: ${{ fromJson(needs.detect.outputs.first_matrix_include) }}
+    steps:
+      - uses: jmmaloney4/sector7/.github/actions/nix-build-attr@main
+        with:
+          flake-attr: ${{ matrix.flake_attr }}
+          runs-on: ${{ inputs.runs-on }}
+          repository: ${{ inputs.repository }}
+          ref: ${{ inputs.ref }}
+          binary-cache-url: ${{ inputs.binary-cache-url }}
+          binary-cache-public-key: ${{ inputs.binary-cache-public-key }}
+          binary-cache-endpoint: ${{ inputs.binary-cache-endpoint }}
+          binary-cache-name: ${{ inputs.binary-cache-name }}
+          attic-token: ${{ secrets.BINARY_CACHE_TOKEN }}
+  build:
+    name: "👷‍♂️ ${{ matrix.category }}.${{ matrix.system }}.${{ matrix.name }}"
+    # Runs after build-first whatever its result: a failed shared dependency
+    # must not hide the other checks' results. Skipped (no first-stage work) is
+    # the common case; only a cancelled run or a failed detect stops this.
+    needs: [detect, build-first]
+    runs-on: ${{ startsWith(inputs.runs-on, '[') && fromJson(inputs.runs-on) || inputs.runs-on }}
+    if: ${{ !cancelled() && needs.detect.result == 'success' && needs.build-first.result != 'cancelled' && needs.detect.outputs.build_has_work == 'true' }}
     strategy:
       fail-fast: false
       max-parallel: ${{ inputs.max-parallel }}
       matrix:
         include: ${{ fromJson(needs.detect.outputs.build_matrix_include) }}
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          repository: ${{ inputs.repository }}
-          ref: ${{ inputs.ref }}
-      - uses: jmmaloney4/sector7/.github/actions/nix-setup@main
-        with:
-          runs-on: ${{ inputs.runs-on }}
-          cache: ${{ !contains(inputs.runs-on, 'self-hosted') && inputs.binary-cache-url == '' }}
-          extra-substituters: ${{ inputs.binary-cache-url }}
-          extra-trusted-public-keys: ${{ inputs.binary-cache-public-key }}
-          attic-endpoint: ${{ inputs.binary-cache-endpoint }}
-          attic-cache-name: ${{ inputs.binary-cache-name }}
-          attic-token: ${{ secrets.BINARY_CACHE_TOKEN }}
-      - name: "🚀 build with nix-fast-build"
-        shell: 'nix -L shell nixpkgs#nix-fast-build -c bash {0}'
-        run: |-
-          set -euo pipefail
-          attr='${{ matrix.flake_attr }}'
-          echo "Building via nix-fast-build: $attr"
-          nix-fast-build --skip-cached --no-nom --no-link -j 1 --flake "$attr"
-      - name: Push built store paths to binary cache
-        if: ${{ inputs.binary-cache-endpoint != '' && inputs.binary-cache-name != '' && env.BINARY_CACHE_TOKEN != '' }}
-        uses: jmmaloney4/sector7/.github/actions/push-attic-cache@main
+      - uses: jmmaloney4/sector7/.github/actions/nix-build-attr@main
         with:
           flake-attr: ${{ matrix.flake_attr }}
-          attic-endpoint: ${{ inputs.binary-cache-endpoint }}
-          attic-cache-name: ${{ inputs.binary-cache-name }}
-          attic-token: ${{ env.BINARY_CACHE_TOKEN }}
+          runs-on: ${{ inputs.runs-on }}
+          repository: ${{ inputs.repository }}
+          ref: ${{ inputs.ref }}
+          binary-cache-url: ${{ inputs.binary-cache-url }}
+          binary-cache-public-key: ${{ inputs.binary-cache-public-key }}
+          binary-cache-endpoint: ${{ inputs.binary-cache-endpoint }}
+          binary-cache-name: ${{ inputs.binary-cache-name }}
+          attic-token: ${{ secrets.BINARY_CACHE_TOKEN }}
   build-and-push-images:
     name: "🐳 build+push ${{ matrix.package-name }}"
     needs: [detect]
@@ -188,7 +203,7 @@ jobs:
     # still fails here because `detect` is in `needs`.
     name: '✅ nix gate'
     if: ${{ always() }}
-    needs: [detect, build, build-and-push-images]
+    needs: [detect, build-first, build, build-and-push-images]
     runs-on: ${{ startsWith(inputs.runs-on, '[') && fromJson(inputs.runs-on) || inputs.runs-on }}
     steps:
       - name: Fail unless every nix job succeeded or was skipped

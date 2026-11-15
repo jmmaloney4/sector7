@@ -14,7 +14,7 @@ inputs:
     required: false
     default: ''
   build-first:
-    description: Optional newline-delimited shell globs matched against "<category>.<name>" (e.g. packages.rust-test-deps). Matching matrix entries are dispatched first, in pattern order; the rest keep their order. Use it for shared, expensive derivations that other entries depend on, so dependents do not hold a runner slot waiting on the daemon's lock for them.
+    description: Optional newline-delimited shell globs matched against "<category>.<name>" (e.g. packages.rust-test-deps). Matching entries get a boolean field named first set to true and sort ahead of the rest, so nix.yml can build them in a first job stage. Use it for shared, expensive derivations that other entries depend on, so dependents do not hold a runner slot waiting on the daemon's lock for them. Without it, entries carry no first field.
     required: false
     default: ''
 outputs:
