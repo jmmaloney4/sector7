@@ -2,8 +2,9 @@ name: Nix Setup
 description: Install Nix and optionally configure additional binary caches for GitHub Actions
 inputs:
   runs-on:
-    description: Runner label to determine if runs-on/actions@v2 should be used
-    required: true
+    description: 'Deprecated: no-op, runs-on removed. Callers may still pass runner labels for compatibility.'
+    required: false
+    default: ''
     type: string
   cache:
     description: Enable FlakeHub cache (set to 'false' for self-hosted runners with cache already configured)
@@ -52,11 +53,6 @@ inputs:
 runs:
   using: composite
   steps:
-    - if: ${{ contains(inputs.runs-on, 'runner=') }} && ${{ contains(inputs.runs-on, 's3-cache') }}
-      uses: runs-on/action@17b59092eb37ebfdbb034460892887c09100eaa3 # v2.5.0
-      with:
-        show_costs: true
-        sccache: s3
     # If the runner has a host Nix daemon available (its /nix store and daemon
     # socket bind-mounted from the node — see garden's ARC runner template), use
     # that warm, shared store instead of installing a second, per-pod Nix. Two
