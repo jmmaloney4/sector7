@@ -15,7 +15,7 @@
 	"prConcurrentLimit": 0,
 	"rebaseWhen": "conflicted",
 	"automergeType": "pr",
-	"automergeStrategy": "merge",
+	"automergeStrategy": "merge-commit",
 	"platformAutomerge": false,
 	"dependencyDashboard": true,
 	"dependencyDashboardTitle": "Renovate Dashboard \ud83e\udd16",
