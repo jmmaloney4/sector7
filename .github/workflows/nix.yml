@@ -40,6 +40,11 @@ on:
         required: false
         default: ''
         type: string
+      max-parallel:
+        description: 'How many matrix build jobs run at once. Set it to the number of runners the caller scale set can give this workflow; a job beyond that just queues.'
+        required: false
+        default: 2
+        type: number
     secrets:
       REGISTRY_PASSWORD:
         description: 'Registry password/token (usually GITHUB_TOKEN)'
@@ -114,7 +119,7 @@ jobs:
       BINARY_CACHE_TOKEN: ${{ secrets.BINARY_CACHE_TOKEN }}
     strategy:
       fail-fast: false
-      max-parallel: 1
+      max-parallel: ${{ inputs.max-parallel }}
       matrix:
         include: ${{ fromJson(needs.detect.outputs.build_matrix_include) }}
     steps:
