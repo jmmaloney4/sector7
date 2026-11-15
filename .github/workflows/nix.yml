@@ -40,6 +40,11 @@ on:
         required: false
         default: ''
         type: string
+      build-first:
+        description: 'Newline-delimited globs of "<category>.<name>" targets (e.g. packages.rust-test-deps) to dispatch before the rest of the matrix. Name shared, expensive derivations that other checks depend on: a check that needs one blocks on the nix daemon lock while holding a runner slot, so building it first keeps both slots working. Order only; nothing is added or dropped.'
+        required: false
+        default: ''
+        type: string
       max-parallel:
         description: 'How many matrix build jobs run at once. Set it to the number of runners the caller scale set can give this workflow; a job beyond that just queues.'
         required: false
@@ -94,6 +99,7 @@ jobs:
         uses: jmmaloney4/sector7/.github/actions/compute-flake-build-matrix@main
         with:
           probe-timeout-seconds: '180'
+          build-first: ${{ inputs.build-first }}
           extra-substituters: ${{ inputs.binary-cache-url }}
           extra-trusted-public-keys: ${{ inputs.binary-cache-public-key }}
       - name: split build and image matrices

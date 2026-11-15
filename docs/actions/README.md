@@ -52,6 +52,7 @@ jobs:
   - **binary-cache-endpoint**: Attic server root URL used for `attic login` before cache pushes
   - **binary-cache-name**: Attic cache name used for cache pushes
   - **max-parallel**: Number. Defaults to `2`. How many matrix build jobs run at once. Match it to the runners the caller's scale set can give this workflow: a job beyond that queues, so a larger value only adds waiting jobs. Set `1` to serialize, as the workflow did before this input existed.
+  - **build-first**: String, newline-delimited shell globs matched against `<category>.<name>` (for example `packages.rust-test-deps`). Matching targets are dispatched first, in pattern order; everything else keeps its order. Name shared, expensive derivations that other checks depend on: with `max-parallel` above 1, a check that needs one blocks on the nix daemon's lock for it while holding a runner slot, so building it first keeps both slots working. Only the order changes; a pattern that matches nothing (already cached, or misspelled) logs a notice and is otherwise ignored.
 - **Optional secrets**:
   - **BINARY_CACHE_TOKEN**: Attic token with push permission for `binary-cache-name`
 - **Gate**: A final job named `✅ nix gate` always runs and fails unless every other job succeeded or was skipped. Require that one check (shown as `<caller job id> / ✅ nix gate`, for example `nix / ✅ nix gate`) in branch protection rather than the per-output matrix jobs, whose names change with the flake. It runs on the same `runs-on` as the other jobs.
