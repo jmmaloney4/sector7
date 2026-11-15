@@ -16,14 +16,17 @@ fail() {
 
 # Stub: records `ulimit -d` and its arguments, crashes (rc 134, as an abort
 # does) until the counter file reaches $STUB_CRASHES, then exits cleanly.
-cat >"$work/attic" <<'EOF'
-#!/usr/bin/env bash
+# The shebang is the running bash: the nix build sandbox has no /usr/bin/env.
+{
+  printf '#!%s\n' "$BASH"
+  cat <<'EOF'
 n=$(($(cat "$STUB_COUNT" 2>/dev/null || echo 0) + 1))
 echo "$n" >"$STUB_COUNT"
 echo "run $n limit=$(ulimit -d) args=$*"
 if [ "$n" -le "$STUB_CRASHES" ]; then exit 134; fi
 exit 0
 EOF
+} >"$work/attic"
 chmod +x "$work/attic"
 
 run() { # crashes max_restarts
