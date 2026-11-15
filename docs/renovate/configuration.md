@@ -23,7 +23,7 @@ The base every consumer inherits.
 | --------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `extends`                   | `config:best-practices`, `:semanticCommits`, `helpers:pinGitHubActionDigestsToSemver`, `:enableVulnerabilityAlertsWithLabel(security)`, `:pinAllExceptPeerDependencies` | Renovate's recommended baseline + semantic commit messages + digest-pin GitHub Actions to a semver comment + vuln alerts + pin all deps except peer deps.      |
 | `timezone`                  | `America/Chicago`                                                                                                                                                       | Anchors every `schedule` window.                                                                                                                               |
-| `schedule`                  | `["before 4:00 am on Friday"]`                                                                                                                                          | Global weekly update window. See [Schedules](#schedules).                                                                                                      |
+| `schedule`                  | `["before 4:00 am"]`                                                                                                                                                    | Global daily update window. See [Schedules](#schedules).                                                                                                       |
 | `prHourlyLimit`             | `0`                                                                                                                                                                     | No hourly cap. See [Automerge & rate limits](#automerge--rate-limits).                                                                                         |
 | `prConcurrentLimit`         | `0`                                                                                                                                                                     | No concurrent-PR cap.                                                                                                                                          |
 | `rebaseWhen`                | `conflicted`                                                                                                                                                            | Only rebase a branch when it actually conflicts (avoids churn).                                                                                                |
@@ -56,10 +56,10 @@ These apply across all ecosystems (not per-group):
 
 ## Schedules
 
-- **Global:** `schedule: ["before 4:00 am on Friday"]` in `default.json`, in `America/Chicago`. Renovate creates, updates, and merges branches only inside this weekly window.
+- **Global:** `schedule: ["before 4:00 am"]` in `default.json`, in `America/Chicago`. Renovate creates, updates, and merges branches only inside this daily window.
 - **All PR groups inherit the global schedule.** As of the cleanup in
   `minor-patch-automerge.json`, there are **no per-group `schedule` overrides** —
-  every group runs `before 4:00 am on Friday`.
+  every group runs `before 4:00 am`.
 - **Lock-file maintenance** runs weekly: `before 4:00 am on Sunday`.
 - **Security / vulnerability alerts bypass the schedule** — Renovate raises them
   as soon as an advisory lands, regardless of the window.
@@ -119,7 +119,7 @@ positive integer.
 This filename is **legacy**. The file still buckets minor, patch, and (for
 Actions) digest updates into ecosystem groups so related bumps travel together
 in one PR. **It does not automerge.** Every group sets `automerge: false`.
-**All inherit the global `before 4:00 am on Friday` schedule.** The catch-all
+**All inherit the global `before 4:00 am` schedule.** The catch-all
 JS/TS group is declared first so the specific groups below it win for their
 packages.
 
