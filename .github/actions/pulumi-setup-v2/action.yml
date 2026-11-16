@@ -1,0 +1,65 @@
+name: Pulumi Setup (v2)
+description: Authenticate to GCP and prepare environment for Pulumi via Nix. Runs nix-setup from `.sector7`, so the calling job must first check out sector7 at its workflow commit there (pulumi.yml does); v1 `pulumi-setup` keeps calling `nix-setup@main` for workflows pinned before zeus#5442.
+inputs:
+  google_workload_identity_provider:
+    description: Workload Identity Provider resource
+    required: true
+  google_service_account_email:
+    description: Service account email
+    required: true
+  nodejs_package_manager:
+    description: 'Node.js package manager: "pnpm", "npm", or "none"'
+    required: true
+  runs-on:
+    description: Runner label, forwarded to nix-setup for cache selection
+    required: false
+    default: ''
+  extra-substituters:
+    description: Optional newline-delimited extra substituter URLs, forwarded to nix-setup
+    required: false
+    default: ''
+  extra-trusted-public-keys:
+    description: Optional newline-delimited extra trusted public keys, forwarded to nix-setup
+    required: false
+    default: ''
+  attic-endpoint:
+    description: Optional Attic server endpoint, forwarded to nix-setup for watch-store push
+    required: false
+    default: ''
+  attic-cache-name:
+    description: Optional Attic cache name, forwarded to nix-setup
+    required: false
+    default: ''
+  attic-token:
+    description: Optional Attic push token, forwarded to nix-setup
+    required: false
+    default: ''
+runs:
+  using: composite
+  steps:
+    - uses: ./.sector7/.github/actions/nix-setup
+      with:
+        runs-on: ${{ inputs.runs-on }}
+        # Keep the FlakeHub fallback enabled unless a fully-configured custom
+        # cache is available (substituters + trusted keys both set), so a
+        # missing public key doesn't leave nix-setup without a usable cache.
+        cache: ${{ !contains(inputs.runs-on, 'self-hosted') && !(inputs.extra-substituters != '' && inputs.extra-trusted-public-keys != '') }}
+        extra-substituters: ${{ inputs.extra-substituters }}
+        extra-trusted-public-keys: ${{ inputs.extra-trusted-public-keys }}
+        attic-endpoint: ${{ inputs.attic-endpoint }}
+        attic-cache-name: ${{ inputs.attic-cache-name }}
+        attic-token: ${{ inputs.attic-token }}
+    - uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3.0.0
+      with:
+        workload_identity_provider: ${{ inputs.google_workload_identity_provider }}
+        service_account: ${{ inputs.google_service_account_email }}
+    - uses: google-github-actions/setup-gcloud@aa5489c8933f4cc7a4f7d45035b3b1440c9c10db # v3.0.1
+      with:
+        install_components: gke-gcloud-auth-plugin
+    - shell: bash
+      run: |
+        echo "USE_GKE_GCLOUD_AUTH_PLUGIN=True" >> "$GITHUB_ENV"
+        # Only set PULUMI_NODEJS_PACKAGE_MANAGER for valid package managers (not "none")
+        if [[ "${{ inputs.nodejs_package_manager }}" != "none" ]]; then
+          echo "PULUMI_NODEJS_PACKAGE_MANAGER=${{ inputs.nodejs_package_manager }}" >> "$GITHUB_ENV"
+        fi

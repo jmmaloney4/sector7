@@ -61,7 +61,19 @@ jobs:
           repository: ${{ inputs.repository }}
           ref: ${{ inputs.ref }}
           fetch-depth: 0
-      - uses: jmmaloney4/sector7/.github/actions/nix-setup@main
+      # sector7's own actions run from this workflow's commit, so a caller's
+      # pin on the workflow pins every action it runs (zeus#5442). Keep this
+      # after any default-path checkout: that one cleans the workspace.
+      - name: check out sector7 at this workflow's commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ${{ job.workflow_repository }}
+          ref: ${{ job.workflow_sha }}
+          path: .sector7
+          sparse-checkout: /.github/actions/
+          sparse-checkout-cone-mode: false
+          persist-credentials: false
+      - uses: ./.sector7/.github/actions/nix-setup
         with:
           runs-on: ${{ inputs.runs-on }}
           cache: ${{ !contains(inputs.runs-on, 'self-hosted') }}
@@ -113,7 +125,7 @@ jobs:
           fi
       - name: Check ADR number conflicts
         id: check
-        uses: jmmaloney4/sector7/.github/actions/check-adr-conflicts@main
+        uses: ./.sector7/.github/actions/check-adr-conflicts
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GH_REPO: ${{ inputs.repository }}
@@ -124,7 +136,7 @@ jobs:
           pr_number: ${{ inputs.pr_number }}
       - name: Create and push placeholder to main
         if: steps.detect_new.outputs.has_new_adrs == 'true' && steps.check.outputs.has_conflict == 'false'
-        uses: jmmaloney4/sector7/.github/actions/create-adr-placeholder@main
+        uses: ./.sector7/.github/actions/create-adr-placeholder
         with:
           adr_files: /tmp/new_adrs.txt
           pr_url: ${{ inputs.pr_url }}

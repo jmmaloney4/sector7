@@ -87,7 +87,19 @@ jobs:
         with:
           repository: ${{ inputs.repository }}
           ref: ${{ inputs.ref }}
-      - uses: jmmaloney4/sector7/.github/actions/nix-setup@main
+      # sector7's own actions run from this workflow's commit, so a caller's
+      # pin on the workflow pins every action it runs (zeus#5442). Keep this
+      # after any default-path checkout: that one cleans the workspace.
+      - name: check out sector7 at this workflow's commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ${{ job.workflow_repository }}
+          ref: ${{ job.workflow_sha }}
+          path: .sector7
+          sparse-checkout: /.github/actions/
+          sparse-checkout-cone-mode: false
+          persist-credentials: false
+      - uses: ./.sector7/.github/actions/nix-setup
         with:
           runs-on: ${{ inputs.runs-on }}
           cache: ${{ !contains(inputs.runs-on, 'self-hosted') && inputs.binary-cache-url == '' }}
@@ -98,7 +110,7 @@ jobs:
           attic-token: ${{ secrets.BINARY_CACHE_TOKEN }}
       - name: compute build-needed matrix via nix-eval-jobs
         id: compute
-        uses: jmmaloney4/sector7/.github/actions/compute-flake-build-matrix@main
+        uses: ./.sector7/.github/actions/compute-flake-build-matrix
         with:
           probe-timeout-seconds: '180'
           build-first: ${{ inputs.build-first }}
@@ -136,12 +148,26 @@ jobs:
       matrix:
         include: ${{ fromJson(needs.detect.outputs.first_matrix_include) }}
     steps:
-      - uses: jmmaloney4/sector7/.github/actions/nix-build-attr@main
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ${{ inputs.repository }}
+          ref: ${{ inputs.ref }}
+      # sector7's own actions run from this workflow's commit, so a caller's
+      # pin on the workflow pins every action it runs (zeus#5442). Keep this
+      # after any default-path checkout: that one cleans the workspace.
+      - name: check out sector7 at this workflow's commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ${{ job.workflow_repository }}
+          ref: ${{ job.workflow_sha }}
+          path: .sector7
+          sparse-checkout: /.github/actions/
+          sparse-checkout-cone-mode: false
+          persist-credentials: false
+      - uses: ./.sector7/.github/actions/nix-build-attr-v2
         with:
           flake-attr: ${{ matrix.flake_attr }}
           runs-on: ${{ inputs.runs-on }}
-          repository: ${{ inputs.repository }}
-          ref: ${{ inputs.ref }}
           binary-cache-url: ${{ inputs.binary-cache-url }}
           binary-cache-public-key: ${{ inputs.binary-cache-public-key }}
           binary-cache-endpoint: ${{ inputs.binary-cache-endpoint }}
@@ -161,12 +187,26 @@ jobs:
       matrix:
         include: ${{ fromJson(needs.detect.outputs.build_matrix_include) }}
     steps:
-      - uses: jmmaloney4/sector7/.github/actions/nix-build-attr@main
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ${{ inputs.repository }}
+          ref: ${{ inputs.ref }}
+      # sector7's own actions run from this workflow's commit, so a caller's
+      # pin on the workflow pins every action it runs (zeus#5442). Keep this
+      # after any default-path checkout: that one cleans the workspace.
+      - name: check out sector7 at this workflow's commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ${{ job.workflow_repository }}
+          ref: ${{ job.workflow_sha }}
+          path: .sector7
+          sparse-checkout: /.github/actions/
+          sparse-checkout-cone-mode: false
+          persist-credentials: false
+      - uses: ./.sector7/.github/actions/nix-build-attr-v2
         with:
           flake-attr: ${{ matrix.flake_attr }}
           runs-on: ${{ inputs.runs-on }}
-          repository: ${{ inputs.repository }}
-          ref: ${{ inputs.ref }}
           binary-cache-url: ${{ inputs.binary-cache-url }}
           binary-cache-public-key: ${{ inputs.binary-cache-public-key }}
           binary-cache-endpoint: ${{ inputs.binary-cache-endpoint }}
@@ -180,7 +220,11 @@ jobs:
       fail-fast: false
       matrix:
         package-name: ${{ fromJson(needs.detect.outputs.images_to_push) }}
-    uses: jmmaloney4/sector7/.github/workflows/push-nix-image.yml@main
+    # A job-level `uses:` takes no expressions, and GitHub does not document
+    # what `./` resolves to in a workflow called from another repo, so this
+    # one is pinned by SHA: it lags this file by one commit until Renovate
+    # bumps it (zeus#5442).
+    uses: jmmaloney4/sector7/.github/workflows/push-nix-image.yml@b80654ce8d44d798c61f49fa9402bdf18a835b07 # main
     with:
       runs-on: ${{ inputs.runs-on }}
       package-name: ${{ matrix.package-name }}
