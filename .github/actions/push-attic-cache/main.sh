@@ -21,12 +21,13 @@ if [ -d "$HOME/.config/nix" ]; then
   cp -R "$HOME/.config/nix" "$XDG_CONFIG_HOME/"
 fi
 
+# The patched client (bounded NAR channel, room-of-requirement/seven#378): stock
+# attic buffers a whole large path in memory when the upload lags, and this push
+# can carry a multi-GiB seed. resolve-attic-client.sh falls back to nixpkgs'.
+attic_bin="$(bash "$(dirname "${BASH_SOURCE[0]}")/../nix-setup/resolve-attic-client.sh")"
+
 run_attic() {
-  if command -v attic >/dev/null 2>&1; then
-    attic "$@"
-  else
-    nix run nixpkgs#attic-client -- "$@"
-  fi
+  "$attic_bin" "$@"
 }
 
 run_attic login "$server_name" "$attic_endpoint" "$attic_token"
