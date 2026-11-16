@@ -89,7 +89,19 @@ jobs:
         with:
           repository: ${{ inputs.repository }}
           ref: ${{ inputs.ref }}
-      - uses: jmmaloney4/sector7/.github/actions/nix-setup@main
+      # sector7's own actions run from this workflow's commit, so a caller's
+      # pin on the workflow pins every action it runs (zeus#5442). Keep this
+      # after any default-path checkout: that one cleans the workspace.
+      - name: check out sector7 at this workflow's commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ${{ job.workflow_repository }}
+          ref: ${{ job.workflow_sha }}
+          path: .sector7
+          sparse-checkout: /.github/actions/
+          sparse-checkout-cone-mode: false
+          persist-credentials: false
+      - uses: ./.sector7/.github/actions/nix-setup
         with:
           runs-on: ${{ inputs.runs-on }}
           # Keep the FlakeHub fallback enabled unless a fully-configured custom
@@ -104,7 +116,7 @@ jobs:
           attic-token: ${{ inputs.is_fork && '' || secrets.BINARY_CACHE_TOKEN }}
       - name: Detect all (project, stack) pairs
         id: set-matrix
-        uses: jmmaloney4/sector7/.github/actions/detect-pulumi-stacks@main
+        uses: ./.sector7/.github/actions/detect-pulumi-stacks
         with:
           ignore_projects: ${{ inputs.ignore_projects }}
   pulumi-preview-and-deploy:
@@ -138,7 +150,19 @@ jobs:
         with:
           repository: ${{ inputs.repository }}
           ref: ${{ inputs.ref }}
-      - uses: jmmaloney4/sector7/.github/actions/pulumi-setup@main
+      # sector7's own actions run from this workflow's commit, so a caller's
+      # pin on the workflow pins every action it runs (zeus#5442). Keep this
+      # after any default-path checkout: that one cleans the workspace.
+      - name: check out sector7 at this workflow's commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ${{ job.workflow_repository }}
+          ref: ${{ job.workflow_sha }}
+          path: .sector7
+          sparse-checkout: /.github/actions/
+          sparse-checkout-cone-mode: false
+          persist-credentials: false
+      - uses: ./.sector7/.github/actions/pulumi-setup
         with:
           google_workload_identity_provider: ${{ inputs.google_workload_identity_provider }}
           google_service_account_email: ${{ inputs.google_service_account_email }}
@@ -230,7 +254,7 @@ jobs:
       - name: pulumi preview
         id: preview
         continue-on-error: true
-        uses: jmmaloney4/sector7/.github/actions/pulumi-preview@main
+        uses: ./.sector7/.github/actions/pulumi-preview
         with:
           project: ${{ matrix.project }}
           stack: ${{ matrix.stack }}

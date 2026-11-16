@@ -1,17 +1,11 @@
 name: nix-build-attr
-description: Check out the caller's repo, set up Nix, build one flake attribute with nix-fast-build, and push the result to the binary cache. One matrix entry of the nix.yml build jobs.
+description: Set up Nix, build one flake attribute with nix-fast-build, and push the result to the binary cache. One matrix entry of the nix.yml build jobs. The calling job checks out the caller's repo at the workspace root and then sector7 at `.sector7`; a checkout in here would clean `.sector7` away (zeus#5442).
 inputs:
   flake-attr:
     description: 'Flake attribute to build, e.g. .#checks.x86_64-linux.foo'
     required: true
   runs-on:
     description: 'The caller runs-on value (JSON array string or label); decides whether the FlakeHub cache is used.'
-    required: true
-  repository:
-    description: 'Repository to check out (owner/repo)'
-    required: true
-  ref:
-    description: 'Git ref to check out'
     required: true
   binary-cache-url:
     description: 'Optional extra substituter URL'
@@ -36,11 +30,7 @@ inputs:
 runs:
   using: composite
   steps:
-    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      with:
-        repository: ${{ inputs.repository }}
-        ref: ${{ inputs.ref }}
-    - uses: jmmaloney4/sector7/.github/actions/nix-setup@main
+    - uses: ./.sector7/.github/actions/nix-setup
       with:
         runs-on: ${{ inputs.runs-on }}
         cache: ${{ !contains(inputs.runs-on, 'self-hosted') && inputs.binary-cache-url == '' }}
@@ -59,7 +49,7 @@ runs:
         nix-fast-build --skip-cached --no-nom --no-link -j 1 --flake "$FLAKE_ATTR"
     - name: Push built store paths to binary cache
       if: ${{ inputs.binary-cache-endpoint != '' && inputs.binary-cache-name != '' && inputs.attic-token != '' }}
-      uses: jmmaloney4/sector7/.github/actions/push-attic-cache@main
+      uses: ./.sector7/.github/actions/push-attic-cache
       with:
         flake-attr: ${{ inputs.flake-attr }}
         attic-endpoint: ${{ inputs.binary-cache-endpoint }}
