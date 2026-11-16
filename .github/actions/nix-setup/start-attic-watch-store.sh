@@ -67,6 +67,13 @@ echo "Starting 'attic watch-store -j 1 $server:$cache' in the background (log: $
 #
 # Cap upload jobs at 1. attic defaults to 5 parallel uploads and atticd has
 # no server-side concurrency limit, which OOMs the cache (room-of-requirement/seven#81).
-setsid "$attic" watch-store -j 1 "$server:$cache" </dev/null >"$log" 2>&1 &
+#
+# Cap its memory too (room-of-requirement/seven#378): the client buffers a whole
+# large NAR when the upload lags, which OOM-killed the runner pod. The
+# supervisor limits each watcher's data segment and restarts it if the cap
+# kills it, so the runner survives.
+: >"$log"
+ATTIC_BIN="$attic" ATTIC_TARGET="$server:$cache" ATTIC_LOG="$log" \
+  setsid bash "$(dirname "${BASH_SOURCE[0]}")/supervise-attic-watch-store.sh" </dev/null >/dev/null 2>&1 &
 disown || true
 echo "attic watch-store started (pid $!)"

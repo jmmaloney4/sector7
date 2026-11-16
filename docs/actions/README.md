@@ -124,6 +124,7 @@ This contract keeps the reusable workflow generic:
 - the caller decides which cache to use
 - Sector7 only wires the supplied cache into `nix.conf`, cache probing, and post-build Attic pushes
 - `nix-setup` runs `attic watch-store -j 1` and `push-attic-cache` runs `attic push -j 1 --stdin`. The attic client defaults to 5 parallel uploads; atticd has no server-side limit, so unbounded concurrency OOMs the cache (room-of-requirement/seven#81)
+- `nix-setup` runs the watcher under `supervise-attic-watch-store.sh`: `ulimit -d` (2 GiB by default, `ATTIC_WATCH_MAX_DATA_KB`) caps its heap and the supervisor restarts it if the cap kills it. The attic client buffers a whole NAR in an unbounded channel when the upload lags (upstream zhaofengli/attic#233), which grew it to the heavy runner pod's `memory.max` (~5 GiB) and took `Runner.Listener` down with it ("runner lost communication"; room-of-requirement/seven#378). A path that blows the cap is not pushed by that job.
 
 Attic remains the default cache backend. The reusable `nix.yml` / `push-nix-image.yml` workflows are unchanged.
 
