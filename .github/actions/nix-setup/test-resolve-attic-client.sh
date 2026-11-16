@@ -37,17 +37,21 @@ chmod +x "$work/bin/nix"
 resolve() { # extra env as VAR=value args
   : >"$work/calls"
   env "$@" PATH="$work/bin:$PATH" FAKE_ROOT="$work" FAKE_CALLS="$work/calls" SECTOR7_ROOT=/repo \
-    bash "$resolver" 2>/dev/null
+    bash "$resolver" 2>"$work/stderr"
 }
 
 [ "$(resolve FAKE_PATCHED=ok)" = "$work/patched/bin/attic" ] || fail "patched client should win when it builds"
 grep -q 'path:/repo#attic-client' "$work/calls" || fail "patched build should target the root flake: $(cat "$work/calls")"
+if grep -q 'warning' "$work/stderr"; then fail "no warning when the patched client resolves: $(cat "$work/stderr")"; fi
 
 [ "$(resolve FAKE_PATCHED=no)" = "$work/stock/bin/attic" ] || fail "a failed patched build should fall back to nixpkgs"
 grep -q 'nixpkgs#attic-client' "$work/calls" || fail "fallback should build nixpkgs#attic-client"
+grep -q '^::warning::attic client: patched attic-client unavailable (nix build failed (rc=1))' "$work/stderr" ||
+  fail "falling back must emit a ::warning:: naming the reason: $(cat "$work/stderr")"
 
 [ "$(resolve FAKE_PATCHED=ok ATTIC_CLIENT_STOCK=1)" = "$work/stock/bin/attic" ] || fail "ATTIC_CLIENT_STOCK=1 should skip the patched build"
 if grep -q 'path:' "$work/calls"; then fail "ATTIC_CLIENT_STOCK=1 must not build the patched client"; fi
+grep -q '^::warning::attic client: ATTIC_CLIENT_STOCK=1' "$work/stderr" || fail "ATTIC_CLIENT_STOCK=1 must warn: $(cat "$work/stderr")"
 
 # Both callers resolve through the shared script.
 grep -F 'resolve-attic-client.sh' "${here}/start-attic-watch-store.sh" >/dev/null ||

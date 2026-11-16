@@ -23,25 +23,44 @@ here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 root="${SECTOR7_ROOT:-$(cd "$here/../../.." && pwd)}"
 timeout_s="${ATTIC_PATCHED_BUILD_TIMEOUT:-900}"
 
+# Sets build_why on failure: "timed out after Ns" or "nix build failed (rc=N)".
+build_why=""
 build() { # <installable> [timeout seconds]
-  local installable="$1" limit="${2:-}" out=""
+  local installable="$1" limit="${2:-}" out="" rc=0 tmp
+  tmp="$(mktemp)"
   if [ -n "$limit" ] && command -v timeout >/dev/null 2>&1; then
-    out="$(timeout "$limit" nix build --no-link --print-out-paths "$installable" 2>/dev/null | head -n1 || true)"
+    timeout "$limit" nix build --no-link --print-out-paths "$installable" >"$tmp" 2>/dev/null || rc=$?
   else
-    out="$(nix build --no-link --print-out-paths "$installable" 2>/dev/null | head -n1 || true)"
+    nix build --no-link --print-out-paths "$installable" >"$tmp" 2>/dev/null || rc=$?
   fi
-  if [ -n "$out" ] && [ -x "$out/bin/attic" ]; then
+  out="$(head -n1 "$tmp")"
+  rm -f "$tmp"
+  if [ "$rc" -eq 0 ] && [ -n "$out" ] && [ -x "$out/bin/attic" ]; then
     printf '%s\n' "$out/bin/attic"
     return 0
+  fi
+  if [ "$rc" -eq 124 ]; then
+    build_why="timed out after ${limit}s"
+  elif [ "$rc" -ne 0 ]; then
+    build_why="nix build failed (rc=$rc)"
+  else
+    build_why="nix build printed no usable attic binary"
   fi
   return 1
 }
 
-if [ "${ATTIC_CLIENT_STOCK:-}" != 1 ]; then
+# Falling back is never silent: stock attic buffers a whole NAR in memory when
+# the upload lags, which is what OOM-killed the runner pod (seven#378), so a job
+# that runs on it must say so. A warning rather than a failure: the push is
+# best-effort and the supervisor's memory cap still protects the runner, whereas
+# failing here would turn a cold node's slow first compile into a failed job.
+if [ "${ATTIC_CLIENT_STOCK:-}" = 1 ]; then
+  echo "::warning::attic client: ATTIC_CLIENT_STOCK=1, using nixpkgs' unpatched attic-client (unbounded NAR buffering; seven#378)" >&2
+else
   if build "path:${root}#attic-client" "$timeout_s"; then
     exit 0
   fi
-  echo "patched attic-client unavailable; using nixpkgs' attic-client" >&2
+  echo "::warning::attic client: patched attic-client unavailable (${build_why}); using nixpkgs' unpatched attic-client (unbounded NAR buffering; seven#378)" >&2
 fi
 
 if build "nixpkgs#attic-client"; then
