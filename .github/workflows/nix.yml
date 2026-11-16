@@ -224,7 +224,7 @@ jobs:
     # what `./` resolves to in a workflow called from another repo, so this
     # one is pinned by SHA: it lags this file by one commit until Renovate
     # bumps it (zeus#5442).
-    uses: jmmaloney4/sector7/.github/workflows/push-nix-image.yml@b80654ce8d44d798c61f49fa9402bdf18a835b07 # main
+    uses: jmmaloney4/sector7/.github/workflows/push-nix-image.yml@54844b684e808606a89f3877dfd2e98210440a9e # main
     with:
       runs-on: ${{ inputs.runs-on }}
       package-name: ${{ matrix.package-name }}
