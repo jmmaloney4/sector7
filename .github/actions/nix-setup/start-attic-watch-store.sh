@@ -34,16 +34,16 @@ fi
 # "command not found" at login/watch-store time (garden#1048). Use an explicit
 # path instead of relying on PATH. attic-client is in nixpkgs (substituted from
 # cache.nixos.org), so this does not build.
-attic="$(command -v attic 2>/dev/null || true)"
-if [ -z "$attic" ]; then
-  echo "Resolving attic-client from nixpkgs..."
-  attic_out="$(nix build --no-link --print-out-paths nixpkgs#attic-client 2>/dev/null | head -n1 || true)"
-  if [ -z "$attic_out" ] || [ ! -x "$attic_out/bin/attic" ]; then
-    echo "::warning::failed to resolve attic-client; skipping watch-store"
-    exit 0
-  fi
-  attic="$attic_out/bin/attic"
+#
+# resolve-attic-client.sh prefers this repo's patched client (bounded NAR channel,
+# seven#378) over nixpkgs' and falls back to nixpkgs' if it cannot be had.
+echo "Resolving attic client..."
+attic="$(bash "$(dirname "${BASH_SOURCE[0]}")/resolve-attic-client.sh" || true)"
+if [ -z "$attic" ] || [ ! -x "$attic" ]; then
+  echo "::warning::failed to resolve attic-client; skipping watch-store"
+  exit 0
 fi
+echo "Using attic client: $attic"
 
 # Isolate the attic client state to a per-job config dir so the token is not
 # written into the runner's shared $HOME config (defence-in-depth; our runners

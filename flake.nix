@@ -222,16 +222,32 @@
             touch $out
           '';
 
-        # attic watch-store memory cap + restart (room-of-requirement/seven#378).
+        # The attic client with a bounded NAR channel (upstream zhaofengli/attic#362,
+        # open; same problem as #233). Stock attic hands every NAR from the Nix
+        # serializer to the upload through an unbounded channel, so RSS grows with
+        # the size of the path being pushed (a 10 GiB seed reached a runner pod's
+        # memory.max: room-of-requirement/seven#378). nix-setup and
+        # push-attic-cache build this and fall back to nixpkgs' attic-client if
+        # that fails. Drop the patch when #362 or #373 is in nixpkgs' attic.
+        packages.attic-client = pkgs.attic-client.overrideAttrs (old: {
+          patches = (old.patches or []) ++ [./patches/attic-bounded-nar-channel.patch];
+        });
+
+        # attic client resolution (patched build) and watch-store memory cap + restart
+        # (room-of-requirement/seven#378).
         checks.gha-attic-watch-store =
           pkgs.runCommand "gha-attic-watch-store" {
             nativeBuildInputs = [pkgs.bash pkgs.coreutils pkgs.gnugrep];
-            ATTIC_SETUP_ROOT = "${./.github/actions/nix-setup}";
+            ATTIC_ACTIONS_ROOT = "${./.github/actions}";
           } ''
             set -euo pipefail
-            bash -n "$ATTIC_SETUP_ROOT/start-attic-watch-store.sh"
-            bash -n "$ATTIC_SETUP_ROOT/supervise-attic-watch-store.sh"
-            bash "$ATTIC_SETUP_ROOT/test-supervise-attic-watch-store.sh"
+            setup="$ATTIC_ACTIONS_ROOT/nix-setup"
+            bash -n "$setup/start-attic-watch-store.sh"
+            bash -n "$setup/supervise-attic-watch-store.sh"
+            bash -n "$setup/resolve-attic-client.sh"
+            bash -n "$ATTIC_ACTIONS_ROOT/push-attic-cache/main.sh"
+            bash "$setup/test-supervise-attic-watch-store.sh"
+            bash "$setup/test-resolve-attic-client.sh"
             touch $out
           '';
 
