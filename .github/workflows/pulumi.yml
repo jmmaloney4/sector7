@@ -162,7 +162,7 @@ jobs:
           sparse-checkout: /.github/actions/
           sparse-checkout-cone-mode: false
           persist-credentials: false
-      - uses: ./.sector7/.github/actions/pulumi-setup
+      - uses: ./.sector7/.github/actions/pulumi-setup-v2
         with:
           google_workload_identity_provider: ${{ inputs.google_workload_identity_provider }}
           google_service_account_email: ${{ inputs.google_service_account_email }}

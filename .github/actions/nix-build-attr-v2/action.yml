@@ -1,0 +1,57 @@
+name: nix-build-attr-v2
+description: Set up Nix, build one flake attribute with nix-fast-build, and push the result to the binary cache. One matrix entry of the nix.yml build jobs. The calling job checks out the caller's repo at the workspace root and then sector7 at `.sector7`; a checkout in here would clean `.sector7` away. v1 `nix-build-attr` keeps its own checkout and `@main` refs for workflows pinned before zeus#5442.
+inputs:
+  flake-attr:
+    description: 'Flake attribute to build, e.g. .#checks.x86_64-linux.foo'
+    required: true
+  runs-on:
+    description: 'The caller runs-on value (JSON array string or label); decides whether the FlakeHub cache is used.'
+    required: true
+  binary-cache-url:
+    description: 'Optional extra substituter URL'
+    required: false
+    default: ''
+  binary-cache-public-key:
+    description: 'Optional trusted public key for the binary cache'
+    required: false
+    default: ''
+  binary-cache-endpoint:
+    description: 'Optional Attic server endpoint (root URL) used for cache pushes'
+    required: false
+    default: ''
+  binary-cache-name:
+    description: 'Optional Attic cache name used for cache pushes'
+    required: false
+    default: ''
+  attic-token:
+    description: 'Optional Attic token used to push built store paths into the binary cache'
+    required: false
+    default: ''
+runs:
+  using: composite
+  steps:
+    - uses: ./.sector7/.github/actions/nix-setup
+      with:
+        runs-on: ${{ inputs.runs-on }}
+        cache: ${{ !contains(inputs.runs-on, 'self-hosted') && inputs.binary-cache-url == '' }}
+        extra-substituters: ${{ inputs.binary-cache-url }}
+        extra-trusted-public-keys: ${{ inputs.binary-cache-public-key }}
+        attic-endpoint: ${{ inputs.binary-cache-endpoint }}
+        attic-cache-name: ${{ inputs.binary-cache-name }}
+        attic-token: ${{ inputs.attic-token }}
+    - name: "🚀 build with nix-fast-build"
+      shell: 'nix -L shell nixpkgs#nix-fast-build -c bash {0}'
+      env:
+        FLAKE_ATTR: ${{ inputs.flake-attr }}
+      run: |-
+        set -euo pipefail
+        echo "Building via nix-fast-build: $FLAKE_ATTR"
+        nix-fast-build --skip-cached --no-nom --no-link -j 1 --flake "$FLAKE_ATTR"
+    - name: Push built store paths to binary cache
+      if: ${{ inputs.binary-cache-endpoint != '' && inputs.binary-cache-name != '' && inputs.attic-token != '' }}
+      uses: ./.sector7/.github/actions/push-attic-cache
+      with:
+        flake-attr: ${{ inputs.flake-attr }}
+        attic-endpoint: ${{ inputs.binary-cache-endpoint }}
+        attic-cache-name: ${{ inputs.binary-cache-name }}
+        attic-token: ${{ inputs.attic-token }}

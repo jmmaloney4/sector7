@@ -164,7 +164,7 @@ jobs:
           sparse-checkout: /.github/actions/
           sparse-checkout-cone-mode: false
           persist-credentials: false
-      - uses: ./.sector7/.github/actions/nix-build-attr
+      - uses: ./.sector7/.github/actions/nix-build-attr-v2
         with:
           flake-attr: ${{ matrix.flake_attr }}
           runs-on: ${{ inputs.runs-on }}
@@ -203,7 +203,7 @@ jobs:
           sparse-checkout: /.github/actions/
           sparse-checkout-cone-mode: false
           persist-credentials: false
-      - uses: ./.sector7/.github/actions/nix-build-attr
+      - uses: ./.sector7/.github/actions/nix-build-attr-v2
         with:
           flake-attr: ${{ matrix.flake_attr }}
           runs-on: ${{ inputs.runs-on }}
