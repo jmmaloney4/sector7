@@ -1,0 +1,6 @@
+# Fixed-output hashes renovate-nix-refresh (room-of-requirement/seven, ADR 031)
+# recomputes after a Renovate bump: <file.nix> <attribute> <.#flake-output>
+# Declaring any entry replaces the implicit `flake.nix pnpmDepsHash .#pnpm-deps`,
+# so pnpm is listed explicitly.
+flake.nix pnpmDepsHash .#pnpm-deps
+flake.nix vendorHash   .#pulumi-resource-sector7
