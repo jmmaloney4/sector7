@@ -3,4 +3,4 @@
 # Declaring any entry replaces the implicit `flake.nix pnpmDepsHash .#pnpm-deps`,
 # so pnpm is listed explicitly.
 flake.nix pnpmDepsHash .#pnpm-deps
-flake.nix vendorHash   .#pulumi-resource-sector7
+flake.nix vendorHash .#pulumi-resource-sector7
