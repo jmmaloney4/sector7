@@ -1,3 +1,16 @@
+# Sector7 agent guide
+
+## Repository quick map
+
+- `.github/workflows/`: reusable GitHub Actions workflows and dogfood callers; `.github/actions/`: composite actions and their scripts.
+- `packages/sector7/`: TypeScript Pulumi components; inspect its `package.json` subpath exports, source modules, and `tests/` before editing the public API.
+- `provider/`: Go Pulumi resource provider and tests; `flake.nix` defines its package and version-stamping/test gates.
+- `renovate/`: reusable dependency-update presets; `.github/renovate.json5` configures this repository.
+- `flake.nix`, `justfile`, `package.json`: Nix dev shell/checks, shared recipes, and pnpm workspace entry points.
+- `docs/`: consumer-facing guides; `docs/internal/designs/`: ADRs; `docs/internal/plans/`: implementation plans. See `docs/README.md`.
+
+Start at the relevant subsystem and its tests/docs; avoid repeated repository-wide discovery. For Cursor Cloud environment setup, scoped validation, and handoff, consult `.cursor/CLOUD.md` alongside the existing rules below.
+
 ## Barrel exports and package import surfaces
 
 Barrel files (`index.ts` with re-exports) are fine for internal cohesion but require intentionality about what you surface to consumers.
