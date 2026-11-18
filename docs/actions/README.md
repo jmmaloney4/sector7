@@ -56,6 +56,7 @@ jobs:
 - **Optional secrets**:
   - **BINARY_CACHE_TOKEN**: Attic token with push permission for `binary-cache-name`
 - **Gate**: A final job named `✅ nix gate` always runs and fails unless every other job succeeded or was skipped. Require that one check (shown as `<caller job id> / ✅ nix gate`, for example `nix / ✅ nix gate`) in branch protection rather than the per-output matrix jobs, whose names change with the flake. It runs on the same `runs-on` as the other jobs.
+- **Matrix limit**: GitHub refuses a matrix over 256 jobs, so each matrix keeps at most 256 targets (build-first in the caller's order, then checks before packages, then by name). If any target is left out, the gate fails and names them. What was built reaches the binary cache, so use **Re-run all jobs** or push to continue. **Re-run failed jobs** only repeats the gate.
 - **Concurrency**: One group per PR or ref. PRs and other branches cancel the superseded run. The default branch and tags never cancel a running job: GitHub keeps it plus only the newest pending run, so commits coalesce and each finished run covers everything merged so far.
 
 #### Minimal consumer workflow (copy-paste)

@@ -78,6 +78,8 @@ jobs:
       first_matrix_include: ${{ steps.split.outputs.first_matrix_include }}
       first_has_work: ${{ steps.split.outputs.first_has_work }}
       images_to_push: ${{ steps.split.outputs.image_matrix }}
+      deferred_count: ${{ steps.split.outputs.deferred_count }}
+      deferred_names: ${{ steps.split.outputs.deferred_names }}
     env:
       # Provided so nix-setup can start `attic watch-store`, which seeds the
       # nix-eval-jobs closure built below into the cache for future runs.
@@ -122,19 +124,7 @@ jobs:
         run: |
           set -euo pipefail
           matrix='${{ steps.compute.outputs.matrix_include }}'
-          build_matrix=$(echo "$matrix" | jq -c '[ .[] | select(.is_image != true and .first != true) ]')
-          first_matrix=$(echo "$matrix" | jq -c '[ .[] | select(.is_image != true and .first == true) ]')
-          image_names=$(echo "$matrix" | jq -c '[ .[] | select(.is_image == true) | .name ]')
-          build_has_work=$(if [ "$build_matrix" = '[]' ]; then echo false; else echo true; fi)
-          first_has_work=$(if [ "$first_matrix" = '[]' ]; then echo false; else echo true; fi)
-          echo "Found build-first entries: $first_matrix"
-          echo "Found build entries: $build_matrix"
-          echo "Found images: $image_names"
-          echo "build_matrix_include=$build_matrix" >> "$GITHUB_OUTPUT"
-          echo "build_has_work=$build_has_work" >> "$GITHUB_OUTPUT"
-          echo "first_matrix_include=$first_matrix" >> "$GITHUB_OUTPUT"
-          echo "first_has_work=$first_has_work" >> "$GITHUB_OUTPUT"
-          echo "image_matrix=$image_names" >> "$GITHUB_OUTPUT"
+          bash .sector7/.github/actions/compute-flake-build-matrix/split-matrix.sh <<<"$matrix" | tee -a "$GITHUB_OUTPUT"
   build-first:
     # Stage 1: the caller's `build-first` targets (shared, expensive derivations).
     # Empty unless the caller sets that input. See the input's description.
@@ -244,20 +234,23 @@ jobs:
     # per flake output, so requiring them one by one never covers a new check and
     # blocks forever on a removed one. Skipped is fine (no checks, no images);
     # failed or cancelled is not, and a skipped `build` after a failed `detect`
-    # still fails here because `detect` is in `needs`.
+    # still fails here because `detect` is in `needs`. It also fails when detect
+    # deferred targets over GitHub's matrix limit: those were never built.
     name: '✅ nix gate'
     if: ${{ always() }}
     needs: [detect, build-first, build, build-and-push-images]
     runs-on: ${{ startsWith(inputs.runs-on, '[') && fromJson(inputs.runs-on) || inputs.runs-on }}
     steps:
-      - name: Fail unless every nix job succeeded or was skipped
+      - name: check out sector7 at this workflow's commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ${{ job.workflow_repository }}
+          ref: ${{ job.workflow_sha }}
+          path: .sector7
+          sparse-checkout: /.github/actions/
+          sparse-checkout-cone-mode: false
+          persist-credentials: false
+      - name: Fail unless every nix job succeeded or was skipped and nothing was deferred
         env:
           NEEDS: ${{ toJSON(needs) }}
-        run: |-
-          set -euo pipefail
-          bad=$(echo "$NEEDS" | jq -r 'to_entries[] | select(.value.result != "success" and .value.result != "skipped") | "\(.key)=\(.value.result)"')
-          if [ -n "$bad" ]; then
-            echo "nix gate failed: $bad" >&2
-            exit 1
-          fi
-          echo "nix gate: all jobs succeeded or were skipped"
+        run: bash .sector7/.github/actions/compute-flake-build-matrix/gate-verdict.sh
