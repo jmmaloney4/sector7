@@ -10,10 +10,24 @@ inputs:
   safe-name:
     description: Optional artifact-safe name; defaults to project with '/' replaced by '__'
     required: false
+  drift-mode:
+    description: off, code, or live. live adds --refresh to the preview
+    required: false
+    default: 'off'
+  no-refresh-projects:
+    description: Comma-separated project paths that live mode previews without --refresh
+    required: false
+    default: ''
 outputs:
   has_changes:
     description: Whether the preview detected any changes
     value: ${{ steps.main.outputs.has_changes }}
+  drift_status:
+    description: clean, drift, or unknown (the change count could not be read)
+    value: ${{ steps.main.outputs.drift_status }}
+  change_count:
+    description: Resources the preview would change; empty when drift_status is unknown
+    value: ${{ steps.main.outputs.change_count }}
 runs:
   using: composite
   steps:
@@ -23,4 +37,6 @@ runs:
         PROJECT: ${{ inputs.project }}
         STACK: ${{ inputs.stack }}
         SAFE_NAME_IN: ${{ inputs.safe-name }}
+        DRIFT_MODE: ${{ inputs.drift-mode }}
+        NO_REFRESH_PROJECTS: ${{ inputs.no-refresh-projects }}
       run: bash "$GITHUB_ACTION_PATH/main.sh"
