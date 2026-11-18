@@ -251,6 +251,20 @@
             touch $out
           '';
 
+        # The build matrix stays within GitHub's limit, and a run that left
+        # targets out cannot pass the gate.
+        checks.gha-nix-matrix =
+          pkgs.runCommand "gha-nix-matrix" {
+            nativeBuildInputs = [pkgs.bash pkgs.coreutils pkgs.gnugrep pkgs.gnused pkgs.jq];
+            MATRIX_ACTION = "${./.github/actions/compute-flake-build-matrix}";
+          } ''
+            set -euo pipefail
+            bash -n "$MATRIX_ACTION/split-matrix.sh"
+            bash -n "$MATRIX_ACTION/gate-verdict.sh"
+            bash "$MATRIX_ACTION/test-split-matrix.sh"
+            touch $out
+          '';
+
         # preview_only default-true: both pulumi up steps must keep the
         # !inputs.preview_only guard, and concurrency must not key off
         # github.event_name == workflow_call (never true in a called workflow).
