@@ -239,10 +239,10 @@ jobs:
 
 `drift_mode` turns an out-of-sync stack into a failed check: that stack's matrix job goes red with an error annotation.
 
-| `drift_mode`    | Fails when                                                                 |
-| --------------- | -------------------------------------------------------------------------- |
-| `off` (default) | Never fails on changes                                                     |
-| `code`          | The preview shows changes: the code differs from Pulumi state              |
+| `drift_mode`    | Fails when                                                                  |
+| --------------- | --------------------------------------------------------------------------- |
+| `off` (default) | Never fails on changes                                                      |
+| `code`          | The preview shows changes: the code differs from Pulumi state               |
 | `live`          | Same, but the preview refreshes first, so out-of-band changes count as well |
 
 - `live` uses `pulumi preview --refresh`, which reads real infrastructure and writes no state. A stack whose resources cannot be refreshed safely goes in `drift_no_refresh_projects` and gets the `code` check.

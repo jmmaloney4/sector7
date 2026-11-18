@@ -17,15 +17,21 @@ tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT
 mkdir -p "$tmp/bin"
 
+# The nix sandbox has no /usr/bin/env, so the stubs name this shell directly.
+shebang="#!$(command -v bash)"
+
 # `nix develop .#x --command CMD...` runs CMD.
-cat >"$tmp/bin/nix" <<'EOF'
-#!/usr/bin/env bash
+{
+  echo "$shebang"
+  cat <<'EOF'
 shift 3
 exec "$@"
 EOF
+} >"$tmp/bin/nix"
 # Records its arguments. --json prints $STUB_JSON, or fails when it is unset.
-cat >"$tmp/bin/pulumi" <<'EOF'
-#!/usr/bin/env bash
+{
+  echo "$shebang"
+  cat <<'EOF'
 echo "$*" >>"$STUB_LOG"
 case " $* " in
 *" --json "*)
@@ -35,6 +41,7 @@ case " $* " in
 *) echo "text preview" ;;
 esac
 EOF
+} >"$tmp/bin/pulumi"
 chmod +x "$tmp/bin/nix" "$tmp/bin/pulumi"
 
 # run <json-or-empty> <mode> [no-refresh list]: leaves outputs in $tmp/run/out.
@@ -63,6 +70,8 @@ expect() { # <json> <drift_status> <change_count> <has_changes>
 expect '{"changeSummary":{"read":1,"same":49}}' clean 0 false
 expect '{"changeSummary":{"create":92,"read":1,"replace":1,"same":77,"update":1}}' drift 94 true
 expect '{"changeSummary":{"create":2}}' drift 2 true
+# A refresh on its own is bookkeeping, not a pending change.
+expect '{"changeSummary":{"refresh":49,"same":49}}' clean 0 false
 # A kind of change this script has never heard of still counts.
 expect '{"changeSummary":{"import":3,"same":1}}' drift 3 true
 # Unreadable counts are unknown, not clean.
