@@ -29,7 +29,7 @@
       jackpkgs.projectRoot = ./.;
       jackpkgs.nodejs = {
         enable = true;
-        pnpmDepsHash = "sha256-9Hkg/N3heUUrjf+GN6AhzEMAevimpHhI2qsHkdWTteo=";
+        pnpmDepsHash = "sha256-IvGtICmOPkqfO9fcgrtyEzLxMlrkGdpK2COfUmKhiTw=";
         projectRoot = ./.;
       };
       jackpkgs.checks.typescript.tsc.enable = true;
