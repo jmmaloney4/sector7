@@ -63,6 +63,17 @@ on:
         required: false
         default: ''
         type: string
+      drift_mode:
+        description: >-
+          Fail a stack's job when it is out of sync. `off` (the default) never fails on changes. `code` fails when the preview shows changes, meaning the code differs from Pulumi state. `live` also refreshes from the real infrastructure inside the preview (writes no state), so changes made outside Pulumi count too. A preview whose changes cannot be counted fails as `unknown`. A stack deployed by this run is not checked.
+        required: false
+        default: 'off'
+        type: string
+      drift_no_refresh_projects:
+        description: 'Comma-separated Pulumi project paths that `live` previews without refreshing (they get the `code` check)'
+        required: false
+        default: ''
+        type: string
       preview_only:
         description: >-
           When true (the default), run previews and upload artifacts on every caller event but never `pulumi up`. Consumers must pass preview_only: false to enable stage/prod deploys.
@@ -259,6 +270,8 @@ jobs:
           project: ${{ matrix.project }}
           stack: ${{ matrix.stack }}
           safe-name: ${{ steps.names.outputs.safe_name }}
+          drift-mode: ${{ inputs.drift_mode }}
+          no-refresh-projects: ${{ inputs.drift_no_refresh_projects }}
       - name: upload stage preview artifacts
         if: ${{ always() && matrix.stack == 'stage' }}
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
@@ -275,15 +288,35 @@ jobs:
           if-no-files-found: ignore
       - name: pulumi up (stage)
         if: ${{ steps.preview.outcome == 'success' && !inputs.preview_only && github.ref == 'refs/heads/main' && matrix.stack == 'stage' }}
+        id: up_stage
         run: nix develop .#ci-pulumi --command pulumi up -C ${{ matrix.project }} --stack ${{ matrix.stack }} --yes --non-interactive
         shell: bash
       - name: pulumi up (prod)
         if: ${{ steps.preview.outcome == 'success' && !inputs.preview_only && startsWith(github.ref, 'refs/tags/v') && matrix.stack == 'prod' }}
+        id: up_prod
         run: nix develop .#ci-pulumi --command pulumi up -C ${{ matrix.project }} --stack ${{ matrix.stack }} --yes --non-interactive
         shell: bash
       - name: fail job if preview failed
         if: ${{ steps.preview.outcome != 'success' }}
         run: |
           echo "Preview failed; skipping deploy and failing job."
+          exit 1
+        shell: bash
+      - name: fail job on drift
+        if: ${{ inputs.drift_mode != 'off' && steps.preview.outcome == 'success' && steps.preview.outputs.drift_status != 'clean' && steps.up_stage.outcome != 'success' && steps.up_prod.outcome != 'success' }}
+        env:
+          DRIFT_MODE: ${{ inputs.drift_mode }}
+          DRIFT_STATUS: ${{ steps.preview.outputs.drift_status }}
+          CHANGE_COUNT: ${{ steps.preview.outputs.change_count }}
+          PROJECT: ${{ matrix.project }}
+          STACK: ${{ matrix.stack }}
+        run: |
+          if [[ $DRIFT_STATUS == drift ]]; then
+            message="$CHANGE_COUNT resource change(s) pending (drift_mode: $DRIFT_MODE). See the pulumi preview step."
+          else
+            message="could not read the preview's change count (drift_mode: $DRIFT_MODE), so the stack is not known to be in sync."
+          fi
+          echo "::error title=Pulumi drift in $PROJECT ($STACK)::$message"
+          echo "### Pulumi drift: \`$PROJECT\` (\`$STACK\`): $message" >>"$GITHUB_STEP_SUMMARY"
           exit 1
         shell: bash

@@ -228,11 +228,28 @@ jobs:
   - **binary-cache-public-key**: Trusted public key for that binary cache
   - **binary-cache-endpoint**: Attic server root URL used for `attic login` before cache pushes
   - **binary-cache-name**: Attic cache name used for cache pushes
+  - **drift_mode**: `off` (default), `code`, or `live`. See [Drift alerts](#drift-alerts).
+  - **drift_no_refresh_projects**: Comma-separated project paths that `live` previews without a refresh.
   - **preview_only**: Boolean. Default **`true`**. When true, every caller event (PR, `main` push, `v*` tag, `workflow_dispatch`) still runs `pulumi preview` and uploads artifacts, but **never** `pulumi up`. Consumers must pass `preview_only: false` to enable stage/prod deploys.
 - **Optional secrets**:
   - **BINARY_CACHE_TOKEN**: Attic token with push permission for `binary-cache-name`. Ignored for forks (`inputs.is_fork` blanks `attic-token` even if the caller supplies a token).
 
 **Safe by default.** Until a consumer opts in, CI cannot apply. Pass `preview_only: false` only when you intend `pulumi up` on `main` (stage) and `v*` tags (prod).
+
+#### Drift alerts
+
+`drift_mode` turns an out-of-sync stack into a failed check: that stack's matrix job goes red with an error annotation.
+
+| `drift_mode`    | Fails when                                                                  |
+| --------------- | --------------------------------------------------------------------------- |
+| `off` (default) | Never fails on changes                                                      |
+| `code`          | The preview shows changes: the code differs from Pulumi state               |
+| `live`          | Same, but the preview refreshes first, so out-of-band changes count as well |
+
+- `live` uses `pulumi preview --refresh`, which reads real infrastructure and writes no state. A stack whose resources cannot be refreshed safely goes in `drift_no_refresh_projects` and gets the `code` check.
+- A preview whose change count cannot be read fails as `unknown`, so a broken JSON preview cannot pass.
+- A stack this run has just deployed with `pulumi up` is not failed.
+- Use `push` to `main` for `code`, and add a `schedule` trigger for `live` to catch changes made outside Pulumi.
 
 #### Migrating existing callers (sector7#410)
 

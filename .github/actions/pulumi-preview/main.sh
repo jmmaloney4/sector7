@@ -11,6 +11,34 @@ if [[ -z $safe_name ]]; then
 fi
 safe_name="${safe_name//\//__}"
 
+# Unset means off; an empty value is refused below, because the workflow's drift
+# gate would read it as "not off".
+drift_mode="${DRIFT_MODE-off}"
+case "$drift_mode" in
+off | code | live) ;;
+*)
+  echo "::error title=Invalid drift_mode::drift_mode must be off, code, or live, got '$drift_mode'" >&2
+  exit 1
+  ;;
+esac
+
+# live mode refreshes inside the preview, which reads real infrastructure and
+# writes no state. Projects that cannot tolerate a refresh opt out by exact path.
+refresh_args=()
+if [[ $drift_mode == live ]]; then
+  refresh_args=(--refresh)
+  IFS=',' read -ra no_refresh <<<"${NO_REFRESH_PROJECTS:-}"
+  for entry in "${no_refresh[@]}"; do
+    entry="${entry#"${entry%%[![:space:]]*}"}"
+    entry="${entry%"${entry##*[![:space:]]}"}"
+    if [[ $entry == "$project" ]]; then
+      refresh_args=()
+      echo "Previewing $project without --refresh (drift_no_refresh_projects)" >&2
+      break
+    fi
+  done
+fi
+
 export DEVSHELL_NO_MOTD=1
 export DEVSHELL_NO_GREETING=1
 export DEVSHELL_QUIET=1
@@ -18,10 +46,10 @@ export DEVSHELL_QUIET=1
 mkdir -p previews ok
 
 # Human-readable diff output
-nix develop .#ci-pulumi --command pulumi preview -C "$project" --stack "$stack" --non-interactive --diff | tee "previews/${safe_name}.txt"
+nix develop .#ci-pulumi --command pulumi preview -C "$project" --stack "$stack" --non-interactive --diff "${refresh_args[@]}" | tee "previews/${safe_name}.txt"
 
 # Optional JSON, tolerate failure to keep previews robust
-if nix develop .#ci-pulumi --command pulumi preview -C "$project" --stack "$stack" --non-interactive --json >"previews/${safe_name}.json"; then
+if nix develop .#ci-pulumi --command pulumi preview -C "$project" --stack "$stack" --non-interactive --json "${refresh_args[@]}" >"previews/${safe_name}.json"; then
   :
 else
   echo "JSON preview failed or unsupported; continuing with text preview only" >&2
@@ -30,13 +58,21 @@ fi
 # Render a markdown summary suitable for PR comments
 bash "$GITHUB_ACTION_PATH/render_preview_summary.sh" "$project" "$stack" "$safe_name" >stage-preview-summary.md || true
 
-# Compute whether there are changes (best effort) and emit OK marker
+# Count the changes and emit OK marker. An unreadable count is `unknown`, never
+# `clean`: the drift check must not pass because the JSON preview failed.
+change_count=$(nix develop .#ci-pulumi --command bash "$GITHUB_ACTION_PATH/count_changes.sh" "previews/${safe_name}.json" || true)
 has_changes=false
-if [[ -f "previews/${safe_name}.json" ]]; then
-  if nix develop .#ci-pulumi --command jq -e '((.changeSummary.create // 0) + (.changeSummary.update // 0) + (.changeSummary.replace // 0) + (.changeSummary.delete // 0)) > 0' "previews/${safe_name}.json" >/dev/null; then
-    has_changes=true
-  fi
+if [[ ! $change_count =~ ^[0-9]+$ ]]; then
+  change_count=""
+  drift_status=unknown
+elif [[ $change_count -eq 0 ]]; then
+  drift_status=clean
+else
+  drift_status=drift
+  has_changes=true
 fi
+echo "drift_status=$drift_status" >>"$GITHUB_OUTPUT"
+echo "change_count=$change_count" >>"$GITHUB_OUTPUT"
 
 echo "has_changes=$has_changes" >>"$GITHUB_OUTPUT"
 

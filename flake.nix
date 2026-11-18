@@ -281,6 +281,21 @@
             touch $out
           '';
 
+        # drift_mode: an unreadable change count is never clean, live refreshes
+        # except for opted-out projects, and a just-deployed stack is not failed.
+        checks.gha-pulumi-drift =
+          pkgs.runCommand "gha-pulumi-drift" {
+            nativeBuildInputs = [pkgs.bash pkgs.coreutils pkgs.gawk pkgs.gnugrep pkgs.gnused pkgs.jq];
+            PULUMI_WORKFLOW = "${./.github/workflows/pulumi.yml}";
+            PULUMI_ACTIONS_ROOT = "${./.github/actions}";
+            TEST_SCRIPT = ./.github/workflows/test-pulumi-drift.sh;
+          } ''
+            set -euo pipefail
+            bash -n "$TEST_SCRIPT"
+            bash "$TEST_SCRIPT"
+            touch $out
+          '';
+
         # ADR placeholder stubs must stay mdformat-clean, and a failing
         # post-generate-command must not commit. Local git remotes only.
         checks.gha-create-adr-placeholder =
