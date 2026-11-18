@@ -11,7 +11,9 @@ if [[ -z $safe_name ]]; then
 fi
 safe_name="${safe_name//\//__}"
 
-drift_mode="${DRIFT_MODE:-off}"
+# Unset means off; an empty value is refused below, because the workflow's drift
+# gate would read it as "not off".
+drift_mode="${DRIFT_MODE-off}"
 case "$drift_mode" in
 off | code | live) ;;
 *)

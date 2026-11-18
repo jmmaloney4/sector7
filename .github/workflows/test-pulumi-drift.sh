@@ -95,6 +95,9 @@ if run '{"changeSummary":{"same":1}}' sometimes; then
   fail "an invalid drift_mode must fail"
 fi
 grep -q 'drift_mode must be off, code, or live' "$tmp/stdout" || fail "invalid mode wrong error: $(cat "$tmp/stdout")"
+if run '{"changeSummary":{"same":1}}' ''; then
+  fail "an empty drift_mode must fail"
+fi
 
 # The workflow fails the job only when asked, after a good preview, for anything
 # but clean, and never for a stack this run has just deployed.
