@@ -23,7 +23,8 @@ fi
 
 # The patched client (bounded NAR channel, room-of-requirement/seven#378): stock
 # attic buffers a whole large path in memory when the upload lags, and this push
-# can carry a multi-GiB seed. resolve-attic-client.sh falls back to nixpkgs'.
+# can carry a multi-GiB seed. resolve-attic-client.sh fails rather than fall back,
+# unless ATTIC_CLIENT_ALLOW_STOCK=1.
 attic_bin="$(bash "$(dirname "${BASH_SOURCE[0]}")/../nix-setup/resolve-attic-client.sh")"
 
 run_attic() {

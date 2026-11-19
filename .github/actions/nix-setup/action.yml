@@ -139,7 +139,9 @@ runs:
     # start `attic watch-store -j 1` in the background so every store path built
     # in this job is uploaded as it appears (survives concurrency cancellation
     # and seeds the detect job's nix-eval-jobs closure). Serial uploads avoid
-    # OOM on atticd, which has no server-side job limit. Never fails the job.
+    # OOM on atticd, which has no server-side job limit. Uploads never fail the
+    # job; resolving the patched attic client does, unless ATTIC_CLIENT_ALLOW_STOCK=1
+    # (seven#378: the unpatched client OOM-kills runners).
     # Treat unset/empty backend as attic so an explicit empty expression cannot
     # skip watch-store for existing callers (script default is also attic).
     - if: ${{ (inputs.cache-push-backend == 'attic' || inputs.cache-push-backend == 'both' || inputs.cache-push-backend == '') && inputs.attic-endpoint != '' && inputs.attic-cache-name != '' && inputs.attic-token != '' }}

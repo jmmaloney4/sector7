@@ -60,6 +60,11 @@ on:
         required: false
         type: string
         default: ''
+      allow-unpatched-attic-client:
+        description: 'Emergency opt-out: fall back to nixpkgs'' unpatched attic client, with a warning, when the patched one cannot be had, instead of failing (seven#378).'
+        required: false
+        default: false
+        type: boolean
     secrets:
       REGISTRY_USERNAME:
         description: 'Registry username (defaults to github.actor)'
@@ -70,6 +75,9 @@ on:
       BINARY_CACHE_TOKEN:
         description: 'Optional Attic token used to push built store paths into the binary cache'
         required: false
+env:
+  # Read by nix-setup/resolve-attic-client.sh.
+  ATTIC_CLIENT_ALLOW_STOCK: ${{ inputs.allow-unpatched-attic-client && '1' || '' }}
 jobs:
   push-image:
     runs-on: ${{ startsWith(inputs.runs-on, '[') && fromJson(inputs.runs-on) || inputs.runs-on }}

@@ -1,67 +1,92 @@
 #!/usr/bin/env bash
 # Print the absolute path of the attic client binary to use, on stdout.
 #
-# Order: this repo's patched build (`packages.<system>.attic-client` in the root
-# flake: stock attic plus the bounded-NAR-channel patch, zhaofengli/attic#362),
-# then nixpkgs' attic-client. Stock attic hands every NAR to the upload through
-# an unbounded channel, so a multi-GiB path grows the client to that size and
-# OOM-kills the runner pod (room-of-requirement/seven#378). Both nix-setup's
-# `watch-store` and push-attic-cache's `attic push` resolve their client here.
+# The client is this repo's patched build (`packages.<system>.attic-client` in the
+# root flake: stock attic plus the bounded-NAR-channel patch, zhaofengli/attic#362).
+# Stock attic hands every NAR to the upload through an unbounded channel, so a
+# multi-GiB path grows the client to that size and OOM-kills the runner pod
+# (room-of-requirement/seven#378). Both nix-setup's `watch-store` and
+# push-attic-cache's `attic push` resolve their client here.
 #
-# The patched build compiles attic once per node store (the runners use the host
-# daemon, so its cost is the host's, not the pod's); it is bounded by a timeout
-# and never fails the caller: if it cannot be had, the stock client is used and
-# the supervisor's memory cap still protects the runner.
+# Where the flake comes from: the sector7 checkout at SECTOR7_ROOT when it holds
+# flake.nix, else the same commit fetched from GitHub. The reusable workflows check
+# sector7 out sparsely (/.github/actions/ only, zeus#5442), so the local tree has no
+# flake: building `path:` there failed on every job from 2026-11-16 and fell back to
+# stock attic unnoticed. The client is in the binary cache once sector7's own CI has
+# built that commit, so this normally substitutes rather than compiles.
+#
+# If the patched client cannot be had, this FAILS (exit 1, ::error:: with nix's last
+# error line), because the fallback brings back a known runner OOM. A warning on
+# every run reads as normal, and that is how the fallback stayed on for three days.
+# ATTIC_CLIENT_ALLOW_STOCK=1 is the emergency opt-out: fall back to nixpkgs'
+# attic-client with a ::warning::.
 #
 # Environment (all optional):
-#   SECTOR7_ROOT                   repo root holding flake.nix (default: three levels up)
-#   ATTIC_CLIENT_STOCK=1           skip the patched build
-#   ATTIC_PATCHED_BUILD_TIMEOUT    seconds allowed for the patched build (default 900)
+#   SECTOR7_ROOT                   the sector7 checkout (default: three levels up)
+#   ATTIC_CLIENT_ALLOW_STOCK=1     fall back to nixpkgs' attic-client instead of failing
+#   ATTIC_PATCHED_BUILD_TIMEOUT    seconds allowed for the patched build (default 1800)
 set -u
 
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 root="${SECTOR7_ROOT:-$(cd "$here/../../.." && pwd)}"
-timeout_s="${ATTIC_PATCHED_BUILD_TIMEOUT:-900}"
+timeout_s="${ATTIC_PATCHED_BUILD_TIMEOUT:-1800}"
 
-# Sets build_why on failure: "timed out after Ns" or "nix build failed (rc=N)".
+# The installable for the patched client on stdout, or fail with build_why set.
 build_why=""
+patched_installable() {
+  if [ -f "$root/flake.nix" ]; then
+    printf 'path:%s#attic-client\n' "$root"
+    return 0
+  fi
+  local url rev
+  url="$(git -C "$root" config --get remote.origin.url 2>/dev/null)" || url=""
+  rev="$(git -C "$root" rev-parse --verify HEAD 2>/dev/null)" || rev=""
+  [[ $rev =~ ^[0-9a-f]{40}$ ]] || return 1
+  # Match the URL last: each [[ =~ ]] overwrites BASH_REMATCH.
+  [[ $url =~ github\.com[:/]([^/]+)/([^/]+)$ ]] || return 1
+  printf 'github:%s/%s/%s#attic-client\n' "${BASH_REMATCH[1]}" "${BASH_REMATCH[2]%.git}" "$rev"
+}
+
+# Sets build_why on failure, with nix's last error line.
 build() { # <installable> [timeout seconds]
-  local installable="$1" limit="${2:-}" out="" rc=0 tmp
+  local installable="$1" limit="${2:-}" out="" rc=0 tmp err last
   tmp="$(mktemp)"
+  err="$(mktemp)"
   if [ -n "$limit" ] && command -v timeout >/dev/null 2>&1; then
-    timeout "$limit" nix build --no-link --print-out-paths "$installable" >"$tmp" 2>/dev/null || rc=$?
+    timeout "$limit" nix build --no-link --print-out-paths "$installable" >"$tmp" 2>"$err" || rc=$?
   else
-    nix build --no-link --print-out-paths "$installable" >"$tmp" 2>/dev/null || rc=$?
+    nix build --no-link --print-out-paths "$installable" >"$tmp" 2>"$err" || rc=$?
   fi
   out="$(head -n1 "$tmp")"
-  rm -f "$tmp"
+  last="$(sed 's/\x1b\[[0-9;]*m//g' "$err" | grep -v '^[[:space:]]*$' | tail -n1 | cut -c1-300)"
+  rm -f "$tmp" "$err"
   if [ "$rc" -eq 0 ] && [ -n "$out" ] && [ -x "$out/bin/attic" ]; then
     printf '%s\n' "$out/bin/attic"
     return 0
   fi
   if [ "$rc" -eq 124 ]; then
-    build_why="timed out after ${limit}s"
+    build_why="$installable timed out after ${limit}s"
   elif [ "$rc" -ne 0 ]; then
-    build_why="nix build failed (rc=$rc)"
+    build_why="nix build $installable failed (rc=$rc): ${last:-no error output}"
   else
-    build_why="nix build printed no usable attic binary"
+    build_why="nix build $installable printed no usable attic binary"
   fi
   return 1
 }
 
-# Falling back is never silent: stock attic buffers a whole NAR in memory when
-# the upload lags, which is what OOM-killed the runner pod (seven#378), so a job
-# that runs on it must say so. A warning rather than a failure: the push is
-# best-effort and the supervisor's memory cap still protects the runner, whereas
-# failing here would turn a cold node's slow first compile into a failed job.
-if [ "${ATTIC_CLIENT_STOCK:-}" = 1 ]; then
-  echo "::warning::attic client: ATTIC_CLIENT_STOCK=1, using nixpkgs' unpatched attic-client (unbounded NAR buffering; seven#378)" >&2
-else
-  if build "path:${root}#attic-client" "$timeout_s"; then
+if installable="$(patched_installable)"; then
+  if build "$installable" "$timeout_s"; then
     exit 0
   fi
-  echo "::warning::attic client: patched attic-client unavailable (${build_why}); using nixpkgs' unpatched attic-client (unbounded NAR buffering; seven#378)" >&2
+else
+  build_why="no flake.nix in $root and no GitHub origin and commit to fetch one from"
 fi
+
+if [ "${ATTIC_CLIENT_ALLOW_STOCK:-}" != 1 ]; then
+  echo "::error::attic client: patched attic-client unavailable: ${build_why}. Refusing nixpkgs' unpatched client, whose unbounded NAR buffering OOM-kills runners (seven#378); allow-unpatched-attic-client overrides this." >&2
+  exit 1
+fi
+echo "::warning::attic client: patched attic-client unavailable: ${build_why}. ATTIC_CLIENT_ALLOW_STOCK=1, so using nixpkgs' unpatched attic-client (unbounded NAR buffering; seven#378)" >&2
 
 if build "nixpkgs#attic-client"; then
   exit 0
@@ -71,4 +96,5 @@ if command -v attic >/dev/null 2>&1; then
   command -v attic
   exit 0
 fi
+echo "::error::attic client: no attic client at all: ${build_why}" >&2
 exit 1

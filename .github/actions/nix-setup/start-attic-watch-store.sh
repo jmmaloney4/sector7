@@ -7,7 +7,8 @@
 # Nix daemon (DeterminateSystems installer), so a post-build-hook would run as
 # root in the daemon's restricted context AND would *fail the build* if it
 # errored. `attic watch-store` runs as the runner user, needs no daemon/root
-# config, and is strictly best-effort — it never fails the job.
+# config, and its uploads are best-effort — they never fail the job. Resolving a
+# safe client is not: see below.
 #
 # Two payoffs:
 #   1. Resilient seeding — a job cancelled mid-build (concurrency
@@ -35,13 +36,14 @@ fi
 # path instead of relying on PATH. attic-client is in nixpkgs (substituted from
 # cache.nixos.org), so this does not build.
 #
-# resolve-attic-client.sh prefers this repo's patched client (bounded NAR channel,
-# seven#378) over nixpkgs' and falls back to nixpkgs' if it cannot be had.
+# resolve-attic-client.sh gives this repo's patched client (bounded NAR channel,
+# seven#378). If it cannot, the step fails: watching the store with the unpatched
+# client is what OOM-killed runners. ATTIC_CLIENT_ALLOW_STOCK=1 overrides that.
 echo "Resolving attic client..."
-attic="$(bash "$(dirname "${BASH_SOURCE[0]}")/resolve-attic-client.sh" || true)"
+attic="$(bash "$(dirname "${BASH_SOURCE[0]}")/resolve-attic-client.sh")" || exit 1
 if [ -z "$attic" ] || [ ! -x "$attic" ]; then
-  echo "::warning::failed to resolve attic-client; skipping watch-store"
-  exit 0
+  echo "::error::attic client resolved to '$attic', which is not executable" >&2
+  exit 1
 fi
 echo "Using attic client: $attic"
 
