@@ -237,7 +237,7 @@
         # (room-of-requirement/seven#378).
         checks.gha-attic-watch-store =
           pkgs.runCommand "gha-attic-watch-store" {
-            nativeBuildInputs = [pkgs.bash pkgs.coreutils pkgs.gnugrep];
+            nativeBuildInputs = [pkgs.bash pkgs.coreutils pkgs.gnugrep pkgs.gnused pkgs.git];
             ATTIC_ACTIONS_ROOT = "${./.github/actions}";
           } ''
             set -euo pipefail

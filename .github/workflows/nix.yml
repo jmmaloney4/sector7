@@ -45,6 +45,11 @@ on:
         required: false
         default: ''
         type: string
+      allow-unpatched-attic-client:
+        description: 'Emergency opt-out. When the patched attic client (bounded NAR channel) cannot be built or fetched, a job pushing to the binary cache fails, because nixpkgs'' unpatched client buffers whole NARs in memory and OOM-kills runners (seven#378). Set true to fall back to it with a warning instead.'
+        required: false
+        default: false
+        type: boolean
       max-parallel:
         description: 'How many matrix build jobs run at once. Set it to the number of runners the caller scale set can give this workflow; a job beyond that just queues.'
         required: false
@@ -68,6 +73,9 @@ permissions:
   contents: read
   id-token: write
   packages: write
+env:
+  # Read by nix-setup/resolve-attic-client.sh in every job's attic steps.
+  ATTIC_CLIENT_ALLOW_STOCK: ${{ inputs.allow-unpatched-attic-client && '1' || '' }}
 jobs:
   detect:
     name: '☃️ detect flake outputs'
