@@ -69,7 +69,8 @@ if grep -q '::' "$work/stderr"; then fail "no annotation when the patched client
 # Sparse checkout: the same commit from GitHub.
 [ "$(resolve "$work/sparse" FAKE_PATCHED=ok)" = "$work/patched/bin/attic" ] || fail "patched client on a sparse checkout: $(cat "$work/stderr") calls: $(cat "$work/calls")"
 grep -q "github:jmmaloney4/sector7/$rev#attic-client" "$work/calls" || fail "should fetch the checkout's commit: $(cat "$work/calls")"
-for url in https://github.com/jmmaloney4/sector7.git git@github.com:jmmaloney4/sector7.git; do
+for url in https://github.com/jmmaloney4/sector7.git git@github.com:jmmaloney4/sector7.git \
+  https://github.com/jmmaloney4/sector7/ https://github.com/jmmaloney4/sector7.git/; do
   git -C "$work/sparse" remote set-url origin "$url"
   resolve "$work/sparse" FAKE_PATCHED=ok >/dev/null || fail "origin $url"
   grep -q "github:jmmaloney4/sector7/$rev#attic-client" "$work/calls" || fail "origin $url: $(cat "$work/calls")"
