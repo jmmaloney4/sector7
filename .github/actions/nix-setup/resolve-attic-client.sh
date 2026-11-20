@@ -50,7 +50,7 @@ patched_installable() {
 
 # Sets build_why on failure, with nix's last error line.
 build() { # <installable> [timeout seconds]
-  local installable="$1" limit="${2:-}" out="" rc=0 tmp err last
+  local installable="$1" limit="${2:-}" out="" rc=0 tmp err last esc=$'\033'
   tmp="$(mktemp)"
   err="$(mktemp)"
   if [ -n "$limit" ] && command -v timeout >/dev/null 2>&1; then
@@ -60,7 +60,7 @@ build() { # <installable> [timeout seconds]
   fi
   out="$(head -n1 "$tmp")"
   # A literal ESC byte: `\x1b` in a sed pattern is a GNU extension, not POSIX.
-  last="$(sed "s/$(printf '\033')\[[0-9;]*m//g" "$err" | grep -v '^[[:space:]]*$' | tail -n1 | cut -c1-300)"
+  last="$(sed "s/${esc}\[[0-9;]*m//g" "$err" | grep -v '^[[:space:]]*$' | tail -n1 | cut -c1-300)"
   rm -f "$tmp" "$err"
   if [ "$rc" -eq 0 ] && [ -n "$out" ] && [ -x "$out/bin/attic" ]; then
     printf '%s\n' "$out/bin/attic"
