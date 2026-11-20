@@ -158,6 +158,18 @@ test("results from another branch are ignored (control: same result on main open
   assert.equal(gh.issues.length, 1);
 });
 
+test("another mode's update keeps the drifted mode's resource list", async () => {
+  const gh = fakeGithub();
+  await run(gh, [res({ mode: "code" })]);
+  await run(gh, [res({ mode: "live", status: "preview-failed", changeCount: null, changes: [] })]);
+  assert.match(gh.issues[0].body, /The `code` preview would change:/);
+  assert.match(gh.issues[0].body, /`web`/);
+  // Once code is clean its list goes, while live's failure keeps the issue open.
+  await run(gh, [res({ mode: "code", status: "clean", changeCount: 0, changes: [] })]);
+  assert.doesNotMatch(gh.issues[0].body, /would change/);
+  assert.equal(gh.issues[0].state, "open");
+});
+
 test("state round-trips through the issue body", () => {
   const state = { project: "deploy/app", stack: "prod", modes: { live: { status: "drift", changeCount: 1, runUrl: RUN } } };
   assert.deepEqual(drift.parseState(drift.renderBody(state, res({}))), state);

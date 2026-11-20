@@ -302,8 +302,10 @@ jobs:
         id: up_prod
         run: nix develop .#ci-pulumi --command pulumi up -C ${{ matrix.project }} --stack ${{ matrix.stack }} --yes --non-interactive
         shell: bash
+      # !cancelled(), not always(): a cancelled run (superseded or stopped by
+      # hand) has no result to report, and must not file "preview failed".
       - name: record drift result
-        if: ${{ always() && inputs.drift_issues }}
+        if: ${{ !cancelled() && inputs.drift_issues }}
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         env:
           DRIFT_MODE: ${{ inputs.drift_mode }}
@@ -322,7 +324,7 @@ jobs:
         with:
           script: require('./.sector7/.github/actions/pulumi-drift-issues/drift.js').record(process.env)
       - name: upload drift result
-        if: ${{ always() && inputs.drift_issues }}
+        if: ${{ !cancelled() && inputs.drift_issues }}
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: drift-result-${{ steps.names.outputs.safe_name }}-${{ matrix.stack }}
@@ -355,8 +357,9 @@ jobs:
   drift-issues:
     name: "📋 drift issues"
     needs: [detect-pulumi-stacks, pulumi-preview-and-deploy]
-    # Runs whether stacks passed or failed: a failed job is exactly what it reports.
-    if: ${{ always() && inputs.drift_issues && needs.detect-pulumi-stacks.result == 'success' }}
+    # Runs whether stacks passed or failed (a failed job is exactly what it
+    # reports), but not when the run was cancelled.
+    if: ${{ !cancelled() && inputs.drift_issues && needs.detect-pulumi-stacks.result == 'success' }}
     runs-on: ${{ startsWith(inputs.runs-on, '[') && fromJson(inputs.runs-on) || inputs.runs-on }}
     # Two runs (a push and a schedule) must not edit the same issues at once.
     concurrency:

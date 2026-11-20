@@ -150,12 +150,15 @@ function renderBody(state, latest) {
     "",
     "`code` compares the code with Pulumi state. `live` also refreshes from the real infrastructure, so it catches changes made outside Pulumi.",
   ];
-  if (latest.status === "drift" && latest.changes.length > 0) {
-    lines.push("", `Latest \`${latest.mode}\` preview would change:`, "");
-    for (const c of latest.changes) {
+  // Every drifted mode's resource list, kept in state, so an update from another
+  // mode never drops the list that motivated the issue.
+  for (const [mode, m] of Object.entries(state.modes).sort(([a], [b]) => a.localeCompare(b))) {
+    if (m.status !== "drift" || !Array.isArray(m.changes) || m.changes.length === 0) continue;
+    lines.push("", `The \`${mode}\` preview would change:`, "");
+    for (const c of m.changes) {
       lines.push(`- \`${c.op}\` ${c.type} \`${c.name}\``);
     }
-    if (latest.moreChanges > 0) lines.push(`- …and ${latest.moreChanges} more`);
+    if (m.moreChanges > 0) lines.push(`- …and ${m.moreChanges} more`);
   }
   lines.push(
     "",
@@ -214,6 +217,9 @@ async function reconcile({ github, context, core, dir }) {
       status: r.status,
       changeCount: r.changeCount,
       runUrl: r.runUrl,
+      ...(r.status === "drift"
+        ? { changes: r.changes || [], moreChanges: r.moreChanges || 0 }
+        : {}),
     };
     const label = `${r.project} (${r.stack})`;
 
