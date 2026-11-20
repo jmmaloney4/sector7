@@ -43,13 +43,14 @@ patched_installable() {
   rev="$(git -C "$root" rev-parse --verify HEAD 2>/dev/null)" || rev=""
   [[ $rev =~ ^[0-9a-f]{40}$ ]] || return 1
   # Match the URL last: each [[ =~ ]] overwrites BASH_REMATCH.
-  [[ $url =~ github\.com[:/]([^/]+)/([^/]+)$ ]] || return 1
+  # Trailing slashes on the remote URL (https://github.com/o/r/) are allowed.
+  [[ $url =~ github\.com[:/]([^/]+)/([^/]+)/*$ ]] || return 1
   printf 'github:%s/%s/%s#attic-client\n' "${BASH_REMATCH[1]}" "${BASH_REMATCH[2]%.git}" "$rev"
 }
 
 # Sets build_why on failure, with nix's last error line.
 build() { # <installable> [timeout seconds]
-  local installable="$1" limit="${2:-}" out="" rc=0 tmp err last
+  local installable="$1" limit="${2:-}" out="" rc=0 tmp err last esc=$'\033'
   tmp="$(mktemp)"
   err="$(mktemp)"
   if [ -n "$limit" ] && command -v timeout >/dev/null 2>&1; then
@@ -58,7 +59,8 @@ build() { # <installable> [timeout seconds]
     nix build --no-link --print-out-paths "$installable" >"$tmp" 2>"$err" || rc=$?
   fi
   out="$(head -n1 "$tmp")"
-  last="$(sed 's/\x1b\[[0-9;]*m//g' "$err" | grep -v '^[[:space:]]*$' | tail -n1 | cut -c1-300)"
+  # A literal ESC byte: `\x1b` in a sed pattern is a GNU extension, not POSIX.
+  last="$(sed "s/${esc}\[[0-9;]*m//g" "$err" | grep -v '^[[:space:]]*$' | tail -n1 | cut -c1-300)"
   rm -f "$tmp" "$err"
   if [ "$rc" -eq 0 ] && [ -n "$out" ] && [ -x "$out/bin/attic" ]; then
     printf '%s\n' "$out/bin/attic"
