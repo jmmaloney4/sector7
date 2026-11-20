@@ -121,6 +121,8 @@ grep -q 'always() && inputs.drift_issues' "$workflow" &&
   fail "drift_issues steps must use !cancelled(), not always()"
 [[ $(grep -c '!cancelled() && inputs.drift_issues' "$workflow") -eq 3 ]] ||
   fail "record, upload and the drift-issues job must each gate on !cancelled()"
+grep -q "if: \${{ inputs.drift_issues && inputs.drift_mode != 'code' && inputs.drift_mode != 'live' }}" "$workflow" ||
+  fail "detect must refuse drift_issues without drift_mode code or live"
 [[ $(grep -cE '^[[:space:]]+issues:[[:space:]]*write[[:space:]]*$' "$workflow") -eq 1 ]] ||
   fail "only the drift-issues job may hold issues: write"
 

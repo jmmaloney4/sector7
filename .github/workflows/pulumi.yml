@@ -102,6 +102,16 @@ jobs:
     env:
       PULUMI_BACKEND_URL: ${{ inputs.pulumi_backend_url }}
     steps:
+      # Refuse the one invalid input combination before any stack runs, so it
+      # fails once here instead of at the last step of every stack.
+      - name: validate drift inputs
+        if: ${{ inputs.drift_issues && inputs.drift_mode != 'code' && inputs.drift_mode != 'live' }}
+        env:
+          DRIFT_MODE: ${{ inputs.drift_mode }}
+        run: |
+          echo "::error title=drift_issues needs drift_mode::drift_issues: true needs drift_mode code or live, got '$DRIFT_MODE'"
+          exit 1
+        shell: bash
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: ${{ inputs.repository }}
