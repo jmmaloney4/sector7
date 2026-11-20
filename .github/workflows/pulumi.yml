@@ -74,6 +74,12 @@ on:
         required: false
         default: ''
         type: string
+      drift_issues:
+        description: >-
+          File drift as GitHub issues (needs drift_mode code or live, and `issues: write` granted by the caller). One issue per drifted (project, stack), labelled `pulumi-drift`; updated while drift persists (a comment only when a mode's status changes) and closed when every mode that reported a problem is clean again. Only runs on the default branch count.
+        required: false
+        default: false
+        type: boolean
       preview_only:
         description: >-
           When true (the default), run previews and upload artifacts on every caller event but never `pulumi up`. Consumers must pass preview_only: false to enable stage/prod deploys.
@@ -96,6 +102,16 @@ jobs:
     env:
       PULUMI_BACKEND_URL: ${{ inputs.pulumi_backend_url }}
     steps:
+      # Refuse the one invalid input combination before any stack runs, so it
+      # fails once here instead of at the last step of every stack.
+      - name: validate drift inputs
+        if: ${{ inputs.drift_issues && inputs.drift_mode != 'code' && inputs.drift_mode != 'live' }}
+        env:
+          DRIFT_MODE: ${{ inputs.drift_mode }}
+        run: |
+          echo "::error title=drift_issues needs drift_mode::drift_issues: true needs drift_mode code or live, got '$DRIFT_MODE'"
+          exit 1
+        shell: bash
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: ${{ inputs.repository }}
@@ -296,6 +312,34 @@ jobs:
         id: up_prod
         run: nix develop .#ci-pulumi --command pulumi up -C ${{ matrix.project }} --stack ${{ matrix.stack }} --yes --non-interactive
         shell: bash
+      # !cancelled(), not always(): a cancelled run (superseded or stopped by
+      # hand) has no result to report, and must not file "preview failed".
+      - name: record drift result
+        if: ${{ !cancelled() && inputs.drift_issues }}
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        env:
+          DRIFT_MODE: ${{ inputs.drift_mode }}
+          PREVIEW_OUTCOME: ${{ steps.preview.outcome }}
+          DRIFT_STATUS: ${{ steps.preview.outputs.drift_status }}
+          CHANGE_COUNT: ${{ steps.preview.outputs.change_count }}
+          UP_STAGE: ${{ steps.up_stage.outcome }}
+          UP_PROD: ${{ steps.up_prod.outcome }}
+          PREVIEW_JSON: previews/${{ steps.names.outputs.safe_name }}.json
+          PROJECT: ${{ matrix.project }}
+          STACK: ${{ matrix.stack }}
+          SAFE_NAME: ${{ steps.names.outputs.safe_name }}
+          REF: ${{ github.ref }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          OUT_DIR: drift-results
+        with:
+          script: require('./.sector7/.github/actions/pulumi-drift-issues/drift.js').record(process.env)
+      - name: upload drift result
+        if: ${{ !cancelled() && inputs.drift_issues }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: drift-result-${{ steps.names.outputs.safe_name }}-${{ matrix.stack }}
+          path: drift-results/*
+          if-no-files-found: error
       - name: fail job if preview failed
         if: ${{ steps.preview.outcome != 'success' }}
         run: |
@@ -320,3 +364,49 @@ jobs:
           echo "### Pulumi drift: \`$PROJECT\` (\`$STACK\`): $message" >>"$GITHUB_STEP_SUMMARY"
           exit 1
         shell: bash
+  drift-issues:
+    name: "📋 drift issues"
+    needs: [detect-pulumi-stacks, pulumi-preview-and-deploy]
+    # Runs whether stacks passed or failed (a failed job is exactly what it
+    # reports), but not when the run was cancelled.
+    if: ${{ !cancelled() && inputs.drift_issues && needs.detect-pulumi-stacks.result == 'success' }}
+    runs-on: ${{ startsWith(inputs.runs-on, '[') && fromJson(inputs.runs-on) || inputs.runs-on }}
+    # Two runs (a push and a schedule) must not edit the same issues at once.
+    concurrency:
+      group: pulumi-drift-issues-${{ github.repository }}
+      cancel-in-progress: false
+    permissions:
+      actions: read
+      contents: read
+      issues: write
+    steps:
+      - name: check out sector7 at this workflow's commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ${{ job.workflow_repository }}
+          ref: ${{ job.workflow_sha }}
+          path: .sector7
+          sparse-checkout: /.github/actions/
+          sparse-checkout-cone-mode: false
+          persist-credentials: false
+      - name: download drift results
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: drift-result-*
+          path: drift-results
+          merge-multiple: true
+      - name: reconcile drift issues
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        with:
+          script: |
+            const s = await require('./.sector7/.github/actions/pulumi-drift-issues/drift.js')
+              .reconcile({ github, context, core, dir: 'drift-results' });
+            await core.summary
+              .addHeading('Pulumi drift issues', 3)
+              .addList([
+                `opened: ${s.opened.join(', ') || 'none'}`,
+                `updated: ${s.updated.join(', ') || 'none'}`,
+                `closed: ${s.closed.join(', ') || 'none'}`,
+                `unchanged: ${s.unchanged.length}`,
+              ])
+              .write();

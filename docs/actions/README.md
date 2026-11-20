@@ -251,6 +251,31 @@ jobs:
 - A stack this run has just deployed with `pulumi up` is not failed.
 - Use `push` to `main` for `code`, and add a `schedule` trigger for `live` to catch changes made outside Pulumi.
 
+`drift_issues: true` also files drift as GitHub issues. The caller must grant `issues: write`.
+
+- Each drifted `(project, stack)` gets one issue, labelled `pulumi-drift`. The label is created if it is missing.
+- A drifted stack is `drift`, `unknown` or `preview-failed`.
+- The issue body shows each mode's latest status and the resources that would change. Its state is kept in a marker comment.
+- While drift persists, each run updates the body. A comment is posted only when a mode's status changes.
+- The issue closes when every mode that reported a problem has a clean run again. A clean `code` run cannot close drift that only `live` saw.
+- Only runs on the default branch count, and a stack the run deployed is ignored.
+- Only the final `📋 drift issues` job has `issues: write`.
+
+```yaml
+permissions:
+  contents: read
+  id-token: write
+  actions: write
+  issues: write
+jobs:
+  pulumi:
+    uses: jmmaloney4/sector7/.github/workflows/pulumi.yml@<sha>
+    with:
+      drift_mode: ${{ github.event_name == 'schedule' && 'live' || 'code' }}
+      drift_issues: true
+      # ...
+```
+
 #### Migrating existing callers (sector7#410)
 
 `preview_only` now defaults to `true` (`c18c673`). A caller that used to deploy on `main` or `v*` tags now only previews unless it passes `preview_only: false`.

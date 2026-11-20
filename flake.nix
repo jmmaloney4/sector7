@@ -296,6 +296,17 @@
             touch $out
           '';
 
+        # Drift issues (open/update/close per stack) against an in-memory GitHub fake.
+        checks.gha-pulumi-drift-issues =
+          pkgs.runCommand "gha-pulumi-drift-issues" {
+            nativeBuildInputs = [pkgs.nodejs];
+            SRC = ./.github/actions/pulumi-drift-issues;
+          } ''
+            set -euo pipefail
+            node --test "$SRC/drift.test.js"
+            touch $out
+          '';
+
         # ADR placeholder stubs must stay mdformat-clean, and a failing
         # post-generate-command must not commit. Local git remotes only.
         checks.gha-create-adr-placeholder =
