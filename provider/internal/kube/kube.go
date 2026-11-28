@@ -13,7 +13,21 @@
 // outright. That failure is the reason this provider exists.
 package kube
 
-import "context"
+import (
+	"context"
+	"os"
+	"strings"
+)
+
+// CurrentKubeconfigEnv is the environment variable holding raw kubeconfig YAML for
+// the current deploy run. Used when destroying resources whose checkpointed
+// kubeconfig points at a retired API endpoint.
+const CurrentKubeconfigEnv = "SECTOR7_KUBECONFIG"
+
+// CurrentKubeconfigFromEnv returns trimmed kubeconfig contents from the env var.
+func CurrentKubeconfigFromEnv() string {
+	return strings.TrimSpace(os.Getenv(CurrentKubeconfigEnv))
+}
 
 // Target identifies a Deployment to forward to.
 type Target struct {

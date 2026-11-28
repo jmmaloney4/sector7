@@ -23,6 +23,7 @@ import (
 	"github.com/jmmaloney4/sector7/provider/internal/checkutil"
 	"github.com/jmmaloney4/sector7/provider/internal/httpx"
 	"github.com/jmmaloney4/sector7/provider/internal/kube"
+	"github.com/jmmaloney4/sector7/provider/internal/providercfg"
 )
 
 const (
@@ -34,6 +35,14 @@ const (
 
 // Item is a 1Password item managed through a Connect server reached by
 // in-cluster port-forward.
+//
+// Delete uses the kubeconfig/connectToken recorded in state unless overridden by
+// a current-run source (highest wins): provider config (`kubeconfig` /
+// `connectToken` on the default sector7 provider), the `SECTOR7_KUBECONFIG`
+// environment variable (kubeconfig only), or checkpointed OldInputs. To destroy
+// an Item whose state still references a retired API endpoint, set
+// `pulumi config set --secret sector7:kubeconfig <yaml>` (or export
+// `SECTOR7_KUBECONFIG`) for that run before `pulumi destroy` or replace.
 type Item struct {
 	Transport kube.Transport
 }
@@ -131,16 +140,17 @@ type ItemState struct {
 	ManagedLabels []string `pulumi:"managedLabels"`
 }
 
-// target rebuilds the connection half of the inputs from stored state, for the
-// one path that must reach Connect using what was persisted rather than what
-// the program currently declares: Delete, which is handed no inputs at all.
-// Fields is intentionally absent — nothing on that path needs it.
+// target rebuilds the connection half of the inputs from stored state. Identity
+// fields ride along because connect() needs the vault for API paths even though
+// Delete does not mutate them. Fields is intentionally absent — nothing on that
+// path needs it.
 //
 // Update is deliberately NOT a caller. It connects with the CURRENT inputs, so
 // that a token rotation or cluster move takes effect on the same apply that
 // declares it; the only thing it draws from prior state is ManagedLabels, for
-// removal reconciliation. Delete is the sole caller — keep it that way, or the
-// "what was persisted" framing above stops being true.
+// removal reconciliation. Delete calls deleteConnectArgs instead, which starts
+// from target() and overlays the program's declared transport inputs when infer
+// supplies them (see deleteConnectArgs).
 func (s ItemState) target() ItemArgs {
 	return ItemArgs{
 		Kubeconfig:     s.Kubeconfig,
@@ -152,6 +162,34 @@ func (s ItemState) target() ItemArgs {
 		Title:          s.Title,
 		Category:       s.Category,
 	}
+}
+
+// deleteConnectArgs builds the ItemArgs passed to connect() on Delete.
+//
+// Typed DeleteRequest carries only state; OldInputs are the checkpointed inputs
+// from the last successful create/update (often stale together with state).
+// Current-run kubeconfig comes from provider config or SECTOR7_KUBECONFIG; see
+// providercfg.ResolveDeleteCredentials.
+func deleteConnectArgs(ctx context.Context, state ItemState) ItemArgs {
+	args := state.target()
+	oldKube, oldToken := deleteOldInputCredentials(ctx)
+	args.Kubeconfig, args.ConnectToken = providercfg.ResolveDeleteCredentials(
+		ctx, args.Kubeconfig, args.ConnectToken, oldKube, oldToken)
+	return args
+}
+
+func deleteOldInputCredentials(ctx context.Context) (kubeconfig, connectToken string) {
+	raw, ok := infer.GetRawRequest[p.DeleteRequest](ctx)
+	if !ok || raw.OldInputs.Len() == 0 {
+		return "", ""
+	}
+	if v, ok := raw.OldInputs.GetOk("kubeconfig"); ok {
+		kubeconfig = v.AsString()
+	}
+	if v, ok := raw.OldInputs.GetOk("connectToken"); ok {
+		connectToken = v.AsString()
+	}
+	return kubeconfig, connectToken
 }
 
 func (a *ItemArgs) Annotate(ann infer.Annotator) {
@@ -697,7 +735,7 @@ func (i Item) Update(ctx context.Context, req infer.UpdateRequest[ItemArgs, Item
 }
 
 func (i Item) Delete(ctx context.Context, req infer.DeleteRequest[ItemState]) (infer.DeleteResponse, error) {
-	c, done, err := i.connect(ctx, req.State.target())
+	c, done, err := i.connect(ctx, deleteConnectArgs(ctx, req.State))
 	if err != nil {
 		return infer.DeleteResponse{}, err
 	}

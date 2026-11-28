@@ -10,6 +10,8 @@ import (
 	"github.com/pulumi/pulumi-go-provider/infer"
 	"github.com/pulumi/pulumi-go-provider/integration"
 	"github.com/pulumi/pulumi/sdk/v3/go/property"
+
+	"github.com/jmmaloney4/sector7/provider/internal/providercfg"
 )
 
 // liveItemState mirrors gateway/prod's `mcp-consumer-tokens` exactly, read off
@@ -89,6 +91,7 @@ func testServer(t *testing.T) integration.Server {
 	t.Helper()
 	prov, err := infer.NewProviderBuilder().
 		WithNamespace("jmmaloney4").
+		WithConfig(infer.Config(providercfg.Config{})).
 		WithResources(infer.Resource(Item{})).
 		Build()
 	if err != nil {
