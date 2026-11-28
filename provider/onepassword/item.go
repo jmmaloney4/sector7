@@ -131,16 +131,17 @@ type ItemState struct {
 	ManagedLabels []string `pulumi:"managedLabels"`
 }
 
-// target rebuilds the connection half of the inputs from stored state, for the
-// one path that must reach Connect using what was persisted rather than what
-// the program currently declares: Delete, which is handed no inputs at all.
-// Fields is intentionally absent — nothing on that path needs it.
+// target rebuilds the connection half of the inputs from stored state. Identity
+// fields ride along because connect() needs the vault for API paths even though
+// Delete does not mutate them. Fields is intentionally absent — nothing on that
+// path needs it.
 //
 // Update is deliberately NOT a caller. It connects with the CURRENT inputs, so
 // that a token rotation or cluster move takes effect on the same apply that
 // declares it; the only thing it draws from prior state is ManagedLabels, for
-// removal reconciliation. Delete is the sole caller — keep it that way, or the
-// "what was persisted" framing above stops being true.
+// removal reconciliation. Delete calls deleteConnectArgs instead, which starts
+// from target() and overlays the program's declared transport inputs when infer
+// supplies them (see deleteConnectArgs).
 func (s ItemState) target() ItemArgs {
 	return ItemArgs{
 		Kubeconfig:     s.Kubeconfig,
@@ -152,6 +153,48 @@ func (s ItemState) target() ItemArgs {
 		Title:          s.Title,
 		Category:       s.Category,
 	}
+}
+
+// mergeTransport overlays non-empty connection fields from prefer onto base.
+// Empty/zero in prefer means "not declared" and leaves the state value in place.
+func mergeTransport(base, prefer ItemArgs) ItemArgs {
+	if prefer.Kubeconfig != "" {
+		base.Kubeconfig = prefer.Kubeconfig
+	}
+	if prefer.ConnectToken != "" {
+		base.ConnectToken = prefer.ConnectToken
+	}
+	if prefer.Namespace != "" {
+		base.Namespace = prefer.Namespace
+	}
+	if prefer.DeploymentName != "" {
+		base.DeploymentName = prefer.DeploymentName
+	}
+	if prefer.ConnectPort != 0 {
+		base.ConnectPort = prefer.ConnectPort
+	}
+	return base
+}
+
+// deleteConnectArgs builds the ItemArgs passed to connect() on Delete.
+//
+// Pulumi's typed DeleteRequest carries only state, but the engine also sends
+// the program's current inputs as OldInputs on the untyped request. A kubeconfig
+// recorded at create time can rot (e.g. API port 6443 closed while the stack
+// now deploys with 443); preferring the live inputs lets destroy/replace reach
+// Connect without a separate state surgery. When OldInputs are absent (older
+// engines) every prefer field is empty and the state checkpoint is used as-is.
+func deleteConnectArgs(ctx context.Context, state ItemState) ItemArgs {
+	base := state.target()
+	raw, ok := infer.GetRawRequest[p.DeleteRequest](ctx)
+	if !ok || raw.OldInputs.Len() == 0 {
+		return base
+	}
+	prefer, _, err := infer.DefaultCheck[ItemArgs](ctx, raw.OldInputs)
+	if err != nil {
+		return base
+	}
+	return mergeTransport(base, prefer)
 }
 
 func (a *ItemArgs) Annotate(ann infer.Annotator) {
@@ -697,7 +740,7 @@ func (i Item) Update(ctx context.Context, req infer.UpdateRequest[ItemArgs, Item
 }
 
 func (i Item) Delete(ctx context.Context, req infer.DeleteRequest[ItemState]) (infer.DeleteResponse, error) {
-	c, done, err := i.connect(ctx, req.State.target())
+	c, done, err := i.connect(ctx, deleteConnectArgs(ctx, req.State))
 	if err != nil {
 		return infer.DeleteResponse{}, err
 	}

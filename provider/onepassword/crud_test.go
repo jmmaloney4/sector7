@@ -12,8 +12,10 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/blang/semver"
 	p "github.com/pulumi/pulumi-go-provider"
 	"github.com/pulumi/pulumi-go-provider/infer"
+	"github.com/pulumi/pulumi-go-provider/integration"
 	"github.com/pulumi/pulumi/sdk/v3/go/property"
 
 	"github.com/jmmaloney4/sector7/provider/internal/kube"
@@ -112,6 +114,85 @@ func baseState(t *testing.T) ItemState {
 	t.Helper()
 	a := baseArgs()
 	return stateOuts(a, "uuid-1", mustContentHash(t, a.Category, a.Fields))
+}
+
+func itemStateMap(s ItemState) property.Map {
+	return property.NewMap(map[string]property.Value{
+		"kubeconfig":     property.New(s.Kubeconfig),
+		"connectToken":   property.New(s.ConnectToken),
+		"namespace":      property.New(s.Namespace),
+		"deploymentName": property.New(s.DeploymentName),
+		"connectPort":    property.New(float64(s.ConnectPort)),
+		"vault":          property.New(s.Vault),
+		"title":          property.New(s.Title),
+		"category":       property.New(s.Category),
+		"uuid":           property.New(s.UUID),
+		"itemPath":       property.New(s.ItemPath),
+		"contentHash":    property.New(s.ContentHash),
+		"managedLabels":  property.New(sliceProperty(s.ManagedLabels)),
+	})
+}
+
+func itemArgsMap(a ItemArgs, contentHash string) property.Map {
+	fields := make([]property.Value, 0, len(a.Fields))
+	for _, f := range a.Fields {
+		fields = append(fields, property.New(property.NewMap(map[string]property.Value{
+			"label": property.New(f.Label),
+			"value": property.New(f.Value),
+		})))
+	}
+	m := map[string]property.Value{
+		"connectToken":   property.New(a.ConnectToken),
+		"namespace":      property.New(a.Namespace),
+		"deploymentName": property.New(a.DeploymentName),
+		"connectPort":    property.New(float64(a.ConnectPort)),
+		"vault":          property.New(a.Vault),
+		"title":          property.New(a.Title),
+		"category":       property.New(a.Category),
+		"fields":         property.New(fields),
+		"contentHash":    property.New(contentHash),
+	}
+	if a.Kubeconfig != "" {
+		m["kubeconfig"] = property.New(a.Kubeconfig)
+	}
+	return property.NewMap(m)
+}
+
+func sliceProperty(ss []string) []property.Value {
+	out := make([]property.Value, 0, len(ss))
+	for _, s := range ss {
+		out = append(out, property.New(s))
+	}
+	return out
+}
+
+func TestMergeTransportInputs(t *testing.T) {
+	stale := baseArgs()
+	stale.Kubeconfig = "stale"
+	stale.ConnectToken = "old-token"
+	stale.ConnectPort = 6443
+
+	t.Run("prefer overlays non-empty transport fields", func(t *testing.T) {
+		prefer := baseArgs()
+		prefer.Kubeconfig = "current"
+		prefer.ConnectToken = "new-token"
+		prefer.ConnectPort = 443
+		got := mergeTransport(stale, prefer)
+		if got.Kubeconfig != "current" || got.ConnectToken != "new-token" || got.ConnectPort != 443 {
+			t.Fatalf("expected current transport; got %+v", got)
+		}
+		if got.Vault != stale.Vault || got.Title != stale.Title {
+			t.Fatalf("identity fields must come from base; got %+v", got)
+		}
+	})
+
+	t.Run("empty prefer keeps state transport", func(t *testing.T) {
+		got := mergeTransport(stale, ItemArgs{})
+		if got.Kubeconfig != stale.Kubeconfig || got.ConnectToken != stale.ConnectToken ||
+			got.ConnectPort != stale.ConnectPort {
+			t.Fatalf("empty prefer must preserve state transport; got %+v", got)
+		}
+	})
 }
 
 // listResponse is the /v1/vaults/<v>/items?filter=title eq "..." shape.
@@ -508,6 +589,77 @@ func TestUpdateCRUD(t *testing.T) {
 }
 
 func TestDeleteCRUD(t *testing.T) {
+	t.Run("delete prefers program kubeconfig over stale state", func(t *testing.T) {
+		h := newHarness(t, nil)
+		const (
+			staleKube   = "apiVersion: v1\n# stale-6443\n"
+			currentKube = "apiVersion: v1\n# current-443\n"
+		)
+		stale := baseState(t)
+		stale.Kubeconfig = staleKube
+
+		prov, err := infer.NewProviderBuilder().
+			WithNamespace("jmmaloney4").
+			WithResources(infer.Resource(Item{Transport: h.tr})).
+			Build()
+		if err != nil {
+			t.Fatal(err)
+		}
+		srv, err := integration.NewServer(t.Context(), "sector7", semver.MustParse("0.21.0"),
+			integration.WithProvider(prov))
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		current := baseArgs()
+		current.Kubeconfig = currentKube
+		stateMap := itemStateMap(stale)
+		oldInputs := itemArgsMap(current, mustContentHash(t, current.Category, current.Fields))
+
+		if err := srv.Delete(p.DeleteRequest{
+			ID:         stale.UUID,
+			Urn:        "urn:pulumi:prod::gateway::sector7:onepassword:Item::test",
+			Properties: stateMap,
+			OldInputs:  oldInputs,
+		}); err != nil {
+			t.Fatalf("delete with program kubeconfig must succeed: %v", err)
+		}
+		if got := h.tr.LastTarget.Kubeconfig; got != currentKube {
+			t.Fatalf("delete must dial with program kubeconfig; got %q want %q", got, currentKube)
+		}
+	})
+
+	t.Run("delete falls back to state kubeconfig without program inputs", func(t *testing.T) {
+		h := newHarness(t, nil)
+		const staleKube = "apiVersion: v1\n# stale-only\n"
+		stale := baseState(t)
+		stale.Kubeconfig = staleKube
+
+		prov, err := infer.NewProviderBuilder().
+			WithNamespace("jmmaloney4").
+			WithResources(infer.Resource(Item{Transport: h.tr})).
+			Build()
+		if err != nil {
+			t.Fatal(err)
+		}
+		srv, err := integration.NewServer(t.Context(), "sector7", semver.MustParse("0.21.0"),
+			integration.WithProvider(prov))
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		if err := srv.Delete(p.DeleteRequest{
+			ID:         stale.UUID,
+			Urn:        "urn:pulumi:prod::prod::sector7:onepassword:Item::test",
+			Properties: itemStateMap(stale),
+		}); err != nil {
+			t.Fatalf("delete must succeed using state transport alone: %v", err)
+		}
+		if got := h.tr.LastTarget.Kubeconfig; got != staleKube {
+			t.Fatalf("without OldInputs delete must use state kubeconfig; got %q", got)
+		}
+	})
+
 	t.Run("delete DELETEs the item", func(t *testing.T) {
 		h := newHarness(t, nil)
 		if _, err := h.item().Delete(t.Context(), infer.DeleteRequest[ItemState]{
