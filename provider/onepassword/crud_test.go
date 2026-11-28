@@ -19,6 +19,7 @@ import (
 	"github.com/pulumi/pulumi/sdk/v3/go/property"
 
 	"github.com/jmmaloney4/sector7/provider/internal/kube"
+	"github.com/jmmaloney4/sector7/provider/internal/providercfg"
 )
 
 // CRUD and Diff coverage inherited from the TypeScript dynamic provider.
@@ -166,33 +167,46 @@ func sliceProperty(ss []string) []property.Value {
 	return out
 }
 
-func TestMergeTransportInputs(t *testing.T) {
-	stale := baseArgs()
-	stale.Kubeconfig = "stale"
-	stale.ConnectToken = "old-token"
-	stale.ConnectPort = 6443
+func itemDeleteServer(t *testing.T, h *harness) (integration.Server, func(providercfg.Config)) {
+	t.Helper()
+	prov, err := infer.NewProviderBuilder().
+		WithNamespace("jmmaloney4").
+		WithConfig(infer.Config(providercfg.Config{})).
+		WithResources(infer.Resource(Item{Transport: h.tr})).
+		Build()
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv, err := integration.NewServer(t.Context(), "sector7", semver.MustParse("0.21.0"),
+		integration.WithProvider(prov))
+	if err != nil {
+		t.Fatal(err)
+	}
+	configure := func(cfg providercfg.Config) {
+		t.Helper()
+		args := property.Map{}
+		if cfg.Kubeconfig != "" {
+			args = args.Set("kubeconfig", property.New(cfg.Kubeconfig))
+		}
+		if cfg.ConnectToken != "" {
+			args = args.Set("connectToken", property.New(cfg.ConnectToken))
+		}
+		if err := srv.Configure(p.ConfigureRequest{Args: args}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return srv, configure
+}
 
-	t.Run("prefer overlays non-empty transport fields", func(t *testing.T) {
-		prefer := baseArgs()
-		prefer.Kubeconfig = "current"
-		prefer.ConnectToken = "new-token"
-		prefer.ConnectPort = 443
-		got := mergeTransport(stale, prefer)
-		if got.Kubeconfig != "current" || got.ConnectToken != "new-token" || got.ConnectPort != 443 {
-			t.Fatalf("expected current transport; got %+v", got)
-		}
-		if got.Vault != stale.Vault || got.Title != stale.Title {
-			t.Fatalf("identity fields must come from base; got %+v", got)
-		}
-	})
-
-	t.Run("empty prefer keeps state transport", func(t *testing.T) {
-		got := mergeTransport(stale, ItemArgs{})
-		if got.Kubeconfig != stale.Kubeconfig || got.ConnectToken != stale.ConnectToken ||
-			got.ConnectPort != stale.ConnectPort {
-			t.Fatalf("empty prefer must preserve state transport; got %+v", got)
-		}
-	})
+func staleDeleteFixture(t *testing.T) (ItemState, property.Map) {
+	t.Helper()
+	const staleKube = "apiVersion: v1\n# stale-6443\n"
+	stale := baseState(t)
+	stale.Kubeconfig = staleKube
+	args := baseArgs()
+	args.Kubeconfig = staleKube
+	oldInputs := itemArgsMap(args, stale.ContentHash)
+	return stale, oldInputs
 }
 
 // listResponse is the /v1/vaults/<v>/items?filter=title eq "..." shape.
@@ -589,64 +603,51 @@ func TestUpdateCRUD(t *testing.T) {
 }
 
 func TestDeleteCRUD(t *testing.T) {
-	t.Run("delete prefers program kubeconfig over stale state", func(t *testing.T) {
+	const recoveryKube = "apiVersion: v1\n# provider-443\n"
+
+	t.Run("delete uses provider config over stale state and stale OldInputs", func(t *testing.T) {
 		h := newHarness(t, nil)
-		const (
-			staleKube   = "apiVersion: v1\n# stale-6443\n"
-			currentKube = "apiVersion: v1\n# current-443\n"
-		)
-		stale := baseState(t)
-		stale.Kubeconfig = staleKube
-
-		prov, err := infer.NewProviderBuilder().
-			WithNamespace("jmmaloney4").
-			WithResources(infer.Resource(Item{Transport: h.tr})).
-			Build()
-		if err != nil {
-			t.Fatal(err)
-		}
-		srv, err := integration.NewServer(t.Context(), "sector7", semver.MustParse("0.21.0"),
-			integration.WithProvider(prov))
-		if err != nil {
-			t.Fatal(err)
-		}
-
-		current := baseArgs()
-		current.Kubeconfig = currentKube
-		stateMap := itemStateMap(stale)
-		oldInputs := itemArgsMap(current, mustContentHash(t, current.Category, current.Fields))
+		stale, oldInputs := staleDeleteFixture(t)
+		srv, configure := itemDeleteServer(t, h)
+		configure(providercfg.Config{Kubeconfig: recoveryKube})
 
 		if err := srv.Delete(p.DeleteRequest{
 			ID:         stale.UUID,
 			Urn:        "urn:pulumi:prod::gateway::sector7:onepassword:Item::test",
-			Properties: stateMap,
+			Properties: itemStateMap(stale),
 			OldInputs:  oldInputs,
 		}); err != nil {
-			t.Fatalf("delete with program kubeconfig must succeed: %v", err)
+			t.Fatalf("delete must succeed: %v", err)
 		}
-		if got := h.tr.LastTarget.Kubeconfig; got != currentKube {
-			t.Fatalf("delete must dial with program kubeconfig; got %q want %q", got, currentKube)
+		if got := h.tr.LastTarget.Kubeconfig; got != recoveryKube {
+			t.Fatalf("delete must dial with provider config; got %q want %q", got, recoveryKube)
 		}
 	})
 
-	t.Run("delete falls back to state kubeconfig without program inputs", func(t *testing.T) {
+	t.Run("delete uses SECTOR7_KUBECONFIG over stale state and stale OldInputs", func(t *testing.T) {
 		h := newHarness(t, nil)
-		const staleKube = "apiVersion: v1\n# stale-only\n"
-		stale := baseState(t)
-		stale.Kubeconfig = staleKube
+		const envKube = "apiVersion: v1\n# env-443"
+		defer providercfg.SetenvKubeconfig(t, envKube)()
+		stale, oldInputs := staleDeleteFixture(t)
+		srv, _ := itemDeleteServer(t, h)
 
-		prov, err := infer.NewProviderBuilder().
-			WithNamespace("jmmaloney4").
-			WithResources(infer.Resource(Item{Transport: h.tr})).
-			Build()
-		if err != nil {
-			t.Fatal(err)
+		if err := srv.Delete(p.DeleteRequest{
+			ID:         stale.UUID,
+			Urn:        "urn:pulumi:prod::gateway::sector7:onepassword:Item::test",
+			Properties: itemStateMap(stale),
+			OldInputs:  oldInputs,
+		}); err != nil {
+			t.Fatalf("delete must succeed: %v", err)
 		}
-		srv, err := integration.NewServer(t.Context(), "sector7", semver.MustParse("0.21.0"),
-			integration.WithProvider(prov))
-		if err != nil {
-			t.Fatal(err)
+		if got := h.tr.LastTarget.Kubeconfig; got != envKube {
+			t.Fatalf("delete must dial with env kubeconfig; got %q want %q", got, envKube)
 		}
+	})
+
+	t.Run("delete falls back to state when no current-run override", func(t *testing.T) {
+		h := newHarness(t, nil)
+		stale, _ := staleDeleteFixture(t)
+		srv, _ := itemDeleteServer(t, h)
 
 		if err := srv.Delete(p.DeleteRequest{
 			ID:         stale.UUID,
@@ -655,8 +656,8 @@ func TestDeleteCRUD(t *testing.T) {
 		}); err != nil {
 			t.Fatalf("delete must succeed using state transport alone: %v", err)
 		}
-		if got := h.tr.LastTarget.Kubeconfig; got != staleKube {
-			t.Fatalf("without OldInputs delete must use state kubeconfig; got %q", got)
+		if got := h.tr.LastTarget.Kubeconfig; got != stale.Kubeconfig {
+			t.Fatalf("without override delete must use state kubeconfig; got %q", got)
 		}
 	})
 

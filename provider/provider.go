@@ -21,6 +21,7 @@ import (
 	"github.com/jmmaloney4/sector7/provider/attic"
 	"github.com/jmmaloney4/sector7/provider/d1"
 	"github.com/jmmaloney4/sector7/provider/internal/kube"
+	"github.com/jmmaloney4/sector7/provider/internal/providercfg"
 	"github.com/jmmaloney4/sector7/provider/litellm"
 	"github.com/jmmaloney4/sector7/provider/matrix"
 	"github.com/jmmaloney4/sector7/provider/onepassword"
@@ -58,6 +59,7 @@ func New() (p.Provider, error) {
 		WithHomepage("https://github.com/jmmaloney4/sector7").
 		WithRepository("https://github.com/jmmaloney4/sector7").
 		WithLicense("MIT").
+		WithConfig(infer.Config(providercfg.Config{})).
 		WithResources(resources(transport)...).
 		Build()
 }

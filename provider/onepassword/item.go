@@ -23,6 +23,7 @@ import (
 	"github.com/jmmaloney4/sector7/provider/internal/checkutil"
 	"github.com/jmmaloney4/sector7/provider/internal/httpx"
 	"github.com/jmmaloney4/sector7/provider/internal/kube"
+	"github.com/jmmaloney4/sector7/provider/internal/providercfg"
 )
 
 const (
@@ -34,6 +35,14 @@ const (
 
 // Item is a 1Password item managed through a Connect server reached by
 // in-cluster port-forward.
+//
+// Delete uses the kubeconfig/connectToken recorded in state unless overridden by
+// a current-run source (highest wins): provider config (`kubeconfig` /
+// `connectToken` on the default sector7 provider), the `SECTOR7_KUBECONFIG`
+// environment variable (kubeconfig only), or checkpointed OldInputs. To destroy
+// an Item whose state still references a retired API endpoint, set
+// `pulumi config set --secret sector7:kubeconfig <yaml>` (or export
+// `SECTOR7_KUBECONFIG`) for that run before `pulumi destroy` or replace.
 type Item struct {
 	Transport kube.Transport
 }
@@ -155,46 +164,32 @@ func (s ItemState) target() ItemArgs {
 	}
 }
 
-// mergeTransport overlays non-empty connection fields from prefer onto base.
-// Empty/zero in prefer means "not declared" and leaves the state value in place.
-func mergeTransport(base, prefer ItemArgs) ItemArgs {
-	if prefer.Kubeconfig != "" {
-		base.Kubeconfig = prefer.Kubeconfig
-	}
-	if prefer.ConnectToken != "" {
-		base.ConnectToken = prefer.ConnectToken
-	}
-	if prefer.Namespace != "" {
-		base.Namespace = prefer.Namespace
-	}
-	if prefer.DeploymentName != "" {
-		base.DeploymentName = prefer.DeploymentName
-	}
-	if prefer.ConnectPort != 0 {
-		base.ConnectPort = prefer.ConnectPort
-	}
-	return base
-}
-
 // deleteConnectArgs builds the ItemArgs passed to connect() on Delete.
 //
-// Pulumi's typed DeleteRequest carries only state, but the engine also sends
-// the program's current inputs as OldInputs on the untyped request. A kubeconfig
-// recorded at create time can rot (e.g. API port 6443 closed while the stack
-// now deploys with 443); preferring the live inputs lets destroy/replace reach
-// Connect without a separate state surgery. When OldInputs are absent (older
-// engines) every prefer field is empty and the state checkpoint is used as-is.
+// Typed DeleteRequest carries only state; OldInputs are the checkpointed inputs
+// from the last successful create/update (often stale together with state).
+// Current-run kubeconfig comes from provider config or SECTOR7_KUBECONFIG; see
+// providercfg.ResolveDeleteCredentials.
 func deleteConnectArgs(ctx context.Context, state ItemState) ItemArgs {
-	base := state.target()
+	args := state.target()
+	oldKube, oldToken := deleteOldInputCredentials(ctx)
+	args.Kubeconfig, args.ConnectToken = providercfg.ResolveDeleteCredentials(
+		ctx, args.Kubeconfig, args.ConnectToken, oldKube, oldToken)
+	return args
+}
+
+func deleteOldInputCredentials(ctx context.Context) (kubeconfig, connectToken string) {
 	raw, ok := infer.GetRawRequest[p.DeleteRequest](ctx)
 	if !ok || raw.OldInputs.Len() == 0 {
-		return base
+		return "", ""
 	}
-	prefer, _, err := infer.DefaultCheck[ItemArgs](ctx, raw.OldInputs)
-	if err != nil {
-		return base
+	if v, ok := raw.OldInputs.GetOk("kubeconfig"); ok {
+		kubeconfig = v.AsString()
 	}
-	return mergeTransport(base, prefer)
+	if v, ok := raw.OldInputs.GetOk("connectToken"); ok {
+		connectToken = v.AsString()
+	}
+	return kubeconfig, connectToken
 }
 
 func (a *ItemArgs) Annotate(ann infer.Annotator) {
